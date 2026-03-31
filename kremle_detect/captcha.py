@@ -298,20 +298,21 @@ class CaptchaEngine:
         Returns:
             { 'passed': bool, 'errors': int, 'total': int }
         """
-        # Honeypot — бот заполнил скрытое поле
-        if fingerprint and fingerprint.get('honeypot'):
-            logger.warning('Honeypot triggered: ip=%s', ip)
-            self._track_fail(ip)
-            return {'passed': False, 'errors': -1, 'total': 0, 'error': 'honeypot'}
-
-        # JS fingerprint — ужесточаем порог при Яндекс-сигналах, но не блокируем сразу.
-        # Человек должен получить шанс пройти капчу даже в Яндекс Браузере.
+        # Fingerprint — ужесточаем порог, но не блокируем наглухо.
+        # Яндекс Браузер автозаполняет скрытые поля (honeypot), поэтому
+        # honeypot тоже не может быть hard-block — иначе живые люди не пройдут.
         effective_max_errors = self.max_errors
         if fingerprint:
-            strong_ya = fingerprint.get('yaBrands') or fingerprint.get('yandexApi')
+            strong_ya = (
+                fingerprint.get('yaBrands')
+                or fingerprint.get('yandexApi')
+                or fingerprint.get('honeypot')
+            )
             if strong_ya:
                 effective_max_errors = 0  # требуем идеальный результат
-                logger.info('Fingerprint Yandex signal — strict mode: ip=%s', ip)
+                logger.info('Fingerprint strict mode (signals: yaBrands=%s yandexApi=%s honeypot=%s): ip=%s',
+                            fingerprint.get('yaBrands'), fingerprint.get('yandexApi'),
+                            fingerprint.get('honeypot'), ip)
 
         # Blacklist
         if ip and self.is_blacklisted(ip):

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kremle-detect"
-version = "2.4.0"
+version = "2.5.0"
 description = "Защита сайта от пользователей Яндекс Браузера и переходов с Яндекса. Капча с вопросами ЕГЭ."
 readme = "README.md"
 license = "MIT"

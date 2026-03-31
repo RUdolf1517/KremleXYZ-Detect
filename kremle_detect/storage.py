@@ -8,6 +8,7 @@ Redis  — для продакшена (несколько воркеров/се
 
 from __future__ import annotations
 
+import collections
 import json
 import time
 from abc import ABC, abstractmethod
@@ -69,6 +70,18 @@ class BaseStorage(ABC):
         """Список всех IP в белом списке."""
         return []  # переопределяется в подклассах
 
+    # ── Event log (ring buffer) ───────────────────────────────────────────
+
+    _LOG_KEY = 'events'
+    _LOG_MAX = 1000  # хранить последние N событий
+
+    def log_event(self, event: dict) -> None:
+        """Записать событие в ring buffer. По умолчанию — no-op."""
+
+    def log_get(self, n: int = 100) -> list:
+        """Получить последние n событий (новые первыми)."""
+        return []
+
 
 _CLEANUP_INTERVAL = 60  # секунд между принудительными очистками
 
@@ -79,6 +92,7 @@ class MemoryStorage(BaseStorage):
     def __init__(self):
         self._data: Dict[str, tuple] = {}  # key → (value, expires_at)
         self._last_cleanup: float = time.time()
+        self._events: collections.deque = collections.deque(maxlen=self._LOG_MAX)
 
     def set(self, key: str, value: dict, ttl: int) -> None:
         self._data[key] = (value, time.time() + ttl)
@@ -123,6 +137,12 @@ class MemoryStorage(BaseStorage):
             for k, (_, exp) in list(self._data.items())
             if k.startswith(prefix) and now <= exp
         ]
+
+    def log_event(self, event: dict) -> None:
+        self._events.appendleft(event)
+
+    def log_get(self, n: int = 100) -> list:
+        return list(self._events)[:n]
 
     def _cleanup(self) -> None:
         """Удаляем просроченные записи не чаще раза в минуту."""
@@ -208,3 +228,21 @@ class RedisStorage(BaseStorage):
 
     def whitelist_list(self) -> list:
         return self._scan_suffix('whitelist')
+
+    def log_event(self, event: dict) -> None:
+        rk = self._key(self._LOG_KEY)
+        pipe = self._redis.pipeline()
+        pipe.lpush(rk, json.dumps(event, ensure_ascii=False))
+        pipe.ltrim(rk, 0, self._LOG_MAX - 1)
+        pipe.execute()
+
+    def log_get(self, n: int = 100) -> list:
+        rk = self._key(self._LOG_KEY)
+        raw_list = self._redis.lrange(rk, 0, n - 1)
+        result = []
+        for raw in raw_list:
+            try:
+                result.append(json.loads(raw))
+            except (ValueError, TypeError):
+                pass
+        return result

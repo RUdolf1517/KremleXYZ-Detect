@@ -333,11 +333,13 @@ class CaptchaEngine:
         # Blacklist
         if ip and self.is_blacklisted(ip):
             logger.warning('Verify blocked by blacklist: ip=%s', ip)
+            self.storage.log_event({'ts': time.time(), 'event': 'blocked', 'ip': ip, 'reason': 'blacklisted'})
             return {'passed': False, 'errors': -1, 'total': 0, 'error': 'blacklisted'}
 
         # Rate limiting
         if ip and self.check_rate_limit(ip):
             logger.warning('Verify blocked by rate limit: ip=%s', ip)
+            self.storage.log_event({'ts': time.time(), 'event': 'blocked', 'ip': ip, 'reason': 'rate_limited'})
             return {'passed': False, 'errors': -1, 'total': 0, 'error': 'rate_limited'}
 
         challenge = self.get_challenge(token)
@@ -358,26 +360,39 @@ class CaptchaEngine:
 
         passed = errors <= effective_max_errors
 
+        total = len(challenge.questions)
         if passed:
             self.storage.delete(f'challenge:{token}')
             self._track_pass(ip)
-            logger.info('Captcha PASSED: ip=%s errors=%d/%d', ip, errors, len(challenge.questions))
+            logger.info('Captcha PASSED: ip=%s errors=%d/%d', ip, errors, total)
+            self.storage.log_event({
+                'ts': time.time(), 'event': 'pass',
+                'ip': ip, 'errors': errors, 'total': total,
+            })
             if self.on_pass:
-                self.on_pass(ip, errors, len(challenge.questions))
+                self.on_pass(ip, errors, total)
         else:
             self._track_fail(ip)
-            logger.info('Captcha FAILED: ip=%s errors=%d/%d', ip, errors, len(challenge.questions))
+            logger.info('Captcha FAILED: ip=%s errors=%d/%d', ip, errors, total)
+            self.storage.log_event({
+                'ts': time.time(), 'event': 'fail',
+                'ip': ip, 'errors': errors, 'total': total,
+            })
             if self.on_fail:
-                self.on_fail(ip, errors, len(challenge.questions))
+                self.on_fail(ip, errors, total)
 
         return {
             'passed': passed,
             'errors': errors,
-            'total': len(challenge.questions),
+            'total': total,
         }
 
     def notify_detect(self, detect_result, ip: str = None) -> None:
         """Вызвать callback при детекции (используется интеграциями)."""
         logger.info('Yandex detected: ip=%s reason=%s', ip, detect_result.reason)
+        self.storage.log_event({
+            'ts': time.time(), 'event': 'detect',
+            'ip': ip, 'reason': detect_result.reason,
+        })
         if self.on_detect:
             self.on_detect(detect_result, ip)

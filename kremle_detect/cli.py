@@ -18,8 +18,12 @@ CLI для kremle-detect.
     kremle-detect whitelist add    1.2.3.4
     kremle-detect whitelist remove 1.2.3.4
 
+    # Логи событий (detect / pass / fail / blocked)
+    kremle-detect logs --redis redis://localhost:6379/0
+    kremle-detect logs -n 100
+
     # Переменная окружения вместо флага --redis:
-    KREMLE_REDIS_URL=redis://localhost:6379/0 kremle-detect blacklist list
+    KREMLE_REDIS_URL=redis://localhost:6379/0 kremle-detect logs
 """
 
 from __future__ import annotations
@@ -115,6 +119,53 @@ def cmd_whitelist(args):
         print(f'Удалено из вайтлиста: {args.ip}')
 
 
+_EVENT_LABELS = {
+    'pass':     'ПРОШЁЛ  ',
+    'fail':     'ПРОВАЛ  ',
+    'detect':   'ДЕТЕКТ  ',
+    'blocked':  'ЗАБЛОК  ',
+}
+
+_EVENT_COLORS = {
+    'pass':    '\033[32m',   # зелёный
+    'fail':    '\033[31m',   # красный
+    'detect':  '\033[33m',   # жёлтый
+    'blocked': '\033[35m',   # пурпурный
+}
+_RESET = '\033[0m'
+
+
+def cmd_logs(args):
+    import datetime
+    storage = _get_storage(args)
+    events = storage.log_get(args.n)
+    if not events:
+        print('Событий нет.')
+        return
+
+    use_color = sys.stdout.isatty() and not args.no_color
+    for ev in events:
+        ts = ev.get('ts', 0)
+        dt = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+        event = ev.get('event', '?')
+        ip = ev.get('ip') or '-'
+        label = _EVENT_LABELS.get(event, event.upper().ljust(8))
+
+        if use_color:
+            color = _EVENT_COLORS.get(event, '')
+            label = f'{color}{label}{_RESET}'
+
+        extra = ''
+        if event in ('pass', 'fail'):
+            extra = f"  ошибок: {ev.get('errors', '?')}/{ev.get('total', '?')}"
+        elif event == 'detect':
+            extra = f"  причина: {ev.get('reason', '?')}"
+        elif event == 'blocked':
+            extra = f"  причина: {ev.get('reason', '?')}"
+
+        print(f'{dt}  {label}  {ip}{extra}')
+
+
 def cmd_questions(args):
     from .questions import get_questions
 
@@ -199,6 +250,13 @@ def main():
     wl_rm.add_argument('ip', help='IP-адрес')
     wl_rm.add_argument('--redis', metavar='URL', help=_REDIS_HELP)
     wl_rm.set_defaults(func=cmd_whitelist)
+
+    # logs
+    p_logs = sub.add_parser('logs', help='Показать последние события (detect/pass/fail)')
+    p_logs.add_argument('--redis', metavar='URL', help=_REDIS_HELP)
+    p_logs.add_argument('-n', type=int, default=50, help='Количество событий (по умолч. 50)')
+    p_logs.add_argument('--no-color', action='store_true', help='Без цветового выделения')
+    p_logs.set_defaults(func=cmd_logs)
 
     args = parser.parse_args()
     args.func(args)

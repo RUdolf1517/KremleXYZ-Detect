@@ -296,16 +296,14 @@ class CaptchaEngine:
             self._track_fail(ip)
             return {'passed': False, 'errors': -1, 'total': 0, 'error': 'honeypot'}
 
-        # JS fingerprint — используем накопленные Яндекс-сигналы
+        # JS fingerprint — ужесточаем порог при Яндекс-сигналах, но не блокируем сразу.
+        # Человек должен получить шанс пройти капчу даже в Яндекс Браузере.
+        effective_max_errors = self.max_errors
         if fingerprint:
-            # yaBrands — самый надёжный сигнал: Client Hints JS API подтвердил YaBrowser бренд
-            # yandexApi — window.yandex / window.Ya присутствует только в Яндекс Браузере
             strong_ya = fingerprint.get('yaBrands') or fingerprint.get('yandexApi')
             if strong_ya:
-                logger.info('Fingerprint Yandex signal: ip=%s yaBrands=%s yandexApi=%s',
-                            ip, fingerprint.get('yaBrands'), fingerprint.get('yandexApi'))
-                self._track_fail(ip)
-                return {'passed': False, 'errors': -1, 'total': 0, 'error': 'fingerprint_yandex'}
+                effective_max_errors = 0  # требуем идеальный результат
+                logger.info('Fingerprint Yandex signal — strict mode: ip=%s', ip)
 
         # Blacklist
         if ip and self.is_blacklisted(ip):
@@ -333,7 +331,7 @@ class CaptchaEngine:
             except (TypeError, ValueError):
                 errors += 1
 
-        passed = errors <= self.max_errors
+        passed = errors <= effective_max_errors
 
         if passed:
             self.storage.delete(f'challenge:{token}')

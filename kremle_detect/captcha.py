@@ -23,7 +23,7 @@ logger = logging.getLogger('kremle')
 
 DEFAULT_QUESTION_COUNT = 15
 DEFAULT_MAX_ERRORS = 3
-TOKEN_TTL = 3600  # секунд — время жизни челленджа
+TOKEN_TTL = 900   # секунд — время жизни челленджа (15 минут)
 
 # Rate limiting
 DEFAULT_RATE_LIMIT = 10       # попыток
@@ -188,6 +188,16 @@ class CaptchaEngine:
 
         random.shuffle(pool)
         questions = pool[:self.question_count]
+
+        # Shuffle opts server-side per challenge so correct answer index varies each time.
+        # This prevents bots from always submitting index 0 (which was correct before shuffle).
+        for q in questions:
+            correct_text = q['opts'][q['ans']]
+            shuffled = q['opts'][:]
+            random.shuffle(shuffled)
+            q['opts'] = shuffled
+            q['ans'] = shuffled.index(correct_text)
+
         challenge = Challenge(questions, self.secret)
 
         self.storage.set(
@@ -200,9 +210,16 @@ class CaptchaEngine:
         return challenge
 
     def get_challenge(self, token: str) -> Optional[Challenge]:
-        """Получить челлендж по токену."""
+        """Получить челлендж по токену с проверкой HMAC (защита от подмены в хранилище)."""
         data = self.storage.get(f'challenge:{token}')
         if data is None:
+            return None
+        # Re-derive the expected token from stored data and compare.
+        # If Redis/memory was tampered with (e.g. answers changed), this fails.
+        answers_str = json.dumps([q['ans'] for q in data['questions']], separators=(',', ':'))
+        expected = _sign(f'{answers_str}:{data["created_at"]}', self.secret)
+        if not hmac.compare_digest(expected, token):
+            logger.warning('Challenge HMAC mismatch — possible storage tampering: token=%s', token[:16])
             return None
         return Challenge._deserialize(data)
 
@@ -279,6 +296,17 @@ class CaptchaEngine:
             self._track_fail(ip)
             return {'passed': False, 'errors': -1, 'total': 0, 'error': 'honeypot'}
 
+        # JS fingerprint — используем накопленные Яндекс-сигналы
+        if fingerprint:
+            # yaBrands — самый надёжный сигнал: Client Hints JS API подтвердил YaBrowser бренд
+            # yandexApi — window.yandex / window.Ya присутствует только в Яндекс Браузере
+            strong_ya = fingerprint.get('yaBrands') or fingerprint.get('yandexApi')
+            if strong_ya:
+                logger.info('Fingerprint Yandex signal: ip=%s yaBrands=%s yandexApi=%s',
+                            ip, fingerprint.get('yaBrands'), fingerprint.get('yandexApi'))
+                self._track_fail(ip)
+                return {'passed': False, 'errors': -1, 'total': 0, 'error': 'fingerprint_yandex'}
+
         # Blacklist
         if ip and self.is_blacklisted(ip):
             logger.warning('Verify blocked by blacklist: ip=%s', ip)
@@ -297,7 +325,12 @@ class CaptchaEngine:
         errors = 0
         for i, q in enumerate(challenge.questions):
             chosen = answers.get(str(i))
-            if chosen is None or int(chosen) != q['ans']:
+            # Client sends the index of the chosen option (0-based in shuffled opts).
+            # Server stores q['ans'] as the correct shuffled index after create_challenge().
+            try:
+                if chosen is None or int(chosen) != q['ans']:
+                    errors += 1
+            except (TypeError, ValueError):
                 errors += 1
 
         passed = errors <= self.max_errors

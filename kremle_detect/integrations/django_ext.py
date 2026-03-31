@@ -154,8 +154,13 @@ def kremle_urls():
         custom_tpl = getattr(settings, 'KREMLE_TEMPLATE', None)
         tpl_path = custom_tpl or os.path.join(template_dir, 'kremle_captcha.html')
 
-        with open(tpl_path, encoding='utf-8') as f:
-            html = f.read()
+        try:
+            with open(tpl_path, encoding='utf-8') as f:
+                html = f.read()
+        except OSError as e:
+            raise RuntimeError(
+                f'Не удалось открыть шаблон капчи: {tpl_path!r} — {e}'
+            ) from e
 
         html = html.replace('{{ questions_json }}', json.dumps(ch.to_dict(), ensure_ascii=False))
         return HttpResponse(html, content_type='text/html; charset=utf-8')
@@ -166,7 +171,10 @@ def kremle_urls():
         from django.conf import settings
         engine = _get_engine(settings)
 
-        data = json.loads(request.body)
+        try:
+            data = json.loads(request.body)
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'error': 'invalid_json'}, status=400)
         token = data.get('token') or request.session.get('kremle_token', '')
         answers = data.get('answers', {})
         fingerprint = data.get('fingerprint')

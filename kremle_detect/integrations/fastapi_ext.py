@@ -130,7 +130,8 @@ class KremleFastAPI:
                 return await call_next(request)
 
             # IP whitelist / blacklist
-            ip = request.client.host if request.client else ''
+            xff = request.headers.get('x-forwarded-for', '')
+            ip = xff.split(',')[0].strip() if xff else (request.client.host if request.client else '')
             if whitelist and _ip_in_whitelist(ip, whitelist):
                 return await call_next(request)
 
@@ -159,8 +160,13 @@ class KremleFastAPI:
             request.session['kremle_token'] = ch.token
 
             tpl_path = custom_template or os.path.join(template_dir, 'kremle_captcha.html')
-            with open(tpl_path, encoding='utf-8') as f:
-                html = f.read()
+            try:
+                with open(tpl_path, encoding='utf-8') as f:
+                    html = f.read()
+            except OSError as e:
+                raise RuntimeError(
+                    f'Не удалось открыть шаблон капчи: {tpl_path!r} — {e}'
+                ) from e
 
             html = html.replace(
                 '{{ questions_json }}',
@@ -174,7 +180,8 @@ class KremleFastAPI:
             token = data.get('token') or request.session.get('kremle_token', '')
             answers = data.get('answers', {})
             fingerprint = data.get('fingerprint')
-            ip = request.client.host if request.client else ''
+            xff = request.headers.get('x-forwarded-for', '')
+            ip = xff.split(',')[0].strip() if xff else (request.client.host if request.client else '')
 
             result = engine.verify(token, answers, ip=ip, fingerprint=fingerprint)
 

@@ -29,7 +29,7 @@ kremle-detect — защита сайта от пользователей Янд
     engine = CaptchaEngine(storage=RedisStorage(url='redis://localhost:6379/0'))
 """
 
-__version__ = '2.1.0'
+__version__ = '2.3.0'
 
 from .detector import (
     detect,

@@ -41,6 +41,14 @@ _SKIP_ENDPOINTS = frozenset({
 })
 
 
+def _get_client_ip(request) -> str:
+    """Извлекает реальный IP с учётом прокси/nginx (X-Forwarded-For)."""
+    xff = request.headers.get('X-Forwarded-For', '')
+    if xff:
+        return xff.split(',')[0].strip()
+    return request.remote_addr or ''
+
+
 def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
     """Проверяет, входит ли IP в whitelist (поддержка CIDR)."""
     try:
@@ -178,8 +186,13 @@ class KremleFlask:
             session['kremle_token'] = ch.token
 
             if custom_template:
-                with open(custom_template, encoding='utf-8') as f:
-                    html = f.read()
+                try:
+                    with open(custom_template, encoding='utf-8') as f:
+                        html = f.read()
+                except OSError as e:
+                    raise RuntimeError(
+                        f'Не удалось открыть шаблон капчи: {custom_template!r} — {e}'
+                    ) from e
                 html = html.replace(
                     '{{ questions_json }}',
                     json.dumps(ch.to_dict(), ensure_ascii=False),
@@ -196,7 +209,7 @@ class KremleFlask:
             token = data.get('token') or session.get('kremle_token', '')
             answers = data.get('answers', {})
             fingerprint = data.get('fingerprint')
-            ip = request.remote_addr
+            ip = _get_client_ip(request)
 
             result = engine.verify(token, answers, ip=ip, fingerprint=fingerprint)
 
@@ -263,7 +276,7 @@ class KremleFlask:
             if session.get(SESSION_KEY):
                 return f(*args, **kwargs)
 
-            ip = request.remote_addr
+            ip = _get_client_ip(request)
             if self.whitelist and _ip_in_whitelist(ip, self.whitelist):
                 return f(*args, **kwargs)
 

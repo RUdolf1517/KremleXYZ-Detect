@@ -46,11 +46,15 @@ class BaseStorage(ABC):
         self.delete(f'blacklist:{ip}')
 
 
+_CLEANUP_INTERVAL = 60  # секунд между принудительными очистками
+
+
 class MemoryStorage(BaseStorage):
     """In-memory хранение (один процесс). По умолчанию."""
 
     def __init__(self):
         self._data: Dict[str, tuple] = {}  # key → (value, expires_at)
+        self._last_cleanup: float = time.time()
 
     def set(self, key: str, value: dict, ttl: int) -> None:
         self._data[key] = (value, time.time() + ttl)
@@ -79,10 +83,11 @@ class MemoryStorage(BaseStorage):
         return val['count']
 
     def _cleanup(self) -> None:
-        """Ленивая очистка — удаляем просроченные каждые 100 записей."""
-        if len(self._data) % 100 != 0:
-            return
+        """Удаляем просроченные записи не чаще раза в минуту."""
         now = time.time()
+        if now - self._last_cleanup < _CLEANUP_INTERVAL:
+            return
+        self._last_cleanup = now
         expired = [k for k, (_, exp) in self._data.items() if now > exp]
         for k in expired:
             del self._data[k]
@@ -137,6 +142,11 @@ class RedisStorage(BaseStorage):
         rk = self._key(key)
         pipe = self._redis.pipeline()
         pipe.incr(rk)
-        pipe.expire(rk, ttl)
         result = pipe.execute()
-        return result[0]
+        count = result[0]
+        # Set TTL only when the key is newly created (count == 1).
+        # Calling expire() on every increment would extend the window on each request
+        # (sliding window bug). Fixed window: TTL is set once at creation.
+        if count == 1:
+            self._redis.expire(rk, ttl)
+        return count

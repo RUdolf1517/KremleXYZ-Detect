@@ -76,8 +76,7 @@ body {
   letter-spacing: 0.02em;
 }
 .option:hover:not(:disabled) { border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.04); }
-.option.correct { border-color: #fff !important; background: rgba(255,255,255,0.07) !important; }
-.option.wrong   { border-color: rgba(255,60,60,0.55) !important; color: rgba(255,255,255,0.4) !important; }
+.option.selected { border-color: rgba(255,255,255,0.5) !important; background: rgba(255,255,255,0.06) !important; }
 .option:disabled { cursor: default; }
 .feedback { font-size: 0.76rem; min-height: 1.1rem; letter-spacing: 0.03em; margin-bottom: 1rem; }
 .feedback.ok  { color: rgba(255,255,255,0.65); }
@@ -211,8 +210,14 @@ var CAT_LABELS = {
   literature: 'литература'
 };
 
+/* Subtitle — динамически из реальных категорий вопросов */
+var seenCats = {}, catList = [];
+QUESTIONS.forEach(function(q) {
+  var c = q.category;
+  if (c && !seenCats[c]) { seenCats[c] = true; catList.push(CAT_LABELS[c] || c); }
+});
 document.getElementById('subtitle').textContent =
-  QUESTIONS.length + ' вопросов · физика, математика, русский, литература';
+  QUESTIONS.length + ' вопросов' + (catList.length ? ' · ' + catList.join(', ') : '');
 
 function shuffle(a) {
   var arr = a.slice();
@@ -223,14 +228,11 @@ function shuffle(a) {
   return arr;
 }
 
-/* Подготовка: первый вариант (opts[0]) = правильный до shuffle */
+/* Варианты ответов уже перемешаны сервером — только порядок вопросов рандомизируем. */
 var prepared = QUESTIONS.map(function(q, idx) {
-  var correct = q.opts[0];
-  var shuffled = shuffle(q.opts);
   return {
     q: q.q,
-    opts: shuffled,
-    correctText: correct,
+    opts: q.opts,   /* shuffled server-side */
     category: q.category || '',
     origIdx: idx
   };
@@ -250,6 +252,7 @@ function render() {
     (current / prepared.length * 100) + '%';
   document.getElementById('fb').textContent = '';
   document.getElementById('fb').className = 'feedback';
+  document.getElementById('fb').style.display = 'none';
   document.getElementById('btnNext').style.display = 'none';
 
   var badge = document.getElementById('catBadge');
@@ -276,26 +279,14 @@ function render() {
 function pick(i) {
   if (answered) return;
   answered = true;
-  var p   = prepared[current];
+  var p    = prepared[current];
   var btns = document.querySelectorAll('.option');
   btns.forEach(function(b) { b.disabled = true; });
 
-  var correctIdx = p.opts.indexOf(p.correctText);
+  /* Отправляем индекс выбранного варианта (0-based в перемешанном сервером списке) */
+  answers[String(p.origIdx)] = i;
+  btns[i].classList.add('selected');
 
-  /* Отправляем индекс выбранного варианта (по оригинальной нумерации) */
-  answers[String(p.origIdx)] = i === correctIdx ? 0 : 1;
-
-  var fb = document.getElementById('fb');
-  if (i === correctIdx) {
-    btns[i].classList.add('correct');
-    fb.textContent = '✓ Верно';
-    fb.className = 'feedback ok';
-  } else {
-    btns[i].classList.add('wrong');
-    btns[correctIdx].classList.add('correct');
-    fb.textContent = '✗ Неверно. Правильный ответ выделен.';
-    fb.className = 'feedback err';
-  }
   document.getElementById('btnNext').style.display = 'inline-block';
 }
 

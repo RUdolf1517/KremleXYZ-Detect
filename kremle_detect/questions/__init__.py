@@ -46,12 +46,15 @@ def get_questions(
     Returns:
         Список dict с ключами: q, opts, ans, category
     """
-    cats = categories or ALL_CATEGORY_NAMES
+    cats = [c.lower() for c in (categories or ALL_CATEGORY_NAMES)]
 
     pool = []
     for cat in cats:
         if cat not in CATEGORIES:
-            raise ValueError(f'Неизвестная категория: {cat!r}. Доступные: {ALL_CATEGORY_NAMES}')
+            raise ValueError(
+                f'Неизвестная категория: {cat!r}. '
+                f'Доступные (строчными): {ALL_CATEGORY_NAMES}'
+            )
         for q in CATEGORIES[cat]:
             entry = dict(q)
             entry['category'] = cat

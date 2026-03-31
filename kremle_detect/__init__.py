@@ -42,7 +42,7 @@ from .detector import (
     is_yandex_client_hints,
 )
 from .captcha import CaptchaEngine, Challenge
-from .questions import get_questions, ALL_CATEGORY_NAMES, CATEGORIES
+from .questions import get_questions, validate_questions, ALL_CATEGORY_NAMES, CATEGORIES
 
 __all__ = [
     # Детекция
@@ -58,6 +58,7 @@ __all__ = [
     'Challenge',
     # Вопросы
     'get_questions',
+    'validate_questions',
     'ALL_CATEGORY_NAMES',
     'CATEGORIES',
 ]

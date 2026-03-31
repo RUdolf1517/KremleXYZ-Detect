@@ -64,3 +64,25 @@ def get_questions(
         pool = pool[:count]
 
     return pool
+
+
+def validate_questions(questions: list) -> None:
+    """
+    Проверяет формат кастомных вопросов. Бросает ValueError при ошибке.
+
+    Каждый вопрос должен быть dict с полями:
+        q   (str)  — текст вопроса
+        opts (list) — минимум 2 варианта ответа
+        ans (int)  — индекс правильного варианта в opts (0-based)
+    """
+    for i, q in enumerate(questions):
+        if not isinstance(q, dict):
+            raise ValueError(f'Вопрос #{i}: ожидается dict, получено {type(q).__name__}')
+        if 'q' not in q or not isinstance(q['q'], str) or not q['q'].strip():
+            raise ValueError(f'Вопрос #{i}: поле "q" должно быть непустой строкой')
+        if 'opts' not in q or not isinstance(q['opts'], list) or len(q['opts']) < 2:
+            raise ValueError(f'Вопрос #{i}: поле "opts" должно быть списком минимум из 2 вариантов')
+        if 'ans' not in q or not isinstance(q['ans'], int) or not (0 <= q['ans'] < len(q['opts'])):
+            raise ValueError(
+                f'Вопрос #{i}: поле "ans" должно быть индексом правильного варианта (0–{len(q["opts"])-1})'
+            )

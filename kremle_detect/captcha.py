@@ -14,7 +14,7 @@ import json
 import time
 from typing import Any, Dict, List, Optional, Sequence
 
-from .questions import get_questions, ALL_CATEGORY_NAMES
+from .questions import get_questions, validate_questions, ALL_CATEGORY_NAMES
 
 DEFAULT_QUESTION_COUNT = 15
 DEFAULT_MAX_ERRORS = 3
@@ -93,22 +93,51 @@ class CaptchaEngine:
         question_count: int = DEFAULT_QUESTION_COUNT,
         max_errors: int = DEFAULT_MAX_ERRORS,
         secret: str = 'kremle-default-secret',
+        extra_questions: Optional[List[dict]] = None,
+        only_extra: bool = False,
     ):
+        """
+        Args:
+            categories: категории встроенных вопросов.
+            question_count: сколько вопросов в одном челлендже.
+            max_errors: допустимое число ошибок.
+            secret: секрет для HMAC-подписи токенов.
+            extra_questions: список своих вопросов в формате:
+                [{"q": "Вопрос?", "opts": ["А", "Б", "В"], "ans": 0}, ...]
+                ans — индекс правильного варианта в opts.
+            only_extra: если True — использовать только extra_questions,
+                        встроенные категории игнорируются.
+        """
         self.categories = list(categories) if categories else list(ALL_CATEGORY_NAMES)
         self.question_count = question_count
         self.max_errors = max_errors
         self.secret = secret
+        self.extra_questions = list(extra_questions) if extra_questions else []
+        if self.extra_questions:
+            validate_questions(self.extra_questions)
+        self.only_extra = only_extra
 
         # Хранилище активных челленджей (token → Challenge)
         self._challenges: Dict[str, Challenge] = {}
 
     def create_challenge(self) -> Challenge:
         """Создаёт новый набор вопросов."""
-        questions = get_questions(
-            categories=self.categories,
-            count=self.question_count,
-            shuffle=True,
-        )
+        if self.only_extra:
+            pool = [dict(q) for q in self.extra_questions]
+        else:
+            pool = get_questions(
+                categories=self.categories,
+                count=None,
+                shuffle=False,
+            )
+            for q in self.extra_questions:
+                entry = dict(q)
+                entry.setdefault('category', 'custom')
+                pool.append(entry)
+
+        import random
+        random.shuffle(pool)
+        questions = pool[:self.question_count]
         challenge = Challenge(questions, self.secret)
         self._challenges[challenge.token] = challenge
         self._cleanup_expired()

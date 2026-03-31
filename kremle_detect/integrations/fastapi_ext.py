@@ -134,6 +134,8 @@ class KremleFastAPI:
             ip = xff.split(',')[0].strip() if xff else (request.client.host if request.client else '')
             if whitelist and _ip_in_whitelist(ip, whitelist):
                 return await call_next(request)
+            if engine.is_whitelisted(ip):
+                return await call_next(request)
 
             if engine.is_blacklisted(ip):
                 return RedirectResponse('/kremle/challenge', status_code=302)

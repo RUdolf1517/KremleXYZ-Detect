@@ -45,6 +45,30 @@ class BaseStorage(ABC):
         """Убрать IP из чёрного списка."""
         self.delete(f'blacklist:{ip}')
 
+    def blacklist_list(self) -> list:
+        """Список всех IP в чёрном списке."""
+        return []  # переопределяется в подклассах
+
+    # ── Whitelist (persistent, managed via CLI / engine API) ──────────────
+
+    _WHITELIST_TTL = 86400 * 365 * 10  # 10 лет ≈ «навсегда»
+
+    def whitelist_add(self, ip: str) -> None:
+        """Добавить IP в белый список навсегда."""
+        self.set(f'whitelist:{ip}', {'ip': ip}, self._WHITELIST_TTL)
+
+    def whitelist_check(self, ip: str) -> bool:
+        """True если IP в белом списке."""
+        return self.get(f'whitelist:{ip}') is not None
+
+    def whitelist_remove(self, ip: str) -> None:
+        """Убрать IP из белого списка."""
+        self.delete(f'whitelist:{ip}')
+
+    def whitelist_list(self) -> list:
+        """Список всех IP в белом списке."""
+        return []  # переопределяется в подклассах
+
 
 _CLEANUP_INTERVAL = 60  # секунд между принудительными очистками
 
@@ -81,6 +105,24 @@ class MemoryStorage(BaseStorage):
         val = entry[0]
         val['count'] = val.get('count', 0) + 1
         return val['count']
+
+    def blacklist_list(self) -> list:
+        now = time.time()
+        prefix = 'blacklist:'
+        return [
+            k[len(prefix):]
+            for k, (_, exp) in list(self._data.items())
+            if k.startswith(prefix) and now <= exp
+        ]
+
+    def whitelist_list(self) -> list:
+        now = time.time()
+        prefix = 'whitelist:'
+        return [
+            k[len(prefix):]
+            for k, (_, exp) in list(self._data.items())
+            if k.startswith(prefix) and now <= exp
+        ]
 
     def _cleanup(self) -> None:
         """Удаляем просроченные записи не чаще раза в минуту."""
@@ -150,3 +192,19 @@ class RedisStorage(BaseStorage):
         if count == 1:
             self._redis.expire(rk, ttl)
         return count
+
+    def _scan_suffix(self, ns: str) -> list:
+        """Вернуть всё что идёт после kremle:{ns}: для найденных ключей."""
+        pattern = self._key(f'{ns}:*')
+        prefix = self._key(f'{ns}:')
+        result = []
+        for raw in self._redis.scan_iter(pattern):
+            key = raw.decode() if isinstance(raw, bytes) else raw
+            result.append(key[len(prefix):])
+        return result
+
+    def blacklist_list(self) -> list:
+        return self._scan_suffix('blacklist')
+
+    def whitelist_list(self) -> list:
+        return self._scan_suffix('whitelist')

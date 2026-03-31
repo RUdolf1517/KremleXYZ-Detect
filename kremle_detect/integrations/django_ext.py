@@ -113,12 +113,15 @@ class KremleDjangoMiddleware:
         if request.session.get(SESSION_KEY):
             return self.get_response(request)
 
-        # IP whitelist
+        # IP whitelist (static config + persistent storage)
         ip = _get_client_ip(request)
         if whitelist and _ip_in_whitelist(ip, whitelist):
             return self.get_response(request)
 
         engine = _get_engine(settings)
+
+        if engine.is_whitelisted(ip):
+            return self.get_response(request)
 
         # IP blacklist
         if engine.is_blacklisted(ip):

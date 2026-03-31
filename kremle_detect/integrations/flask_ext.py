@@ -229,9 +229,11 @@ class KremleFlask:
         if session.get(SESSION_KEY):
             return None
 
-        # IP whitelist
+        # IP whitelist (static config + persistent storage)
         ip = request.remote_addr
         if self.whitelist and _ip_in_whitelist(ip, self.whitelist):
+            return None
+        if self.engine.is_whitelisted(ip):
             return None
 
         # IP blacklist
@@ -271,6 +273,8 @@ class KremleFlask:
 
             ip = _get_client_ip(request)
             if self.whitelist and _ip_in_whitelist(ip, self.whitelist):
+                return f(*args, **kwargs)
+            if self.engine.is_whitelisted(ip):
                 return f(*args, **kwargs)
 
             result = detect_from_request(request)

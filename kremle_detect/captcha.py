@@ -238,6 +238,22 @@ class CaptchaEngine:
             return True
         return False
 
+    # ── Whitelist API ────────────────────────────────────────────────────────
+
+    def whitelist_add(self, ip: str) -> None:
+        """Добавить IP в белый список (persistent, через storage)."""
+        self.storage.whitelist_add(ip)
+        logger.info('IP whitelisted: ip=%s', ip)
+
+    def whitelist_remove(self, ip: str) -> None:
+        """Убрать IP из белого списка."""
+        self.storage.whitelist_remove(ip)
+        logger.info('IP removed from whitelist: ip=%s', ip)
+
+    def is_whitelisted(self, ip: str) -> bool:
+        """Проверить, в белом ли списке IP."""
+        return self.storage.whitelist_check(ip)
+
     # ── Blacklist API ────────────────────────────────────────────────────────
 
     def blacklist_add(self, ip: str, ttl: Optional[int] = None) -> None:

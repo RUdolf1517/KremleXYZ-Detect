@@ -254,6 +254,59 @@ logging.getLogger('kremle').setLevel(logging.INFO)
 | POST  | `/kremle/verify`    | Проверка ответов (JSON)           |
 | GET   | `/kremle/status`    | Статус верификации сессии (JSON)  |
 
+## CLI
+
+После установки доступна команда `kremle-detect`. Для работы с блоклистом, вайтлистом и логами нужен Redis.
+
+```bash
+# Полный список команд
+kremle-detect help
+```
+
+### Диагностика
+
+```bash
+kremle-detect check-ua "Mozilla/5.0 YaBrowser/24.1"
+kremle-detect check-ref "https://yandex.ru/search?q=test"
+kremle-detect check-hints '"YaBrowser";v="24"'
+kremle-detect questions --category math --count 5
+```
+
+### Блоклист
+
+```bash
+kremle-detect blacklist list   --redis redis://localhost:6379/0
+kremle-detect blacklist add    1.2.3.4 --redis redis://localhost:6379/0
+kremle-detect blacklist add    1.2.3.4 --ttl 3600   # заблокировать на 1 час
+kremle-detect blacklist remove 1.2.3.4 --redis redis://localhost:6379/0
+```
+
+### Вайтлист
+
+```bash
+kremle-detect whitelist list   --redis redis://localhost:6379/0
+kremle-detect whitelist add    1.2.3.4 --redis redis://localhost:6379/0
+kremle-detect whitelist remove 1.2.3.4 --redis redis://localhost:6379/0
+```
+
+### Логи событий
+
+```bash
+kremle-detect logs              --redis redis://localhost:6379/0
+kremle-detect logs -n 200       # последние 200 событий
+kremle-detect logs --no-color   # без цвета (для grep/pipe)
+```
+
+Типы событий: `ПРОШЁЛ` (капча пройдена), `ПРОВАЛ` (не прошёл), `ДЕТЕКТ` (Яндекс-пользователь пойман), `ЗАБЛОК` (IP заблокирован или rate limit).
+
+Redis URL можно задать через переменную окружения вместо флага `--redis`:
+
+```bash
+export KREMLE_REDIS_URL=redis://localhost:6379/0
+kremle-detect logs
+kremle-detect blacklist list
+```
+
 ## Лицензия
 
 MIT

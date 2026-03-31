@@ -17,6 +17,12 @@ pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-d
 pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-detect[fastapi]"
 ```
 
+Обновление до последней версии:
+
+```bash
+pip install --force-reinstall git+https://github.com/RUdolf1517/KremleXYZ-Detect.git
+```
+
 ## Быстрый старт
 
 ### Flask

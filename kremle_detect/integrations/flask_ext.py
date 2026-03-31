@@ -21,7 +21,7 @@ import os
 from typing import Callable, List, Optional, Sequence
 
 from flask import (
-    Blueprint, Flask, render_template, request, session,
+    Blueprint, Flask, request, session,
     jsonify, redirect, url_for,
 )
 
@@ -167,15 +167,10 @@ class KremleFlask:
         app.extensions['kremle'] = self
 
     def _create_blueprint(self) -> Blueprint:
-        default_tpl_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), 'templates'
+        default_tpl_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), 'templates', 'kremle_captcha.html'
         )
-        bp = Blueprint(
-            'kremle',
-            __name__,
-            template_folder=default_tpl_dir,
-            url_prefix='/kremle',
-        )
+        bp = Blueprint('kremle', __name__, url_prefix='/kremle')
 
         engine = self.engine
         custom_template = self.custom_template
@@ -185,23 +180,21 @@ class KremleFlask:
             ch = engine.create_challenge()
             session['kremle_token'] = ch.token
 
-            if custom_template:
-                try:
-                    with open(custom_template, encoding='utf-8') as f:
-                        html = f.read()
-                except OSError as e:
-                    raise RuntimeError(
-                        f'Не удалось открыть шаблон капчи: {custom_template!r} — {e}'
-                    ) from e
-                html = html.replace(
-                    '{{ questions_json }}',
-                    json.dumps(ch.to_dict(), ensure_ascii=False),
-                )
-                return html
-            return render_template(
-                'kremle_captcha.html',
-                questions_json=ch.to_dict(),
+            tpl_path = custom_template or default_tpl_path
+            try:
+                with open(tpl_path, encoding='utf-8') as f:
+                    html = f.read()
+            except OSError as e:
+                raise RuntimeError(
+                    f'Не удалось открыть шаблон капчи: {tpl_path!r} — {e}'
+                ) from e
+            # Простой string-replace — шаблон не зависит от Jinja2 и работает
+            # одинаково во Flask, Django и FastAPI без экранирования кавычек.
+            html = html.replace(
+                '{{ questions_json }}',
+                json.dumps(ch.to_dict(), ensure_ascii=False),
             )
+            return html
 
         @bp.route('/verify', methods=['POST'])
         def verify():

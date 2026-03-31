@@ -162,7 +162,9 @@ def kremle_urls():
                 f'Не удалось открыть шаблон капчи: {tpl_path!r} — {e}'
             ) from e
 
-        html = html.replace('{{ questions_json }}', json.dumps(ch.to_dict(), ensure_ascii=False))
+        from django.urls import reverse
+        verify_url = reverse('kremle_verify')
+        html = html.replace('{{ questions_json }}', json.dumps(ch.to_dict(verify_url=verify_url), ensure_ascii=False))
         return HttpResponse(html, content_type='text/html; charset=utf-8')
 
     @csrf_exempt

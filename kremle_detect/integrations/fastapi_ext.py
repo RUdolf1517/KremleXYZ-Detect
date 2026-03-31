@@ -168,9 +168,10 @@ class KremleFastAPI:
                     f'Не удалось открыть шаблон капчи: {tpl_path!r} — {e}'
                 ) from e
 
+            verify_url = str(request.url_for('kremle_verify'))
             html = html.replace(
                 '{{ questions_json }}',
-                json.dumps(ch.to_dict(), ensure_ascii=False),
+                json.dumps(ch.to_dict(verify_url=verify_url), ensure_ascii=False),
             )
             return HTMLResponse(html)
 

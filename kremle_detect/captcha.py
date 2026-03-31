@@ -65,12 +65,13 @@ class Challenge:
                 safe['category'] = q['category']
             self.safe_questions.append(safe)
 
-    def to_dict(self) -> dict:
+    def to_dict(self, verify_url: str = '/kremle/verify') -> dict:
         """Данные для отправки клиенту."""
         return {
             'questions': self.safe_questions,
             'token': self.token,
             'created_at': self.created_at,
+            'verify_url': verify_url,
         }
 
     def _serialize(self) -> dict:
@@ -174,6 +175,10 @@ class CaptchaEngine:
     def create_challenge(self) -> Challenge:
         """Создаёт новый набор вопросов."""
         if self.only_extra:
+            if not self.extra_questions:
+                raise ValueError(
+                    'only_extra=True но extra_questions пуст — нечего показывать'
+                )
             pool = [dict(q) for q in self.extra_questions]
         else:
             pool = get_questions(
@@ -260,7 +265,10 @@ class CaptchaEngine:
         """Счётчик провалов. Бан при достижении fail_threshold."""
         if self.fail_threshold <= 0 or not ip:
             return
-        count = self.storage.increment(f'fails:{ip}', self.rate_window)
+        # TTL для счётчика провалов — отдельное окно, не rate_window.
+        # Используем blacklist_ttl как верхнюю границу: если не набрал threshold
+        # за это время — счётчик сбрасывается сам.
+        count = self.storage.increment(f'fails:{ip}', self.blacklist_ttl)
         if count >= self.fail_threshold:
             self.blacklist_add(ip)
             self.storage.delete(f'fails:{ip}')

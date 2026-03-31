@@ -192,7 +192,7 @@ class KremleFlask:
             # одинаково во Flask, Django и FastAPI без экранирования кавычек.
             html = html.replace(
                 '{{ questions_json }}',
-                json.dumps(ch.to_dict(), ensure_ascii=False),
+                json.dumps(ch.to_dict(verify_url=url_for('kremle.verify')), ensure_ascii=False),
             )
             return html
 

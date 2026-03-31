@@ -302,9 +302,11 @@ document.getElementById('btnNext').onclick = function() {
 function sendAnswers() {
   document.getElementById('prog').style.width = '100%';
   document.getElementById('btnNext').style.display = 'none';
-  document.getElementById('fb').textContent = 'Отправляем...';
+  var fb = document.getElementById('fb');
+  fb.textContent = 'Отправляем...';
+  fb.style.display = 'block';
 
-  fetch('/kremle/verify', {
+  fetch(DATA.verify_url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: TOKEN, answers: answers, fingerprint: fingerprint })
@@ -332,10 +334,19 @@ function showResult(data) {
         : 'Почти прошли. Повторите попытку.');
 
   var act = document.getElementById('ract');
+  act.innerHTML = '';
   if (data.passed && data.redirect) {
-    act.innerHTML = '<a href="' + data.redirect + '" class="btn-site">Войти на сайт →</a>';
+    var a = document.createElement('a');
+    a.href = data.redirect;  /* assigned as property — не интерпретируется как HTML */
+    a.className = 'btn-site';
+    a.textContent = 'Войти на сайт →';
+    act.appendChild(a);
   } else {
-    act.innerHTML = '<button class="btn-retry" onclick="location.reload()">Попробовать снова</button>';
+    var btn = document.createElement('button');
+    btn.className = 'btn-retry';
+    btn.textContent = 'Попробовать снова';
+    btn.onclick = function() { location.reload(); };
+    act.appendChild(btn);
   }
 }
 

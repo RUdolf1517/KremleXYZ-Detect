@@ -124,6 +124,12 @@ body {
     <p id="subtitle"></p>
   </div>
 
+  <!-- Honeypot: скрыто от людей, видно ботам -->
+  <div style="position:absolute;left:-9999px;top:-9999px;opacity:0;pointer-events:none;" aria-hidden="true">
+    <input type="text" id="hp_name" name="name" tabindex="-1" autocomplete="off" value="">
+    <input type="email" id="hp_email" name="email" tabindex="-1" autocomplete="off" value="">
+  </div>
+
   <div id="quiz">
     <div class="progress-bar"><div class="progress-fill" id="prog"></div></div>
     <div id="catBadge" class="category-badge"></div>
@@ -181,6 +187,14 @@ try {
   fingerprint.platform = navigator.platform || '';
   fingerprint.cookieEnabled = navigator.cookieEnabled;
   fingerprint.screenRes = screen.width + 'x' + screen.height;
+
+  /* Honeypot: если бот заполнил скрытые поля — фиксируем */
+  var hpName = document.getElementById('hp_name');
+  var hpEmail = document.getElementById('hp_email');
+  fingerprint.honeypot = !!(
+    (hpName && hpName.value.length > 0) ||
+    (hpEmail && hpEmail.value.length > 0)
+  );
 } catch(e) {
   fingerprint.error = e.message;
 }

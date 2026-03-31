@@ -33,6 +33,18 @@ class BaseStorage(ABC):
     def increment(self, key: str, ttl: int) -> int:
         """Инкремент счётчика. Возвращает новое значение. TTL ставится при создании."""
 
+    def blacklist_add(self, ip: str, ttl: int) -> None:
+        """Добавить IP в чёрный список на ttl секунд (0 = навсегда)."""
+        self.set(f'blacklist:{ip}', {'ip': ip}, ttl if ttl > 0 else 86400 * 365 * 10)
+
+    def blacklist_check(self, ip: str) -> bool:
+        """True если IP в чёрном списке."""
+        return self.get(f'blacklist:{ip}') is not None
+
+    def blacklist_remove(self, ip: str) -> None:
+        """Убрать IP из чёрного списка."""
+        self.delete(f'blacklist:{ip}')
+
 
 class MemoryStorage(BaseStorage):
     """In-memory хранение (один процесс). По умолчанию."""

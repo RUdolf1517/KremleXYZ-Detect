@@ -63,6 +63,8 @@ def _get_engine(settings) -> CaptchaEngine:
             on_fail=getattr(settings, 'KREMLE_ON_FAIL', None),
             extra_questions=getattr(settings, 'KREMLE_EXTRA_QUESTIONS', None),
             only_extra=getattr(settings, 'KREMLE_ONLY_EXTRA', False),
+            fail_threshold=getattr(settings, 'KREMLE_FAIL_THRESHOLD', 0),
+            blacklist_ttl=getattr(settings, 'KREMLE_BLACKLIST_TTL', 86400),
         )
     return _engine_cache[cache_key]
 
@@ -116,9 +118,15 @@ class KremleDjangoMiddleware:
         if whitelist and _ip_in_whitelist(ip, whitelist):
             return self.get_response(request)
 
+        engine = _get_engine(settings)
+
+        # IP blacklist
+        if engine.is_blacklisted(ip):
+            from django.shortcuts import redirect
+            return redirect('/kremle/challenge/')
+
         result = detect_from_request(request)
         if result:
-            engine = _get_engine(settings)
             engine.notify_detect(result, ip=ip)
             from django.shortcuts import redirect
             request.session[NEXT_KEY] = request.get_full_path()
@@ -161,9 +169,10 @@ def kremle_urls():
         data = json.loads(request.body)
         token = data.get('token') or request.session.get('kremle_token', '')
         answers = data.get('answers', {})
+        fingerprint = data.get('fingerprint')
         ip = _get_client_ip(request)
 
-        result = engine.verify(token, answers, ip=ip)
+        result = engine.verify(token, answers, ip=ip, fingerprint=fingerprint)
 
         if result['passed']:
             request.session[SESSION_KEY] = True

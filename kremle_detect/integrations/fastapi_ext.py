@@ -73,6 +73,8 @@ class KremleFastAPI:
         on_fail: Optional[Callable] = None,
         extra_questions: Optional[list] = None,
         only_extra: bool = False,
+        fail_threshold: int = 0,
+        blacklist_ttl: int = 86400,
     ):
         self.engine = CaptchaEngine(
             categories=categories,
@@ -87,6 +89,8 @@ class KremleFastAPI:
             on_fail=on_fail,
             extra_questions=extra_questions,
             only_extra=only_extra,
+            fail_threshold=fail_threshold,
+            blacklist_ttl=blacklist_ttl,
         )
         self.skip_paths = list(skip_paths or ['/docs', '/openapi.json', '/redoc'])
         self.whitelist = whitelist or []
@@ -125,10 +129,13 @@ class KremleFastAPI:
             if request.session.get(SESSION_KEY):
                 return await call_next(request)
 
-            # IP whitelist
+            # IP whitelist / blacklist
             ip = request.client.host if request.client else ''
             if whitelist and _ip_in_whitelist(ip, whitelist):
                 return await call_next(request)
+
+            if engine.is_blacklisted(ip):
+                return RedirectResponse('/kremle/challenge', status_code=302)
 
             headers = {
                 'User-Agent': request.headers.get('user-agent', ''),
@@ -166,9 +173,10 @@ class KremleFastAPI:
             data = await request.json()
             token = data.get('token') or request.session.get('kremle_token', '')
             answers = data.get('answers', {})
+            fingerprint = data.get('fingerprint')
             ip = request.client.host if request.client else ''
 
-            result = engine.verify(token, answers, ip=ip)
+            result = engine.verify(token, answers, ip=ip, fingerprint=fingerprint)
 
             if result['passed']:
                 request.session[SESSION_KEY] = True

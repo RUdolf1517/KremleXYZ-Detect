@@ -129,6 +129,8 @@ class CaptchaEngine:
         on_detect: Optional[Callable] = None,
         on_pass: Optional[Callable] = None,
         on_fail: Optional[Callable] = None,
+        fail_threshold: int = 0,
+        blacklist_ttl: int = 86400,
     ):
         """
         Args:
@@ -140,7 +142,7 @@ class CaptchaEngine:
             only_extra: если True — только extra_questions.
             storage: бэкенд хранения (MemoryStorage/RedisStorage).
                      None → MemoryStorage.
-            rate_limit: макс. попыток верификации с одного IP за rate_window.
+                rate_limit: макс. попыток верификации с одного IP за rate_window.
                         0 — отключить.
             rate_window: окно rate limit в секундах.
             on_detect: callback(detect_result, ip) — вызывается при детекции.
@@ -163,6 +165,11 @@ class CaptchaEngine:
         self.on_detect = on_detect
         self.on_pass = on_pass
         self.on_fail = on_fail
+
+        # Blacklist: авто-бан после N провалов подряд
+        # fail_threshold=0 — отключить, blacklist_ttl=0 — навсегда
+        self.fail_threshold = fail_threshold
+        self.blacklist_ttl = blacklist_ttl
 
     def create_challenge(self) -> Challenge:
         """Создаёт новый набор вопросов."""
@@ -200,9 +207,7 @@ class CaptchaEngine:
         return Challenge._deserialize(data)
 
     def check_rate_limit(self, ip: str) -> bool:
-        """
-        Проверяет rate limit для IP. Возвращает True если лимит превышен.
-        """
+        """Проверяет rate limit для IP. True если лимит превышен."""
         if self.rate_limit <= 0:
             return False
         count = self.storage.increment(f'rate:{ip}', self.rate_window)
@@ -211,11 +216,50 @@ class CaptchaEngine:
             return True
         return False
 
+    # ── Blacklist API ────────────────────────────────────────────────────────
+
+    def blacklist_add(self, ip: str, ttl: Optional[int] = None) -> None:
+        """
+        Вручную добавить IP в чёрный список.
+
+        Args:
+            ip: IP-адрес
+            ttl: время бана в секундах (None = использовать blacklist_ttl, 0 = навсегда)
+        """
+        _ttl = self.blacklist_ttl if ttl is None else ttl
+        self.storage.blacklist_add(ip, _ttl)
+        logger.warning('IP blacklisted: ip=%s ttl=%d', ip, _ttl)
+
+    def blacklist_remove(self, ip: str) -> None:
+        """Убрать IP из чёрного списка."""
+        self.storage.blacklist_remove(ip)
+        logger.info('IP removed from blacklist: ip=%s', ip)
+
+    def is_blacklisted(self, ip: str) -> bool:
+        """Проверить, в чёрном ли списке IP."""
+        return self.storage.blacklist_check(ip)
+
+    def _track_fail(self, ip: str) -> None:
+        """Счётчик провалов. Бан при достижении fail_threshold."""
+        if self.fail_threshold <= 0 or not ip:
+            return
+        count = self.storage.increment(f'fails:{ip}', self.rate_window)
+        if count >= self.fail_threshold:
+            self.blacklist_add(ip)
+            self.storage.delete(f'fails:{ip}')
+            logger.warning('Auto-blacklisted after %d fails: ip=%s', count, ip)
+
+    def _track_pass(self, ip: str) -> None:
+        """Сбросить счётчик провалов при успехе."""
+        if ip:
+            self.storage.delete(f'fails:{ip}')
+
     def verify(
         self,
         token: str,
         answers: Dict[str, Any],
         ip: Optional[str] = None,
+        fingerprint: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Проверяет ответы пользователя.
@@ -223,20 +267,27 @@ class CaptchaEngine:
         Args:
             token: токен челленджа
             answers: { "0": 2, "1": 0, ... } — индекс вопроса → индекс варианта
-            ip: IP пользователя (для rate limiting и логов)
+            ip: IP пользователя (для rate limiting, blacklist и логов)
+            fingerprint: JS-фингерпринт от клиента (honeypot, userAgentData и т.д.)
 
         Returns:
             { 'passed': bool, 'errors': int, 'total': int }
         """
+        # Honeypot — бот заполнил скрытое поле
+        if fingerprint and fingerprint.get('honeypot'):
+            logger.warning('Honeypot triggered: ip=%s', ip)
+            self._track_fail(ip)
+            return {'passed': False, 'errors': -1, 'total': 0, 'error': 'honeypot'}
+
+        # Blacklist
+        if ip and self.is_blacklisted(ip):
+            logger.warning('Verify blocked by blacklist: ip=%s', ip)
+            return {'passed': False, 'errors': -1, 'total': 0, 'error': 'blacklisted'}
+
         # Rate limiting
         if ip and self.check_rate_limit(ip):
             logger.warning('Verify blocked by rate limit: ip=%s', ip)
-            return {
-                'passed': False,
-                'errors': -1,
-                'total': 0,
-                'error': 'rate_limited',
-            }
+            return {'passed': False, 'errors': -1, 'total': 0, 'error': 'rate_limited'}
 
         challenge = self.get_challenge(token)
         if challenge is None:
@@ -253,10 +304,12 @@ class CaptchaEngine:
 
         if passed:
             self.storage.delete(f'challenge:{token}')
+            self._track_pass(ip)
             logger.info('Captcha PASSED: ip=%s errors=%d/%d', ip, errors, len(challenge.questions))
             if self.on_pass:
                 self.on_pass(ip, errors, len(challenge.questions))
         else:
+            self._track_fail(ip)
             logger.info('Captcha FAILED: ip=%s errors=%d/%d', ip, errors, len(challenge.questions))
             if self.on_fail:
                 self.on_fail(ip, errors, len(challenge.questions))

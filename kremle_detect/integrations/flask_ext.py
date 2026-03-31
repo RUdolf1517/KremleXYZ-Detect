@@ -103,6 +103,8 @@ class KremleFlask:
         on_fail: Optional[Callable] = None,
         extra_questions: Optional[list] = None,
         only_extra: bool = False,
+        fail_threshold: int = 0,
+        blacklist_ttl: int = 86400,
     ):
         self.categories = categories
         self.question_count = question_count
@@ -120,6 +122,8 @@ class KremleFlask:
         self.on_fail = on_fail
         self.extra_questions = extra_questions
         self.only_extra = only_extra
+        self.fail_threshold = fail_threshold
+        self.blacklist_ttl = blacklist_ttl
         self.engine: Optional[CaptchaEngine] = None
 
         if app is not None:
@@ -142,6 +146,8 @@ class KremleFlask:
             on_fail=self.on_fail,
             extra_questions=self.extra_questions,
             only_extra=self.only_extra,
+            fail_threshold=self.fail_threshold,
+            blacklist_ttl=self.blacklist_ttl,
         )
 
         bp = self._create_blueprint()
@@ -189,9 +195,10 @@ class KremleFlask:
             data = request.get_json(force=True, silent=True) or {}
             token = data.get('token') or session.get('kremle_token', '')
             answers = data.get('answers', {})
+            fingerprint = data.get('fingerprint')
             ip = request.remote_addr
 
-            result = engine.verify(token, answers, ip=ip)
+            result = engine.verify(token, answers, ip=ip, fingerprint=fingerprint)
 
             if result['passed']:
                 session[SESSION_KEY] = True
@@ -221,6 +228,10 @@ class KremleFlask:
         if self.whitelist and _ip_in_whitelist(ip, self.whitelist):
             return None
 
+        # IP blacklist
+        if self.engine.is_blacklisted(ip):
+            return redirect(url_for('kremle.challenge'))
+
         result = detect_from_request(request)
         if result:
             self.engine.notify_detect(result, ip=ip)
@@ -231,3 +242,37 @@ class KremleFlask:
     def is_detected(self) -> bool:
         """Проверяет текущий запрос."""
         return bool(detect_from_request(request))
+
+    def protect(self, f):
+        """
+        Декоратор для защиты отдельного роута.
+
+        Использование:
+            @app.route('/secret')
+            @kremle.protect
+            def secret():
+                return 'секретная страница'
+
+        Работает независимо от auto_guard — можно использовать
+        вместе с auto_guard=False для точечной защиты.
+        """
+        import functools
+
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            if session.get(SESSION_KEY):
+                return f(*args, **kwargs)
+
+            ip = request.remote_addr
+            if self.whitelist and _ip_in_whitelist(ip, self.whitelist):
+                return f(*args, **kwargs)
+
+            result = detect_from_request(request)
+            if result:
+                self.engine.notify_detect(result, ip=ip)
+                session[NEXT_KEY] = request.url
+                return redirect(url_for('kremle.challenge'))
+
+            return f(*args, **kwargs)
+
+        return wrapper

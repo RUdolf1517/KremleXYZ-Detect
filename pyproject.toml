@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kremle-detect"
+version = "2.0.0"
+description = "Защита сайта от пользователей Яндекс Браузера и переходов с Яндекса. Капча с вопросами ЕГЭ."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "RUdolf1517" },
+]
+keywords = ["captcha", "yandex", "detect", "flask", "django", "fastapi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Flask",
+    "Framework :: Django",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP :: Site Management",
+]
+
+[project.optional-dependencies]
+flask = ["flask>=2.0"]
+django = ["django>=3.2"]
+fastapi = ["fastapi>=0.68", "jinja2>=3.0"]
+
+[tool.setuptools.packages.find]
+include = ["kremle_detect*"]
+
+[tool.setuptools.package-data]
+kremle_detect = ["templates/*.html"]

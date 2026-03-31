@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Проверка</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a0a;
+  color: #fff;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem 1rem;
+}
+.card {
+  width: 100%;
+  max-width: 560px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: #111;
+  padding: 2rem;
+}
+.header { margin-bottom: 2rem; }
+.header h1 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.6rem;
+  line-height: 1.45;
+}
+.header p { font-size: 0.76rem; opacity: 0.4; letter-spacing: 0.04em; }
+.category-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.35;
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 0.15rem 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.progress-bar {
+  height: 2px;
+  background: rgba(255,255,255,0.08);
+  margin-bottom: 2rem;
+}
+.progress-fill { height: 100%; background: #fff; transition: width 0.3s ease; }
+.qnum {
+  font-size: 0.62rem;
+  opacity: 0.3;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.6rem;
+}
+.qtext {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 1.25rem;
+  min-height: 2.8rem;
+}
+.options { display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 1.25rem; }
+.option {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.13);
+  color: #fff;
+  font-family: 'Courier New', monospace;
+  font-size: 0.82rem;
+  padding: 0.65rem 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+  letter-spacing: 0.02em;
+}
+.option:hover:not(:disabled) { border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.04); }
+.option.correct { border-color: #fff !important; background: rgba(255,255,255,0.07) !important; }
+.option.wrong   { border-color: rgba(255,60,60,0.55) !important; color: rgba(255,255,255,0.4) !important; }
+.option:disabled { cursor: default; }
+.feedback { font-size: 0.76rem; min-height: 1.1rem; letter-spacing: 0.03em; margin-bottom: 1rem; }
+.feedback.ok  { color: rgba(255,255,255,0.65); }
+.feedback.err { color: rgba(255,80,80,0.9); }
+.btn-next {
+  background: #fff; color: #000;
+  border: none;
+  font-family: 'Courier New', monospace;
+  font-size: 0.82rem; font-weight: 700;
+  padding: 0.6rem 1.4rem;
+  cursor: pointer; letter-spacing: 0.07em;
+  display: none;
+}
+.btn-next:hover { background: #ddd; }
+.result { display: none; text-align: center; }
+.result h2 { font-size: 1.1rem; margin-bottom: 0.7rem; letter-spacing: 0.06em; }
+.result p  { font-size: 0.8rem; opacity: 0.5; margin-bottom: 1.5rem; line-height: 1.55; }
+.btn-site {
+  display: inline-block;
+  background: #fff; color: #000;
+  font-family: 'Courier New', monospace;
+  font-size: 0.82rem; font-weight: 700;
+  padding: 0.6rem 1.4rem;
+  text-decoration: none; letter-spacing: 0.07em;
+}
+.btn-site:hover { background: #ddd; }
+.btn-retry {
+  display: inline-block; margin-top: 0.5rem;
+  background: none;
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fff;
+  font-family: 'Courier New', monospace;
+  font-size: 0.82rem;
+  padding: 0.6rem 1.4rem;
+  cursor: pointer; letter-spacing: 0.05em;
+}
+.btn-retry:hover { border-color: rgba(255,255,255,0.45); }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1>Возможно вы кремлебот.<br>Пройдите капчу чтобы доказать что это не так.</h1>
+    <p id="subtitle"></p>
+  </div>
+
+  <div id="quiz">
+    <div class="progress-bar"><div class="progress-fill" id="prog"></div></div>
+    <div id="catBadge" class="category-badge"></div>
+    <div class="qnum"    id="qnum"></div>
+    <div class="qtext"   id="qtext"></div>
+    <div class="options" id="opts"></div>
+    <div class="feedback" id="fb"></div>
+    <button class="btn-next" id="btnNext">Следующий →</button>
+  </div>
+
+  <div class="result" id="result">
+    <h2 id="rtitle"></h2>
+    <p  id="rdesc"></p>
+    <div id="ract"></div>
+  </div>
+</div>
+
+<script>
+/* Данные от сервера — подставляются серверной стороной */
+var DATA = {{ questions_json }};
+var QUESTIONS = DATA.questions;
+var TOKEN = DATA.token;
+
+var CAT_LABELS = {
+  math: 'математика',
+  physics: 'физика',
+  russian: 'русский язык',
+  literature: 'литература'
+};
+
+document.getElementById('subtitle').textContent =
+  QUESTIONS.length + ' вопросов · физика, математика, русский, литература';
+
+function shuffle(a) {
+  var arr = a.slice();
+  for (var i = arr.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  }
+  return arr;
+}
+
+/* Подготовка: первый вариант (opts[0]) = правильный до shuffle */
+var prepared = QUESTIONS.map(function(q, idx) {
+  var correct = q.opts[0];
+  var shuffled = shuffle(q.opts);
+  return {
+    q: q.q,
+    opts: shuffled,
+    correctText: correct,
+    category: q.category || '',
+    origIdx: idx
+  };
+});
+prepared = shuffle(prepared);
+
+var current  = 0;
+var answers  = {};
+var answered = false;
+
+function render() {
+  var p = prepared[current];
+  document.getElementById('qnum').textContent =
+    'Вопрос ' + (current + 1) + ' из ' + prepared.length;
+  document.getElementById('qtext').textContent = p.q;
+  document.getElementById('prog').style.width =
+    (current / prepared.length * 100) + '%';
+  document.getElementById('fb').textContent = '';
+  document.getElementById('fb').className = 'feedback';
+  document.getElementById('btnNext').style.display = 'none';
+
+  var badge = document.getElementById('catBadge');
+  if (p.category && CAT_LABELS[p.category]) {
+    badge.textContent = CAT_LABELS[p.category];
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  answered = false;
+
+  var container = document.getElementById('opts');
+  container.innerHTML = '';
+  p.opts.forEach(function(opt, i) {
+    var btn = document.createElement('button');
+    btn.className = 'option';
+    btn.textContent = opt;
+    btn.onclick = function() { pick(i); };
+    container.appendChild(btn);
+  });
+}
+
+function pick(i) {
+  if (answered) return;
+  answered = true;
+  var p   = prepared[current];
+  var btns = document.querySelectorAll('.option');
+  btns.forEach(function(b) { b.disabled = true; });
+
+  var correctIdx = p.opts.indexOf(p.correctText);
+
+  /* Отправляем индекс выбранного варианта (по оригинальной нумерации) */
+  answers[String(p.origIdx)] = i === correctIdx ? 0 : 1;
+
+  var fb = document.getElementById('fb');
+  if (i === correctIdx) {
+    btns[i].classList.add('correct');
+    fb.textContent = '✓ Верно';
+    fb.className = 'feedback ok';
+  } else {
+    btns[i].classList.add('wrong');
+    btns[correctIdx].classList.add('correct');
+    fb.textContent = '✗ Неверно. Правильный ответ выделен.';
+    fb.className = 'feedback err';
+  }
+  document.getElementById('btnNext').style.display = 'inline-block';
+}
+
+document.getElementById('btnNext').onclick = function() {
+  current++;
+  if (current >= prepared.length) {
+    sendAnswers();
+  } else {
+    render();
+  }
+};
+
+function sendAnswers() {
+  document.getElementById('prog').style.width = '100%';
+  document.getElementById('btnNext').style.display = 'none';
+  document.getElementById('fb').textContent = 'Отправляем...';
+
+  fetch('/kremle/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: TOKEN, answers: answers })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) { showResult(data); })
+  .catch(function() {
+    document.getElementById('fb').textContent = 'Ошибка соединения. Попробуйте ещё раз.';
+  });
+}
+
+function showResult(data) {
+  document.getElementById('quiz').style.display = 'none';
+  var res = document.getElementById('result');
+  res.style.display = 'block';
+
+  document.getElementById('rtitle').textContent =
+    data.passed ? 'Человек подтверждён.' : (data.errors > 10 ? 'Кремлебот детектед.' : 'Почти.');
+
+  document.getElementById('rdesc').textContent = data.passed
+    ? 'Все проверки пройдены. Добро пожаловать на сайт.'
+    : 'Ошибок: ' + data.errors + ' из ' + data.total + '. ' +
+      (data.errors > 10
+        ? 'Слишком много ошибок. Выучите школьную программу и попробуйте снова.'
+        : 'Почти прошли. Повторите попытку.');
+
+  var act = document.getElementById('ract');
+  if (data.passed && data.redirect) {
+    act.innerHTML = '<a href="' + data.redirect + '" class="btn-site">Войти на сайт →</a>';
+  } else {
+    act.innerHTML = '<button class="btn-retry" onclick="location.reload()">Попробовать снова</button>';
+  }
+}
+
+render();
+</script>
+</body>
+</html>

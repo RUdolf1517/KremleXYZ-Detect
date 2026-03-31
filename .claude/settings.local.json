@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(git init:*)",
-      "Bash(git add:*)",
-      "Bash(git -C /Users/sergey/Documents/KremleXYZ-Detect log --oneline -3)"
-    ]
-  }
-}

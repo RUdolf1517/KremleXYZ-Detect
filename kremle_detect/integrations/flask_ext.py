@@ -15,8 +15,10 @@ Flask-интеграция KremleDetect.
 
 from __future__ import annotations
 
+import ipaddress
+import json
 import os
-from typing import Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 from flask import (
     Blueprint, Flask, render_template, request, session,
@@ -25,6 +27,7 @@ from flask import (
 
 from ..captcha import CaptchaEngine
 from ..detector import detect_from_request
+from ..storage import BaseStorage
 
 SESSION_KEY = 'kremle_ok'
 NEXT_KEY = 'kremle_next'
@@ -38,18 +41,47 @@ _SKIP_ENDPOINTS = frozenset({
 })
 
 
+def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
+    """Проверяет, входит ли IP в whitelist (поддержка CIDR)."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    for entry in whitelist:
+        try:
+            if '/' in entry:
+                if addr in ipaddress.ip_network(entry, strict=False):
+                    return True
+            else:
+                if addr == ipaddress.ip_address(entry):
+                    return True
+        except ValueError:
+            continue
+    return False
+
+
 class KremleFlask:
     """
     Flask-расширение для защиты от Яндекс-пользователей.
 
     Args:
-        app: Flask-приложение (или None для отложенной инициализации через init_app)
+        app: Flask-приложение (или None для init_app)
         categories: категории вопросов
         question_count: количество вопросов
         max_errors: допустимое число ошибок
-        secret: секрет для подписи токенов (по умолчанию — app.secret_key)
-        skip_endpoints: дополнительные эндпоинты, которые не защищать
-        auto_guard: автоматически ставить before_request guard
+        secret: секрет для подписи токенов
+        skip_endpoints: эндпоинты, которые не защищать
+        auto_guard: автоматический before_request guard
+        storage: бэкенд хранения (MemoryStorage/RedisStorage)
+        rate_limit: макс. попыток /verify с одного IP (0 — отключить)
+        rate_window: окно rate limit в секундах
+        whitelist: список IP/CIDR, которые не проверяются
+        template: путь к кастомному HTML-шаблону капчи
+        on_detect: callback(detect_result, ip) — при детекции
+        on_pass: callback(ip, errors, total) — при прохождении
+        on_fail: callback(ip, errors, total) — при провале
+        extra_questions: свои вопросы
+        only_extra: только свои вопросы
     """
 
     def __init__(
@@ -61,6 +93,16 @@ class KremleFlask:
         secret: Optional[str] = None,
         skip_endpoints: Optional[Sequence[str]] = None,
         auto_guard: bool = True,
+        storage: Optional[BaseStorage] = None,
+        rate_limit: int = 10,
+        rate_window: int = 600,
+        whitelist: Optional[List[str]] = None,
+        template: Optional[str] = None,
+        on_detect: Optional[Callable] = None,
+        on_pass: Optional[Callable] = None,
+        on_fail: Optional[Callable] = None,
+        extra_questions: Optional[list] = None,
+        only_extra: bool = False,
     ):
         self.categories = categories
         self.question_count = question_count
@@ -68,13 +110,23 @@ class KremleFlask:
         self._secret = secret
         self.skip_endpoints = set(skip_endpoints or set())
         self.auto_guard = auto_guard
+        self._storage = storage
+        self.rate_limit = rate_limit
+        self.rate_window = rate_window
+        self.whitelist = whitelist or []
+        self.custom_template = template
+        self.on_detect = on_detect
+        self.on_pass = on_pass
+        self.on_fail = on_fail
+        self.extra_questions = extra_questions
+        self.only_extra = only_extra
         self.engine: Optional[CaptchaEngine] = None
 
         if app is not None:
             self.init_app(app)
 
     def init_app(self, app: Flask) -> None:
-        """Инициализация с Flask-приложением (поддержка паттерна app factory)."""
+        """Инициализация с Flask-приложением (паттерн app factory)."""
         secret = self._secret or app.secret_key or 'kremle-default-secret'
 
         self.engine = CaptchaEngine(
@@ -82,6 +134,14 @@ class KremleFlask:
             question_count=self.question_count,
             max_errors=self.max_errors,
             secret=secret,
+            storage=self._storage,
+            rate_limit=self.rate_limit,
+            rate_window=self.rate_window,
+            on_detect=self.on_detect,
+            on_pass=self.on_pass,
+            on_fail=self.on_fail,
+            extra_questions=self.extra_questions,
+            only_extra=self.only_extra,
         )
 
         bp = self._create_blueprint()
@@ -90,25 +150,35 @@ class KremleFlask:
         if self.auto_guard:
             app.before_request(self._guard)
 
-        # Сохраняем ссылку на расширение в app
         app.extensions['kremle'] = self
 
     def _create_blueprint(self) -> Blueprint:
+        default_tpl_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), 'templates'
+        )
         bp = Blueprint(
             'kremle',
             __name__,
-            template_folder=os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), 'templates'
-            ),
+            template_folder=default_tpl_dir,
             url_prefix='/kremle',
         )
 
         engine = self.engine
+        custom_template = self.custom_template
 
         @bp.route('/challenge')
         def challenge():
             ch = engine.create_challenge()
             session['kremle_token'] = ch.token
+
+            if custom_template:
+                with open(custom_template, encoding='utf-8') as f:
+                    html = f.read()
+                html = html.replace(
+                    '{{ questions_json }}',
+                    json.dumps(ch.to_dict(), ensure_ascii=False),
+                )
+                return html
             return render_template(
                 'kremle_captcha.html',
                 questions_json=ch.to_dict(),
@@ -119,8 +189,9 @@ class KremleFlask:
             data = request.get_json(force=True, silent=True) or {}
             token = data.get('token') or session.get('kremle_token', '')
             answers = data.get('answers', {})
+            ip = request.remote_addr
 
-            result = engine.verify(token, answers)
+            result = engine.verify(token, answers, ip=ip)
 
             if result['passed']:
                 session[SESSION_KEY] = True
@@ -144,12 +215,19 @@ class KremleFlask:
             return None
         if session.get(SESSION_KEY):
             return None
+
+        # IP whitelist
+        ip = request.remote_addr
+        if self.whitelist and _ip_in_whitelist(ip, self.whitelist):
+            return None
+
         result = detect_from_request(request)
         if result:
+            self.engine.notify_detect(result, ip=ip)
             session[NEXT_KEY] = request.url
             return redirect(url_for('kremle.challenge'))
         return None
 
     def is_detected(self) -> bool:
-        """Проверяет текущий запрос (вызывать из обработчиков)."""
+        """Проверяет текущий запрос."""
         return bool(detect_from_request(request))

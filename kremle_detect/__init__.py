@@ -24,13 +24,12 @@ kremle-detect — защита сайта от пользователей Янд
     if result:
         print(result.reason)
 
-    # Капча
-    engine = CaptchaEngine(categories=['math', 'russian'], question_count=10)
-    challenge = engine.create_challenge()
-    verification = engine.verify(challenge.token, user_answers)
+    # Капча с Redis
+    from kremle_detect import RedisStorage
+    engine = CaptchaEngine(storage=RedisStorage(url='redis://localhost:6379/0'))
 """
 
-__version__ = '2.0.0'
+__version__ = '2.1.0'
 
 from .detector import (
     detect,
@@ -43,6 +42,7 @@ from .detector import (
 )
 from .captcha import CaptchaEngine, Challenge
 from .questions import get_questions, validate_questions, ALL_CATEGORY_NAMES, CATEGORIES
+from .storage import BaseStorage, MemoryStorage, RedisStorage
 
 __all__ = [
     # Детекция
@@ -61,4 +61,8 @@ __all__ = [
     'validate_questions',
     'ALL_CATEGORY_NAMES',
     'CATEGORIES',
+    # Хранилище
+    'BaseStorage',
+    'MemoryStorage',
+    'RedisStorage',
 ]

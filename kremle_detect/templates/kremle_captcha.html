@@ -142,6 +142,49 @@ body {
 </div>
 
 <script>
+/* ── JS-детекция Яндекс Браузера (fingerprint) ───────────────── */
+var fingerprint = {};
+try {
+  var ua = navigator.userAgent || '';
+  fingerprint.ua = ua;
+  fingerprint.yaBrowser = /YaBrowser|Yowser/i.test(ua);
+  fingerprint.yaApp = /YaApp_Android|YaApp_iOS|YandexSearch/i.test(ua);
+
+  /* Яндекс Браузер добавляет своё API */
+  fingerprint.yandexApi = !!(window.yandex || window.Ya || window.YaBrowser);
+
+  /* external protocol — YaBrowser регистрирует yandexbrowser: */
+  if (navigator.protocolHandler) {
+    fingerprint.protocolHandler = true;
+  }
+
+  /* navigator.userAgentData (Client Hints JS API) */
+  if (navigator.userAgentData && navigator.userAgentData.brands) {
+    var brands = navigator.userAgentData.brands.map(function(b) { return b.brand; });
+    fingerprint.brands = brands;
+    fingerprint.yaBrands = brands.some(function(b) {
+      return /YaBrowser|Yandex/i.test(b);
+    });
+  }
+
+  /* Yandex Metrika часто загружена в Яндекс Браузере */
+  fingerprint.metrika = !!(window.Ya && window.Ya.Metrika);
+
+  /* Проверяем специфичные CSS-свойства */
+  var testDiv = document.createElement('div');
+  testDiv.style.cssText = '-webkit-app-region: drag';
+  fingerprint.webkitAppRegion = testDiv.style.cssText.length > 0;
+
+  /* Язык / timezone для дополнительного контекста */
+  fingerprint.lang = navigator.language || '';
+  fingerprint.tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  fingerprint.platform = navigator.platform || '';
+  fingerprint.cookieEnabled = navigator.cookieEnabled;
+  fingerprint.screenRes = screen.width + 'x' + screen.height;
+} catch(e) {
+  fingerprint.error = e.message;
+}
+
 /* Данные от сервера — подставляются серверной стороной */
 var DATA = {{ questions_json }};
 var QUESTIONS = DATA.questions;
@@ -259,7 +302,7 @@ function sendAnswers() {
   fetch('/kremle/verify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: TOKEN, answers: answers })
+    body: JSON.stringify({ token: TOKEN, answers: answers, fingerprint: fingerprint })
   })
   .then(function(r) { return r.json(); })
   .then(function(data) { showResult(data); })

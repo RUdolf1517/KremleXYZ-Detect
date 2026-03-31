@@ -17,15 +17,35 @@ FastAPI / Starlette интеграция KremleDetect.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
-from typing import Optional, Sequence
+from typing import Callable, List, Optional, Sequence
 
 from ..captcha import CaptchaEngine
 from ..detector import detect
+from ..storage import BaseStorage
 
 SESSION_KEY = 'kremle_ok'
 NEXT_KEY = 'kremle_next'
+
+
+def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    for entry in whitelist:
+        try:
+            if '/' in entry:
+                if addr in ipaddress.ip_network(entry, strict=False):
+                    return True
+            else:
+                if addr == ipaddress.ip_address(entry):
+                    return True
+        except ValueError:
+            continue
+    return False
 
 
 class KremleFastAPI:
@@ -33,7 +53,6 @@ class KremleFastAPI:
     FastAPI-интеграция.
 
     Добавляет middleware + роуты /kremle/challenge, /kremle/verify, /kremle/status.
-    Для сессий использует подписанные куки (itsdangerous через Starlette SessionMiddleware).
     """
 
     def __init__(
@@ -44,14 +63,34 @@ class KremleFastAPI:
         max_errors: int = 3,
         secret: str = 'kremle-default-secret',
         skip_paths: Optional[Sequence[str]] = None,
+        storage: Optional[BaseStorage] = None,
+        rate_limit: int = 10,
+        rate_window: int = 600,
+        whitelist: Optional[List[str]] = None,
+        template: Optional[str] = None,
+        on_detect: Optional[Callable] = None,
+        on_pass: Optional[Callable] = None,
+        on_fail: Optional[Callable] = None,
+        extra_questions: Optional[list] = None,
+        only_extra: bool = False,
     ):
         self.engine = CaptchaEngine(
             categories=categories,
             question_count=question_count,
             max_errors=max_errors,
             secret=secret,
+            storage=storage,
+            rate_limit=rate_limit,
+            rate_window=rate_window,
+            on_detect=on_detect,
+            on_pass=on_pass,
+            on_fail=on_fail,
+            extra_questions=extra_questions,
+            only_extra=only_extra,
         )
         self.skip_paths = list(skip_paths or ['/docs', '/openapi.json', '/redoc'])
+        self.whitelist = whitelist or []
+        self.custom_template = template
         self.secret = secret
 
         if app is not None:
@@ -62,7 +101,6 @@ class KremleFastAPI:
         from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
         from starlette.middleware.sessions import SessionMiddleware
 
-        # Добавляем SessionMiddleware если его ещё нет
         has_session = any(
             getattr(m, 'cls', None).__name__ == 'SessionMiddleware'
             for m in getattr(app, 'user_middleware', [])
@@ -73,20 +111,23 @@ class KremleFastAPI:
 
         engine = self.engine
         skip_paths = self.skip_paths
+        whitelist = self.whitelist
+        custom_template = self.custom_template
         template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
 
-        # ── Middleware ────────────────────────────────────────────────────
         @app.middleware('http')
         async def kremle_guard(request: Request, call_next):
             path = request.url.path
 
-            if (
-                path.startswith('/kremle/')
-                or any(path.startswith(s) for s in skip_paths)
-            ):
+            if path.startswith('/kremle/') or any(path.startswith(s) for s in skip_paths):
                 return await call_next(request)
 
             if request.session.get(SESSION_KEY):
+                return await call_next(request)
+
+            # IP whitelist
+            ip = request.client.host if request.client else ''
+            if whitelist and _ip_in_whitelist(ip, whitelist):
                 return await call_next(request)
 
             headers = {
@@ -99,18 +140,18 @@ class KremleFastAPI:
             }
             result = detect(headers)
             if result:
+                engine.notify_detect(result, ip=ip)
                 request.session[NEXT_KEY] = str(request.url)
                 return RedirectResponse('/kremle/challenge', status_code=302)
 
             return await call_next(request)
 
-        # ── Routes ───────────────────────────────────────────────────────
         @app.get('/kremle/challenge', response_class=HTMLResponse)
         async def kremle_challenge(request: Request):
             ch = engine.create_challenge()
             request.session['kremle_token'] = ch.token
 
-            tpl_path = os.path.join(template_dir, 'kremle_captcha.html')
+            tpl_path = custom_template or os.path.join(template_dir, 'kremle_captcha.html')
             with open(tpl_path, encoding='utf-8') as f:
                 html = f.read()
 
@@ -125,8 +166,9 @@ class KremleFastAPI:
             data = await request.json()
             token = data.get('token') or request.session.get('kremle_token', '')
             answers = data.get('answers', {})
+            ip = request.client.host if request.client else ''
 
-            result = engine.verify(token, answers)
+            result = engine.verify(token, answers, ip=ip)
 
             if result['passed']:
                 request.session[SESSION_KEY] = True

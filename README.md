@@ -162,6 +162,83 @@ engine = CaptchaEngine(extra_questions=my_questions, only_extra=True)
 - **Яндекс-боты** — YandexBot, YandexMetrika, YandexImages и 20+ ботов
 - **Referer** — переходы с yandex.ru/com/by/kz и всех TLD, ya.ru, dzen.ru, zen.yandex, market.yandex и др.
 - **Client Hints** — заголовки Sec-CH-UA с маркером YaBrowser/Yandex
+- **JS fingerprint** — клиентская проверка через `navigator.userAgentData`, `window.yandex`, `window.Ya`
+
+## Redis (production)
+
+По умолчанию челленджи хранятся в памяти (подходит для одного процесса).
+Для production с несколькими воркерами — используй Redis:
+
+```python
+from kremle_detect import RedisStorage
+
+kremle = KremleFlask(
+    app,
+    storage=RedisStorage(url='redis://localhost:6379/0'),
+)
+```
+
+## Rate limiting
+
+Защита от брутфорса — ограничение попыток `/kremle/verify` с одного IP:
+
+```python
+kremle = KremleFlask(
+    app,
+    rate_limit=10,     # макс. 10 попыток
+    rate_window=600,   # за 10 минут
+)
+```
+
+`rate_limit=0` — отключить.
+
+## IP whitelist
+
+Пропускать определённые IP/подсети без проверки:
+
+```python
+kremle = KremleFlask(
+    app,
+    whitelist=['127.0.0.1', '10.0.0.0/8', '192.168.0.0/16'],
+)
+```
+
+## Кастомный шаблон капчи
+
+```python
+kremle = KremleFlask(app, template='/path/to/my_captcha.html')
+```
+
+В шаблоне используй `{{ questions_json }}` — туда подставятся данные.
+
+## Callbacks (webhooks)
+
+```python
+def on_detect(result, ip):
+    print(f'Яндекс-пользователь: {ip}, причина: {result.reason}')
+
+def on_pass(ip, errors, total):
+    print(f'{ip} прошёл капчу ({errors}/{total} ошибок)')
+
+def on_fail(ip, errors, total):
+    print(f'{ip} завалил капчу ({errors}/{total} ошибок)')
+
+kremle = KremleFlask(
+    app,
+    on_detect=on_detect,
+    on_pass=on_pass,
+    on_fail=on_fail,
+)
+```
+
+## Логирование
+
+Все события пишутся в логгер `kremle`:
+
+```python
+import logging
+logging.getLogger('kremle').setLevel(logging.INFO)
+```
 
 ## API роуты
 

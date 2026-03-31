@@ -69,8 +69,7 @@ _YANDEX_TLDS = (
 _tlds_pattern = '|'.join(re.escape(t) for t in _YANDEX_TLDS)
 
 _RE_YANDEX_REFERER = re.compile(
-    rf'https?://(www\.)?(yandex\.({_tlds_pattern})|ya\.ru)'
-    r'(/search|/clck|/\?|/yandsearch|$)',
+    rf'https?://(www\.)?(yandex\.({_tlds_pattern})|ya\.ru)(/|$)',
     re.IGNORECASE,
 )
 

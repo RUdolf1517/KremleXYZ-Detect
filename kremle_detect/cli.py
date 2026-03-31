@@ -70,6 +70,39 @@ def _print_result(result, field, value):
         sys.exit(1)
 
 
+def cmd_help(args):
+    text = """\
+kremle-detect — управление KremleDetect из командной строки
+
+ДИАГНОСТИКА
+  kremle-detect check-ua   "<User-Agent>"     Проверить User-Agent строку
+  kremle-detect check-ref  "<URL>"            Проверить Referer URL
+  kremle-detect check-hints "<Sec-CH-UA>"     Проверить Client Hints заголовок
+  kremle-detect questions  [-c <кат>] [-n N]  Показать вопросы из банка
+
+БЛОКЛИСТ
+  kremle-detect blacklist list    [--redis URL]           Все заблокированные IP
+  kremle-detect blacklist add     <IP> [--ttl N]          Заблокировать IP
+  kremle-detect blacklist remove  <IP>                    Разблокировать IP
+
+ВАЙТЛИСТ
+  kremle-detect whitelist list    [--redis URL]           Все разрешённые IP
+  kremle-detect whitelist add     <IP>                    Добавить в вайтлист
+  kremle-detect whitelist remove  <IP>                    Убрать из вайтлиста
+
+ЛОГИ
+  kremle-detect logs  [-n N] [--no-color]     Последние N событий (по умолч. 50)
+    Типы событий: ПРОШЁЛ | ПРОВАЛ | ДЕТЕКТ | ЗАБЛОК
+
+Redis URL указывается через флаг или переменную окружения:
+  --redis redis://localhost:6379/0
+  KREMLE_REDIS_URL=redis://localhost:6379/0 kremle-detect logs
+
+Для справки по конкретной команде: kremle-detect <команда> --help
+"""
+    print(text.rstrip())
+
+
 def _get_storage(args):
     """Создаёт RedisStorage из --redis флага или KREMLE_REDIS_URL env."""
     from .storage import RedisStorage, MemoryStorage
@@ -250,6 +283,10 @@ def main():
     wl_rm.add_argument('ip', help='IP-адрес')
     wl_rm.add_argument('--redis', metavar='URL', help=_REDIS_HELP)
     wl_rm.set_defaults(func=cmd_whitelist)
+
+    # help
+    p_help = sub.add_parser('help', help='Показать справку по всем командам')
+    p_help.set_defaults(func=cmd_help)
 
     # logs
     p_logs = sub.add_parser('logs', help='Показать последние события (detect/pass/fail)')

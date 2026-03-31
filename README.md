@@ -6,15 +6,15 @@
 ## Установка
 
 ```bash
-pip install kremle-detect
+pip install git+https://github.com/RUdolf1517/KremleXYZ-Detect.git
 ```
 
 С зависимостями для конкретного фреймворка:
 
 ```bash
-pip install kremle-detect[flask]
-pip install kremle-detect[django]
-pip install kremle-detect[fastapi]
+pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-detect[flask]"
+pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-detect[django]"
+pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-detect[fastapi]"
 ```
 
 ## Быстрый старт

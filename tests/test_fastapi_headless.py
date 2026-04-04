@@ -12,11 +12,16 @@
 """
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-from kremle_detect.integrations.fastapi_ext import KremleFastAPI
-from kremle_detect.storage import MemoryStorage
+# Skip the entire module if fastapi is not installed (optional dependency)
+pytest.importorskip('fastapi', reason='fastapi not installed')
+pytest.importorskip('httpx', reason='httpx not installed (required by TestClient)')
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from kremle_detect.integrations.fastapi_ext import KremleFastAPI  # noqa: E402
+from kremle_detect.storage import MemoryStorage  # noqa: E402
 
 YANDEX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) YaBrowser/24.1 Yowser/2.5 Safari/537.36'
 NORMAL_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0 Safari/537.36'

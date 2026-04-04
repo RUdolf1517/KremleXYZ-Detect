@@ -87,6 +87,30 @@ async def index():
     return {'message': 'Добро пожаловать!'}
 ```
 
+### FastAPI + React (headless-режим)
+
+Если фронтенд — SPA на React, используй `headless=True`. В этом режиме middleware **не делает редирект**, а возвращает `403 JSON` — фронт сам показывает капчу:
+
+```python
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from kremle_detect.integrations.fastapi_ext import KremleFastAPI
+
+app = FastAPI()
+
+# CORS — нужен если фронт на другом порту/домене
+app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
+
+kremle = KremleFastAPI(app, secret='your-secret', headless=True)
+```
+
+В headless-режиме:
+- Яндекс-пользователь получает `403 {"error": "captcha_required", "challenge_url": "/kremle/challenge"}`
+- `GET /kremle/challenge` возвращает JSON с вопросами (не HTML)
+- `POST /kremle/verify` — без изменений
+
+React-компонент для фронтенда: [kremle-react](#react-компонент)
+
 ### Использование ядра напрямую (любой фреймворк)
 
 ```python
@@ -345,13 +369,73 @@ import logging
 logging.getLogger('kremle').setLevel(logging.INFO)
 ```
 
+## React-компонент
+
+Для SPA на React установи `kremle-react` из папки `kremle-react/` в репозитории:
+
+```bash
+npm install /path/to/KremleXYZ-Detect/kremle-react
+# или после публикации на npm:
+# npm install kremle-react
+```
+
+**Готовый компонент:**
+
+```tsx
+import { KremleChallenge } from 'kremle-react'
+
+function App() {
+  return (
+    <KremleChallenge
+      challengeUrl="/kremle/challenge"
+      verifyUrl="/kremle/verify"
+      onPass={() => window.location.reload()}
+      onFail={(r) => console.log(`ошибок: ${r.errors}/${r.total}`)}
+    />
+  )
+}
+```
+
+**Хук для кастомного UI:**
+
+```tsx
+import { useKremle } from 'kremle-react'
+
+function MyCaptcha() {
+  const { questions, answers, setAnswer, submit, loading, result } = useKremle()
+
+  if (loading) return <div>Загрузка...</div>
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); submit() }}>
+      {questions.map((q, qi) => (
+        <div key={qi}>
+          <p>{q.q}</p>
+          {q.opts.map((opt, oi) => (
+            <label key={oi}>
+              <input type="radio" onChange={() => setAnswer(qi, oi)} />
+              {opt}
+            </label>
+          ))}
+        </div>
+      ))}
+      <button type="submit">Отправить</button>
+    </form>
+  )
+}
+```
+
+Экспорты пакета: `KremleChallenge`, `useKremle`, типы `KremleResult`, `KremleQuestion`.
+
+Требует: React ≥ 17, FastAPI с `headless=True`.
+
 ## API роуты
 
-| Метод | Путь                | Описание                           |
-|-------|--------------------|------------------------------------|
-| GET   | `/kremle/challenge` | HTML-страница капчи               |
-| POST  | `/kremle/verify`    | Проверка ответов (JSON)           |
-| GET   | `/kremle/status`    | Статус верификации сессии (JSON)  |
+| Метод | Путь                | Описание                                            |
+|-------|--------------------|----------------------------------------------------|
+| GET   | `/kremle/challenge` | HTML-страница капчи (или JSON в headless-режиме)  |
+| POST  | `/kremle/verify`    | Проверка ответов (JSON)                            |
+| GET   | `/kremle/status`    | Статус верификации сессии (JSON)                  |
 
 ## CLI
 

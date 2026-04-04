@@ -26,6 +26,17 @@ from ..captcha import CaptchaEngine
 from ..detector import detect
 from ..storage import BaseStorage
 
+# FastAPI/Starlette are optional dependencies but this file is only imported
+# when they are available.  Module-level imports are required so that FastAPI
+# can resolve type annotations via func.__globals__ when registering routes
+# that are defined inside init_app() closures.
+try:
+    from fastapi import Request
+    from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+    from starlette.middleware.sessions import SessionMiddleware
+except ImportError:
+    pass  # will fail loudly at runtime if user calls init_app without fastapi
+
 SESSION_KEY = 'kremle_ok'
 NEXT_KEY = 'kremle_next'
 
@@ -103,18 +114,6 @@ class KremleFastAPI:
             self.init_app(app)
 
     def init_app(self, app) -> None:
-        from fastapi import Request
-        from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-        from starlette.middleware.sessions import SessionMiddleware
-
-        has_session = any(
-            getattr(m, 'cls', None).__name__ == 'SessionMiddleware'
-            for m in getattr(app, 'user_middleware', [])
-            if hasattr(m, 'cls')
-        )
-        if not has_session:
-            app.add_middleware(SessionMiddleware, secret_key=self.secret)
-
         engine = self.engine
         skip_paths = self.skip_paths
         whitelist = self.whitelist
@@ -219,3 +218,14 @@ class KremleFastAPI:
             return JSONResponse({
                 'verified': bool(request.session.get(SESSION_KEY))
             })
+
+        # SessionMiddleware must be added AFTER kremle_guard so that it ends up as
+        # the outermost middleware (Starlette builds the stack in reverse order of
+        # registration — last registered = outermost = runs first on incoming requests).
+        has_session = any(
+            getattr(m, 'cls', None) is not None and
+            getattr(m, 'cls').__name__ == 'SessionMiddleware'
+            for m in getattr(app, 'user_middleware', [])
+        )
+        if not has_session:
+            app.add_middleware(SessionMiddleware, secret_key=self.secret)

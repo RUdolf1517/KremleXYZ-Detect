@@ -308,6 +308,7 @@
     <a href="#what">что это</a>
     <a href="#install">установка</a>
     <a href="#start">интеграция</a>
+    <a href="#react">react</a>
     <a href="#cli">cli</a>
     <a href="#questions">вопросы</a>
     <a href="https://github.com/RUdolf1517/KremleXYZ-Detect" target="_blank" class="gh">[ GitHub ↗ ]</a>
@@ -410,6 +411,7 @@
       <button class="tab-btn active" data-tab="start-flask">flask</button>
       <button class="tab-btn" data-tab="start-django">django</button>
       <button class="tab-btn" data-tab="start-fastapi">fastapi</button>
+      <button class="tab-btn" data-tab="start-react">react</button>
     </div>
 
     <div class="tab-panel active" id="start-flask">
@@ -472,11 +474,27 @@ kremle = KremleFastAPI(
       </div>
     </div>
 
+    <div class="tab-panel" id="start-react">
+      <p style="color:var(--muted);margin-bottom:16px;">React SPA + FastAPI: включи <span style="color:var(--green)">headless=True</span> на бэке — middleware вернёт JSON 403 вместо редиректа.</p>
+      <div class="code-block">
+        <button class="copy-btn">copy</button>
+        <pre><span class="kw">from</span> fastapi <span class="kw">import</span> FastAPI
+<span class="kw">from</span> fastapi.middleware.cors <span class="kw">import</span> CORSMiddleware
+<span class="kw">from</span> kremle_detect.integrations.fastapi_ext <span class="kw">import</span> KremleFastAPI
+
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=[<span class="str">"*"</span>],
+                   allow_credentials=<span class="kw">True</span>, allow_methods=[<span class="str">"*"</span>], allow_headers=[<span class="str">"*"</span>])
+
+kremle = KremleFastAPI(app, secret=<span class="str">'your-secret'</span>, headless=<span class="kw">True</span>)</pre>
+      </div>
+    </div>
+
     <h3>API роуты</h3>
     <div class="cli-list">
       <div class="cli-row">
         <span class="cmd">GET&nbsp;&nbsp;/kremle/challenge</span>
-        <span class="desc">HTML-страница капчи</span>
+        <span class="desc">HTML-страница капчи (или JSON в headless-режиме)</span>
       </div>
       <div class="cli-row">
         <span class="cmd">POST /kremle/verify</span>
@@ -485,6 +503,88 @@ kremle = KremleFastAPI(
       <div class="cli-row">
         <span class="cmd">GET&nbsp;&nbsp;/kremle/status</span>
         <span class="desc">Статус верификации сессии (JSON)</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="react">
+  <div class="wrap">
+    <h2>react-компонент</h2>
+    <p>
+      Пакет <span style="color:var(--green)">kremle-react</span> — готовый React-компонент и хук для SPA.
+      Работает в паре с FastAPI в режиме <span style="color:var(--green)">headless=True</span>.
+    </p>
+
+    <h3>Установка</h3>
+    <div class="code-block">
+      <button class="copy-btn">copy</button>
+      <pre><span class="comment"># Из репозитория:</span>
+npm install /path/to/KremleXYZ-Detect/kremle-react
+
+<span class="comment"># Собрать пакет самому:</span>
+cd kremle-react &amp;&amp; npm install &amp;&amp; npm run build</pre>
+    </div>
+
+    <h3>Готовый компонент</h3>
+    <div class="code-block">
+      <button class="copy-btn">copy</button>
+      <pre><span class="kw">import</span> { KremleChallenge } <span class="kw">from</span> <span class="str">'kremle-react'</span>
+
+<span class="comment">// Показать капчу при 403 от бэкенда</span>
+<span class="kw">function</span> App() {
+  <span class="kw">return</span> (
+    &lt;KremleChallenge
+      challengeUrl=<span class="str">"/kremle/challenge"</span>
+      verifyUrl=<span class="str">"/kremle/verify"</span>
+      onPass={() =&gt; window.location.reload()}
+      onFail={(r) =&gt; console.log(<span class="str">`ошибок: ${r.errors}/${r.total}`</span>)}
+    /&gt;
+  )
+}</pre>
+    </div>
+
+    <h3>Хук для кастомного UI</h3>
+    <div class="code-block">
+      <button class="copy-btn">copy</button>
+      <pre><span class="kw">import</span> { useKremle } <span class="kw">from</span> <span class="str">'kremle-react'</span>
+
+<span class="kw">function</span> MyCaptcha() {
+  <span class="kw">const</span> { questions, answers, setAnswer, submit, loading, result } = useKremle()
+
+  <span class="kw">if</span> (loading) <span class="kw">return</span> &lt;div&gt;Загрузка...&lt;/div&gt;
+
+  <span class="kw">return</span> (
+    &lt;form onSubmit={(e) =&gt; { e.preventDefault(); submit() }}&gt;
+      {questions.map((q, qi) =&gt; (
+        &lt;div key={qi}&gt;
+          &lt;p&gt;{q.q}&lt;/p&gt;
+          {q.opts.map((opt, oi) =&gt; (
+            &lt;label key={oi}&gt;
+              &lt;input type=<span class="str">"radio"</span> onChange={() =&gt; setAnswer(qi, oi)} /&gt; {opt}
+            &lt;/label&gt;
+          ))}
+        &lt;/div&gt;
+      ))}
+      &lt;button type=<span class="str">"submit"</span>&gt;Отправить&lt;/button&gt;
+    &lt;/form&gt;
+  )
+}</pre>
+    </div>
+
+    <h3>Что возвращает middleware в headless-режиме</h3>
+    <div class="cli-list">
+      <div class="cli-row">
+        <span class="cmd">error</span>
+        <span class="desc">"captcha_required" — нужно показать капчу</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">reason</span>
+        <span class="desc">yandex_browser / yandex_referrer / blacklisted / ...</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">challenge_url</span>
+        <span class="desc">"/kremle/challenge" — куда запросить вопросы (GET → JSON)</span>
       </div>
     </div>
   </div>

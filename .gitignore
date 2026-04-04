@@ -17,3 +17,5 @@ venv/
 *.swp
 *.swo
 .claude/
+kremle-react/node_modules/
+kremle-react/dist/

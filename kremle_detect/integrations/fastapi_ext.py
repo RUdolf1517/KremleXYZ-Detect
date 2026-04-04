@@ -75,6 +75,7 @@ class KremleFastAPI:
         only_extra: bool = False,
         fail_threshold: int = 0,
         blacklist_ttl: int = 86400,
+        headless: bool = False,
     ):
         self.engine = CaptchaEngine(
             categories=categories,
@@ -96,6 +97,7 @@ class KremleFastAPI:
         self.whitelist = whitelist or []
         self.custom_template = template
         self.secret = secret
+        self.headless = headless
 
         if app is not None:
             self.init_app(app)
@@ -117,6 +119,7 @@ class KremleFastAPI:
         skip_paths = self.skip_paths
         whitelist = self.whitelist
         custom_template = self.custom_template
+        headless = self.headless
         template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
 
         @app.middleware('http')
@@ -138,6 +141,11 @@ class KremleFastAPI:
                 return await call_next(request)
 
             if engine.is_blacklisted(ip):
+                if headless:
+                    return JSONResponse(
+                        {'error': 'captcha_required', 'reason': 'blacklisted', 'challenge_url': '/kremle/challenge'},
+                        status_code=403,
+                    )
                 return RedirectResponse('/kremle/challenge', status_code=302)
 
             headers = {
@@ -151,6 +159,11 @@ class KremleFastAPI:
             result = detect(headers)
             if result:
                 engine.notify_detect(result, ip=ip)
+                if headless:
+                    return JSONResponse(
+                        {'error': 'captcha_required', 'reason': result.reason, 'challenge_url': '/kremle/challenge'},
+                        status_code=403,
+                    )
                 request.session[NEXT_KEY] = str(request.url)
                 return RedirectResponse('/kremle/challenge', status_code=302)
 
@@ -161,6 +174,11 @@ class KremleFastAPI:
             ch = engine.create_challenge()
             request.session['kremle_token'] = ch.token
 
+            verify_url = str(request.url_for('kremle_verify'))
+
+            if headless:
+                return JSONResponse(ch.to_dict(verify_url=verify_url))
+
             tpl_path = custom_template or os.path.join(template_dir, 'kremle_captcha.html')
             try:
                 with open(tpl_path, encoding='utf-8') as f:
@@ -170,7 +188,6 @@ class KremleFastAPI:
                     f'Не удалось открыть шаблон капчи: {tpl_path!r} — {e}'
                 ) from e
 
-            verify_url = str(request.url_for('kremle_verify'))
             html = html.replace(
                 '{{ questions_json }}',
                 json.dumps(ch.to_dict(verify_url=verify_url), ensure_ascii=False),

@@ -1,0 +1,38 @@
+{
+  "name": "kremle-react",
+  "version": "1.0.0",
+  "description": "React component for kremle-detect captcha (Yandex Browser protection)",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch"
+  },
+  "peerDependencies": {
+    "react": ">=17.0.0",
+    "react-dom": ">=17.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": ["captcha", "yandex", "react", "kremle-detect"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RUdolf1517/KremleXYZ-Detect"
+  }
+}

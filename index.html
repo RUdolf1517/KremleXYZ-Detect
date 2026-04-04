@@ -1,1 +1,714 @@
-<!DOCTYPE html><html><head><meta charset='utf-8'><title>kremle-detect</title></head><body><h1>Скоро...</h1></body></html>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>kremle-detect — защита от Яндекса</title>
+<style>
+  :root {
+    --green: #00ff41;
+    --green-dim: #00cc33;
+    --green-dark: #003a0e;
+    --bg: #0a0a0a;
+    --bg2: #111;
+    --text: #c8ffd4;
+    --muted: #4a8a5a;
+    --border: #1a3a20;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Courier New', Courier, monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  #matrix {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    opacity: 0.07;
+    pointer-events: none;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(10,10,10,0.92);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 0;
+  }
+
+  nav .wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  nav .logo {
+    font-size: 1.1rem;
+    color: var(--green);
+    font-weight: bold;
+    margin-right: 16px;
+    text-decoration: none;
+  }
+
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: color 0.2s;
+    white-space: nowrap;
+  }
+
+  nav a::before { content: '[ '; }
+  nav a::after  { content: ' ]'; }
+
+  nav a:hover, nav a.active { color: var(--green); }
+
+  nav .gh { margin-left: auto; color: var(--muted); font-size: 0.85rem; }
+  nav .gh:hover { color: var(--green); }
+  nav .gh::before { content: ''; }
+  nav .gh::after  { content: ''; }
+
+  header {
+    padding: 80px 0 60px;
+    text-align: center;
+  }
+
+  header h1 {
+    font-size: clamp(2.2rem, 6vw, 3.6rem);
+    color: var(--green);
+    letter-spacing: -1px;
+    margin-bottom: 12px;
+  }
+
+  header h1 span { color: var(--muted); }
+
+  header p {
+    font-size: 1.05rem;
+    color: var(--muted);
+    margin-bottom: 32px;
+  }
+
+  .hero-btns {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-block;
+    padding: 9px 22px;
+    border: 1px solid var(--green);
+    color: var(--green);
+    text-decoration: none;
+    font-family: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+    background: transparent;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .btn:hover { background: var(--green); color: #000; }
+
+  .btn-ghost { border-color: var(--muted); color: var(--muted); }
+  .btn-ghost:hover { background: var(--muted); color: #000; }
+
+  section {
+    padding: 56px 0;
+    border-top: 1px solid var(--border);
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.5s, transform 0.5s;
+  }
+
+  section.visible { opacity: 1; transform: none; }
+
+  section h2 {
+    font-size: 1.3rem;
+    color: var(--green);
+    margin-bottom: 28px;
+  }
+
+  section h2::before { content: '// '; color: var(--muted); }
+
+  section h3 {
+    font-size: 1rem;
+    color: var(--green-dim);
+    margin: 24px 0 10px;
+  }
+
+  section p {
+    color: var(--text);
+    margin-bottom: 14px;
+    max-width: 680px;
+  }
+
+  .signals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-top: 20px;
+  }
+
+  .signal {
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    background: var(--bg2);
+  }
+
+  .signal-name { color: var(--green); font-size: 0.85rem; margin-bottom: 4px; }
+  .signal-desc { color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+
+  .code-block {
+    position: relative;
+    background: #080808;
+    border: 1px solid var(--border);
+    padding: 18px 20px;
+    margin: 16px 0;
+    overflow-x: auto;
+  }
+
+  .code-block pre {
+    color: var(--green);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    white-space: pre;
+  }
+
+  .code-block .comment { color: var(--muted); }
+  .code-block .kw      { color: #88ffaa; }
+  .code-block .str     { color: #aaffcc; }
+
+  .copy-btn {
+    position: absolute;
+    top: 10px; right: 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 0.75rem;
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .copy-btn:hover { color: var(--green); border-color: var(--green); }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 0; flex-wrap: wrap; }
+
+  .tab-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .tab-btn::before { content: '[ '; }
+  .tab-btn::after  { content: ' ]'; }
+
+  .tab-btn:hover { color: var(--text); border-color: var(--muted); }
+  .tab-btn.active { color: var(--green); border-color: var(--green); }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .cli-list {
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    margin-top: 8px;
+  }
+
+  .cli-row {
+    display: grid;
+    grid-template-columns: minmax(280px, auto) 1fr;
+    gap: 16px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.83rem;
+    align-items: center;
+  }
+
+  .cli-row:last-child { border-bottom: none; }
+  .cli-row .cmd  { color: var(--green); }
+  .cli-row .desc { color: var(--muted); }
+
+  .cli-group {
+    padding: 8px 16px 4px;
+    color: var(--muted);
+    font-size: 0.75rem;
+    border-bottom: 1px solid var(--border);
+    background: #0c0c0c;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 36px 0;
+    margin-top: 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+
+  footer a { color: var(--green-dim); text-decoration: none; }
+  footer a:hover { color: var(--green); }
+
+  footer .footer-links {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  @media (max-width: 600px) {
+    .cli-row { grid-template-columns: 1fr; gap: 2px; }
+    .cli-row .desc { padding-left: 4px; }
+    .signals { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="matrix"></canvas>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#">kremle-detect</a>
+    <a href="#what">что это</a>
+    <a href="#install">установка</a>
+    <a href="#start">интеграция</a>
+    <a href="#cli">cli</a>
+    <a href="#questions">вопросы</a>
+    <a href="https://github.com/RUdolf1517/KremleXYZ-Detect" target="_blank" class="gh">[ GitHub ↗ ]</a>
+  </div>
+</nav>
+
+<header>
+  <div class="wrap">
+    <h1>kremle<span>-</span>detect</h1>
+    <p>Защита сайта от Яндекса. Капча с вопросами ЕГЭ.</p>
+    <div class="hero-btns">
+      <a class="btn" href="#install">Установить</a>
+      <a class="btn btn-ghost" href="https://github.com/RUdolf1517/KremleXYZ-Detect" target="_blank">GitHub</a>
+    </div>
+  </div>
+</header>
+
+<section id="what">
+  <div class="wrap">
+    <h2>что это</h2>
+    <p>
+      Python-библиотека для Flask, Django и FastAPI. Автоматически определяет пользователей
+      Яндекс Браузера и переходы с поисковика Яндекс — и показывает им капчу с вопросами из ЕГЭ.
+    </p>
+    <p>Детекция ведётся по нескольким независимым сигналам:</p>
+    <div class="signals">
+      <div class="signal">
+        <div class="signal-name">User-Agent</div>
+        <div class="signal-desc">YaBrowser, YaApp, YandexSearch, YandexStation</div>
+      </div>
+      <div class="signal">
+        <div class="signal-name">Яндекс-боты</div>
+        <div class="signal-desc">YandexBot, YandexMetrika, YandexImages и 20+ ботов</div>
+      </div>
+      <div class="signal">
+        <div class="signal-name">Referer</div>
+        <div class="signal-desc">yandex.ru/com/by/kz, ya.ru, dzen.ru, market.yandex и др.</div>
+      </div>
+      <div class="signal">
+        <div class="signal-name">Client Hints</div>
+        <div class="signal-desc">Заголовок Sec-CH-UA с маркером YaBrowser</div>
+      </div>
+      <div class="signal">
+        <div class="signal-name">JS Fingerprint</div>
+        <div class="signal-desc">navigator.userAgentData, window.yandex, window.Ya</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>установка</h2>
+
+    <div class="tabs" id="install-tabs">
+      <button class="tab-btn active" data-tab="inst-base">base</button>
+      <button class="tab-btn" data-tab="inst-flask">flask</button>
+      <button class="tab-btn" data-tab="inst-django">django</button>
+      <button class="tab-btn" data-tab="inst-fastapi">fastapi</button>
+    </div>
+
+    <div class="tab-panel active" id="inst-base">
+      <div class="code-block">
+        <button class="copy-btn">copy</button>
+        <pre>pip install git+https://github.com/RUdolf1517/KremleXYZ-Detect.git</pre>
+      </div>
+    </div>
+    <div class="tab-panel" id="inst-flask">
+      <div class="code-block">
+        <button class="copy-btn">copy</button>
+        <pre>pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-detect[flask]"</pre>
+      </div>
+    </div>
+    <div class="tab-panel" id="inst-django">
+      <div class="code-block">
+        <button class="copy-btn">copy</button>
+        <pre>pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-detect[django]"</pre>
+      </div>
+    </div>
+    <div class="tab-panel" id="inst-fastapi">
+      <div class="code-block">
+        <button class="copy-btn">copy</button>
+        <pre>pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-detect[fastapi]"</pre>
+      </div>
+    </div>
+
+    <p style="margin-top:16px;">Обновление до последней версии:</p>
+    <div class="code-block">
+      <button class="copy-btn">copy</button>
+      <pre>pip install --force-reinstall git+https://github.com/RUdolf1517/KremleXYZ-Detect.git</pre>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <h2>быстрый старт</h2>
+
+    <div class="tabs" id="start-tabs">
+      <button class="tab-btn active" data-tab="start-flask">flask</button>
+      <button class="tab-btn" data-tab="start-django">django</button>
+      <button class="tab-btn" data-tab="start-fastapi">fastapi</button>
+    </div>
+
+    <div class="tab-panel active" id="start-flask">
+      <div class="code-block">
+        <button class="copy-btn">copy</button>
+        <pre><span class="kw">from</span> flask <span class="kw">import</span> Flask
+<span class="kw">from</span> kremle_detect.integrations.flask_ext <span class="kw">import</span> KremleFlask
+
+app = Flask(__name__)
+app.secret_key = <span class="str">'your-secret'</span>
+
+kremle = KremleFlask(
+    app,
+    categories=[<span class="str">'math'</span>, <span class="str">'physics'</span>, <span class="str">'russian'</span>, <span class="str">'literature'</span>],
+    question_count=15,
+    max_errors=3,
+)
+
+<span class="comment"># Redis для продакшена (несколько воркеров)</span>
+<span class="comment"># from kremle_detect import RedisStorage</span>
+<span class="comment"># kremle = KremleFlask(app, storage=RedisStorage(url='redis://localhost:6379/0'))</span></pre>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="start-django">
+      <div class="code-block">
+        <button class="copy-btn">copy</button>
+        <pre><span class="comment"># settings.py</span>
+MIDDLEWARE = [
+    <span class="str">'django.contrib.sessions.middleware.SessionMiddleware'</span>,
+    <span class="comment"># ...</span>
+    <span class="str">'kremle_detect.integrations.django_ext.KremleDjangoMiddleware'</span>,
+]
+
+KREMLE_CATEGORIES = [<span class="str">'math'</span>, <span class="str">'physics'</span>, <span class="str">'russian'</span>, <span class="str">'literature'</span>]
+KREMLE_QUESTION_COUNT = 15
+KREMLE_MAX_ERRORS = 3
+
+<span class="comment"># urls.py</span>
+<span class="kw">from</span> kremle_detect.integrations.django_ext <span class="kw">import</span> kremle_urls
+urlpatterns = [
+    path(<span class="str">'kremle/'</span>, kremle_urls()),
+]</pre>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="start-fastapi">
+      <div class="code-block">
+        <button class="copy-btn">copy</button>
+        <pre><span class="kw">from</span> fastapi <span class="kw">import</span> FastAPI
+<span class="kw">from</span> kremle_detect.integrations.fastapi_ext <span class="kw">import</span> KremleFastAPI
+
+app = FastAPI()
+kremle = KremleFastAPI(
+    app,
+    categories=[<span class="str">'math'</span>, <span class="str">'physics'</span>],
+    question_count=10,
+    secret=<span class="str">'your-secret'</span>,
+)</pre>
+      </div>
+    </div>
+
+    <h3>API роуты</h3>
+    <div class="cli-list">
+      <div class="cli-row">
+        <span class="cmd">GET&nbsp;&nbsp;/kremle/challenge</span>
+        <span class="desc">HTML-страница капчи</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">POST /kremle/verify</span>
+        <span class="desc">Проверка ответов (JSON)</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">GET&nbsp;&nbsp;/kremle/status</span>
+        <span class="desc">Статус верификации сессии (JSON)</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="cli">
+  <div class="wrap">
+    <h2>cli</h2>
+    <p>После установки доступна команда <span style="color:var(--green)">kremle-detect</span>. Для блоклиста, вайтлиста и логов нужен Redis.</p>
+
+    <div class="code-block" style="margin-bottom:20px;">
+      <button class="copy-btn">copy</button>
+      <pre>kremle-detect help</pre>
+    </div>
+
+    <div class="cli-list">
+      <div class="cli-group">диагностика</div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect check-ua "Mozilla/5.0 YaBrowser/24"</span>
+        <span class="desc">Проверить User-Agent</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect check-ref "https://yandex.ru/..."</span>
+        <span class="desc">Проверить Referer</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect questions -c math -n 5</span>
+        <span class="desc">Показать вопросы из банка</span>
+      </div>
+
+      <div class="cli-group">блоклист</div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect blacklist list --redis redis://...</span>
+        <span class="desc">Все заблокированные IP</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect blacklist add 1.2.3.4</span>
+        <span class="desc">Заблокировать IP (1 день по умолч.)</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect blacklist remove 1.2.3.4</span>
+        <span class="desc">Разблокировать IP</span>
+      </div>
+
+      <div class="cli-group">вайтлист</div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect whitelist list</span>
+        <span class="desc">Все разрешённые IP</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect whitelist add 1.2.3.4</span>
+        <span class="desc">Добавить в вайтлист</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect whitelist remove 1.2.3.4</span>
+        <span class="desc">Убрать из вайтлиста</span>
+      </div>
+
+      <div class="cli-group">логи</div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect logs -n 100</span>
+        <span class="desc">Последние 100 событий (detect / pass / fail)</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">kremle-detect logs --no-color</span>
+        <span class="desc">Без цвета (для grep / pipe)</span>
+      </div>
+    </div>
+
+    <p style="margin-top:16px;font-size:0.85rem;color:var(--muted);">
+      Redis URL можно задать через переменную окружения:
+      <span style="color:var(--green)">KREMLE_REDIS_URL=redis://localhost:6379/0</span>
+    </p>
+  </div>
+</section>
+
+<section id="questions">
+  <div class="wrap">
+    <h2>свои вопросы</h2>
+    <p>
+      Встроенный банк — 60 вопросов ЕГЭ по математике, физике, русскому и литературе.
+      Можно добавить свои или полностью заменить.
+    </p>
+
+    <h3>Шаг 1 — создать файл questions.py</h3>
+    <div class="code-block">
+      <button class="copy-btn">copy</button>
+      <pre>MY_QUESTIONS = [
+    {
+        <span class="str">"q"</span>: <span class="str">"Столица России?"</span>,
+        <span class="str">"opts"</span>: [<span class="str">"Москва"</span>, <span class="str">"Санкт-Петербург"</span>, <span class="str">"Новосибирск"</span>, <span class="str">"Казань"</span>],
+        <span class="str">"ans"</span>: 0,          <span class="comment"># индекс правильного варианта (с нуля)</span>
+        <span class="str">"category"</span>: <span class="str">"geo"</span>, <span class="comment"># необязательно</span>
+    },
+]</pre>
+    </div>
+
+    <h3>Шаг 2 — подключить</h3>
+    <div class="code-block">
+      <button class="copy-btn">copy</button>
+      <pre><span class="kw">from</span> questions <span class="kw">import</span> MY_QUESTIONS
+
+<span class="comment"># Добавить к встроенным</span>
+kremle = KremleFlask(app, extra_questions=MY_QUESTIONS)
+
+<span class="comment"># Только свои (без ЕГЭ)</span>
+kremle = KremleFlask(app, extra_questions=MY_QUESTIONS, only_extra=<span class="kw">True</span>)</pre>
+    </div>
+
+    <h3>Требования к формату</h3>
+    <div class="cli-list">
+      <div class="cli-row">
+        <span class="cmd">q</span>
+        <span class="desc">str — непустая строка, текст вопроса</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">opts</span>
+        <span class="desc">list — минимум 2 варианта ответа</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">ans</span>
+        <span class="desc">int — индекс правильного варианта в opts (с нуля)</span>
+      </div>
+      <div class="cli-row">
+        <span class="cmd">category</span>
+        <span class="desc">str — необязательно, метка на карточке вопроса</span>
+      </div>
+    </div>
+
+    <p style="margin-top:16px;font-size:0.85rem;color:var(--muted);">
+      Ошибки формата выбрасываются при старте приложения — неверный вопрос не дойдёт до пользователя.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="footer-links">
+      <a href="https://github.com/RUdolf1517/KremleXYZ-Detect" target="_blank">GitHub</a>
+      <a href="https://rudolfzinovev.xyz/" target="_blank">rudolfzinovev.xyz</a>
+      <span>MIT License</span>
+    </div>
+    <div>Проект создан <a href="https://rudolfzinovev.xyz/" target="_blank">RUdolf1517</a></div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var canvas = document.getElementById('matrix');
+  var ctx = canvas.getContext('2d');
+  var W, H, cols, drops;
+  var chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノ0123456789ABCDEF';
+
+  function init() {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    cols = Math.floor(W / 16);
+    drops = Array(cols).fill(1);
+  }
+
+  function draw() {
+    ctx.fillStyle = 'rgba(0,0,0,0.05)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#00ff41';
+    ctx.font = '14px monospace';
+    for (var i = 0; i < drops.length; i++) {
+      var ch = chars[Math.floor(Math.random() * chars.length)];
+      ctx.fillText(ch, i * 16, drops[i] * 16);
+      if (drops[i] * 16 > H && Math.random() > 0.975) drops[i] = 0;
+      drops[i]++;
+    }
+  }
+
+  init();
+  window.addEventListener('resize', init);
+  setInterval(draw, 50);
+})();
+
+document.querySelectorAll('.tabs').forEach(function(tabs) {
+  tabs.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var target = btn.dataset.tab;
+      tabs.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active');
+      var container = tabs.parentElement;
+      container.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
+      var panel = document.getElementById(target);
+      if (panel) panel.classList.add('active');
+    });
+  });
+});
+
+document.querySelectorAll('.copy-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var pre = btn.parentElement.querySelector('pre');
+    navigator.clipboard.writeText(pre.innerText).then(function() {
+      btn.textContent = 'ok!';
+      setTimeout(function(){ btn.textContent = 'copy'; }, 1500);
+    });
+  });
+});
+
+var observer = new IntersectionObserver(function(entries) {
+  entries.forEach(function(e) {
+    if (e.isIntersecting) e.target.classList.add('visible');
+  });
+}, { threshold: 0.07 });
+
+document.querySelectorAll('section').forEach(function(s){ observer.observe(s); });
+
+var sections = document.querySelectorAll('section[id]');
+var navLinks = document.querySelectorAll('nav a[href^="#"]');
+
+window.addEventListener('scroll', function() {
+  var pos = window.scrollY + 80;
+  sections.forEach(function(s) {
+    if (s.offsetTop <= pos && s.offsetTop + s.offsetHeight > pos) {
+      navLinks.forEach(function(a){ a.classList.remove('active'); });
+      var link = document.querySelector('nav a[href="#' + s.id + '"]');
+      if (link) link.classList.add('active');
+    }
+  });
+}, { passive: true });
+</script>
+
+</body>
+</html>

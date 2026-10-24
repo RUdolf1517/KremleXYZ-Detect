@@ -186,9 +186,20 @@ jobs:
           npm publish --provenance --access public
 
       - name: Проверить, что публикация ушла по OIDC
+        # Attestation появляется только когда версия реально легла в реестр.
+        # При staged-публикации её там ещё нет — это не повод обвинять trusted
+        # publishing, поэтому сначала ждём реестр и отдельно объясняем staged.
         run: |
           set -o pipefail
           version="${GITHUB_REF_NAME#v}"
+          for i in 1 2 3 4 5; do
+            if npm view "kremle-react@${version}" version >/dev/null 2>&1; then break; fi
+            sleep 3
+          done
+          if ! npm view "kremle-react@${version}" version >/dev/null 2>&1; then
+            echo "::notice title=Provenance::kremle-react@${version} ещё не в реестре (staged — нужен Approve). После подтверждения attestation проверится так: curl -s https://registry.npmjs.org/-/npm/v1/attestations/kremle-react@${version}"
+            exit 0
+          fi
           attest=$(curl -fsS "https://registry.npmjs.org/-/npm/v1/attestations/kremle-react@${version}" || true)
           if echo "$attest" | grep -q 'slsa.dev/provenance'; then
             echo "::notice::kremle-react@${version} опубликован с provenance (SLSA)"
@@ -199,7 +210,7 @@ jobs:
       - name: Проверить, что версия реально доступна
         # npm может принять публикацию, но оставить её в staged-режиме
         # (нужно подтверждение 2FA мейнтейнера). Джоб при этом зелёный,
-        # а в реестре вместо пакета лежит заглушка 0.0.0-stage — предупреждаем явно.
+        # а latest в реестре всё ещё указывает на предыдущую версию — говорим явно.
         run: |
           version="${GITHUB_REF_NAME#v}"
           if npm view "kremle-react@${version}" version >/dev/null 2>&1; then

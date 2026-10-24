@@ -111,8 +111,24 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Эта версия уже на npm?
+        id: published
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "kremle-react@${version}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "kremle-react@${version} уже опубликован — публикацию пропускаю."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "kremle-react@${version} в реестре нет — публикую."
+          fi
+
       - name: Publish
+        if: steps.published.outputs.exists != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Повторный запуск по тому же тегу: файлы уже загружены — это не ошибка
+          skip-existing: true
         # password: ${{ secrets.PYPI_API_TOKEN }}   # если публикуете токеном
 
   npm:
@@ -160,7 +176,20 @@ jobs:
             console.log('version ok:', tag);
           "
 
+      - name: Эта версия уже на npm?
+        id: published
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "kremle-react@${version}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "kremle-react@${version} уже опубликован — публикацию пропускаю."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "kremle-react@${version} в реестре нет — публикую."
+          fi
+
       - name: Publish
+        if: steps.published.outputs.exists != 'true'
         # npm CLI сам выбирает способ: OIDC (если настроен trusted publisher)
         # или NODE_AUTH_TOKEN. --provenance при OIDC избыточен, но не мешает.
         run: |

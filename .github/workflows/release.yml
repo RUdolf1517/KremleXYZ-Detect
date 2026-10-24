@@ -202,6 +202,18 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Проверить, что версия реально доступна
+        # npm может принять публикацию, но оставить её в staged-режиме
+        # (нужно подтверждение 2FA мейнтейнера). Джоб при этом зелёный,
+        # а в реестре вместо пакета лежит заглушка 0.0.0-stage — предупреждаем явно.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "kremle-react@${version}" version >/dev/null 2>&1; then
+            echo "::notice::kremle-react@${version} опубликован и доступен"
+          else
+            echo "::warning title=Staged publish::kremle-react@${version} принят, но ждёт подтверждения (2FA). npmjs.com → kremle-react → Staged publishes → Approve. До подтверждения в реестре видна заглушка $(npm view kremle-react version 2>/dev/null || echo '—')."
+          fi
+
   github-release:
     name: GitHub Release
     # Релиз с артефактами появляется даже если публикация в индекс упала:

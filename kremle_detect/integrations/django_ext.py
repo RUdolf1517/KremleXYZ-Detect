@@ -79,7 +79,7 @@ _ENGINE_SETTINGS = (
     'KREMLE_FAIL_THRESHOLD', 'KREMLE_BLACKLIST_TTL', 'KREMLE_POLICY',
     'KREMLE_SAMPLE_RATE', 'KREMLE_METRICS_ENABLED', 'KREMLE_VERIFIED_TTL',
     'KREMLE_BIND_IP', 'KREMLE_BIND_UA', 'KREMLE_QUESTIONS_SOURCE',
-    'KREMLE_QUESTIONS_IMAGES',
+    'KREMLE_QUESTIONS_IMAGES', 'KREMLE_IMAGES_CACHE_DIR', 'KREMLE_IMAGES_PREFIX',
 )
 
 
@@ -125,6 +125,10 @@ def _get_engine(settings) -> CaptchaEngine:
             bind_ua=getattr(settings, 'KREMLE_BIND_UA', False),
             questions_source=getattr(settings, 'KREMLE_QUESTIONS_SOURCE', 'auto'),
             questions_images=getattr(settings, 'KREMLE_QUESTIONS_IMAGES', False),
+            images_cache_dir=getattr(settings, 'KREMLE_IMAGES_CACHE_DIR', None),
+            images_prefix=getattr(
+                settings, 'KREMLE_IMAGES_PREFIX', '/kremle/img/',
+            ),
         )
     return _engine_cache[cache_key]
 
@@ -393,11 +397,28 @@ def kremle_urls():
             content_type='text/plain; version=0.0.4; charset=utf-8',
         )
 
+    @require_GET
+    def image(request, key):
+        """Картинка задания из локального кеша (см. ``kremle_detect.images``)."""
+        from django.conf import settings
+        from ..images import RESPONSE_HEADERS as image_headers, read_image
+
+        engine = _get_engine(settings)
+        entry = read_image(key, engine.images_cache_dir)
+        if entry is None:
+            return HttpResponse('', status=404, headers={'Cache-Control': 'no-store'})
+        response = HttpResponse(entry['bytes'], content_type=entry['content_type'])
+        for name, value in image_headers.items():
+            response[name] = value
+        return response
+
     patterns = [
         path('challenge/', challenge, name='kremle_challenge'),
         path('verify/', verify, name='kremle_verify'),
         path('status/', status, name='kremle_status'),
         path('logout/', logout, name='kremle_logout'),
+        # без завершающего слэша: images_prefix по умолчанию '/kremle/img/'
+        path('img/<str:key>', image, name='kremle_image'),
     ]
 
     # Эксплуатационные роуты можно выключить целиком (KREMLE_ENABLE_OPS_ROUTES)

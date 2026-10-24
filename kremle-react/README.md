@@ -21,7 +21,8 @@ npm install kremle-react
 npm install /path/to/KremleXYZ-Detect/kremle-react
 ```
 
-React ≥ 17, Node ≥ 18 для сборки.
+React ≥ 17. Сам пакет — готовый `dist`, Node нужен только для сборки из исходников:
+Node ≥ 22 (jsdom 30 в тестах этого требует).
 
 ## Использование
 
@@ -145,9 +146,13 @@ export function MyCaptcha() {
 ```bash
 npm install
 npm test            # vitest + jsdom, 24 теста
-npm run typecheck   # tsc --noEmit
-npm run build       # ESM + CJS + .d.ts
+npm run typecheck   # tsc --noEmit (TypeScript 7)
+npm run build       # ESM + CJS (tsup) + .d.ts (tsc -p tsconfig.build.json)
 ```
+
+`.d.ts` собирает `tsc`, а не tsup: в TypeScript 7 (нативная версия) нет JS-компилятора,
+на котором держится dts-плагин tsup. Поэтому в `tsup.config.ts` стоит `dts: false`,
+а типы эмитит `tsconfig.build.json`.
 
 ## Лицензия
 

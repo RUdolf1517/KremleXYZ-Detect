@@ -3,7 +3,9 @@ import { defineConfig } from 'tsup'
 export default defineConfig({
   entry: ['src/index.ts'],
   format: ['cjs', 'esm'],
-  dts: true,
+  // .d.ts собирает tsc из tsconfig.build.json: в TypeScript 7 (нативная
+  // версия) нет JS-компилятора, на котором держится dts-плагин tsup.
+  dts: false,
   clean: true,
   external: ['react', 'react-dom', 'react/jsx-runtime'],
   sourcemap: true,

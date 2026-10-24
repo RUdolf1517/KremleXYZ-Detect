@@ -10,7 +10,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
-[![version](https://img.shields.io/badge/version-2.7.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.7.1-111111?style=flat-square)](CHANGELOG.md)
 [![tests](https://img.shields.io/badge/tests-502%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
@@ -767,7 +767,7 @@ logging.getLogger('kremle').setLevel(logging.INFO)
 
 ## React-компонент
 
-`kremle-react@2.7.0` — ESM + CJS + `'use client'` + типы, 24 теста, ставится из репозитория или из npm.
+`kremle-react@2.7.1` — ESM + CJS + `'use client'` + типы, 24 теста, ставится из репозитория или из npm.
 Версия npm-пакета совпадает с версией Python-пакета — один релиз, один тег.
 
 ```bash
@@ -902,7 +902,7 @@ kremle-detect whitelist remove 10.0.0.1
 ### Версия
 
 ```bash
-kremle-detect --version      # kremle-detect 2.7.0
+kremle-detect --version      # kremle-detect 2.7.1
 ```
 
 ### Демо-сервер
@@ -936,7 +936,7 @@ pytest tests/ -q
 
 # 2. версия во всех трёх файлах + запись в CHANGELOG.md
 # 3. тег и пуш — дальше всё делает .github/workflows/release.yml
-git tag v2.7.0 && git push origin v2.7.0
+git tag v2.7.1 && git push origin v2.7.1
 ```
 
 Workflow соберёт wheel/sdist, сверит версию с тегом, поставит wheel в чистый venv
@@ -954,52 +954,63 @@ Workflow соберёт wheel/sdist, сверит версию с тегом, п
 - Если OIDC на PyPI недоступен — секрет `PYPI_API_TOKEN` и раскомментировать
   `password` в шаге публикации.
 
-### npm: токен или trusted publishing
+### npm: trusted publishing (OIDC)
 
-**Первый релиз нового пакета — только токеном.** npm не умеет публиковать самую
-первую версию через OIDC: trusted publisher настраивается на странице пакета,
-а страницы ещё нет ([npm/cli#8544](https://github.com/npm/cli/issues/8544)).
+Пакет `kremle-react` публикуется **без токенов**: npm доверяет конкретному
+workflow, а CLI получает короткоживущий OIDC-токен на время джоба.
 
-1. npmjs.com → Access Tokens → Generate New Token → **Granular**:
-   - Packages and scopes: только `kremle-react`, **Read and write**;
-   - **Bypass 2FA** — включить (иначе CI не сможет публиковать);
-   - Expiration — **минимум, хватит и 7 дней**: токен нужен на один запуск.
-     Максимум для write-токенов — **90 дней**, больше npm не даёт.
-2. GitHub → Secrets → `NPM_TOKEN`.
-3. После успешной публикации: npmjs.com → `kremle-react` → Settings →
-   **Trusted publishing** → GitHub Actions:
-   `RUdolf1517` / `KremleXYZ-Detect` / `release.yml`, и **обязательно** отметить
-   `npm publish` (конфигурации, созданные после 3 сентября 2026, по умолчанию
-   разрешают только `npm stage publish`).
-4. Удалить секрет `NPM_TOKEN` и сам токен — дальше публикация идёт по OIDC,
-   с автоматическим provenance и без срока истечения.
+Настроено один раз (npmjs.com → `kremle-react` → Settings → **Trusted Publisher**):
 
-У trusted publishing есть два ограничения по времени: конфигурацию нужно
-«подтвердить» первым успешным релизом **в течение 2 суток** (иначе она
-истекает и её надо создать заново), и нужен npm CLI ≥ 11.5.1 / Node ≥ 22.14 —
-поэтому в workflow стоит Node 22 и `npm install -g npm@latest`.
+| Поле | Значение |
+|---|---|
+| Organization or user | `RUdolf1517` |
+| Repository | `KremleXYZ-Detect` |
+| Workflow filename | `release.yml` |
+| Environment name | пусто |
+| Allowed actions | ✅ `npm publish` (иначе только staged-режим) |
 
-**Staged publishing.** Если в конфигурации trusted publisher отмечен только
-`npm stage publish` (это дефолт для конфигураций, созданных после 3 сентября 2026),
-то `npm publish` **не публикует пакет сразу**: версия уходит на подтверждение,
-а в реестре появляется заглушка `0.0.0-stage` с описанием «Temporary package
-placeholder for staged publishing». Job при этом зелёный — в workflow есть отдельный
-шаг, который это ловит и печатает warning.
+Требования, которые уже выполнены в workflow: Node ≥ 22.14, npm CLI ≥ 11.5.1
+(`npm install -g npm@latest`), `id-token: write`, публичный репозиторий —
+provenance (`slsa.dev/provenance/v1`) генерируется автоматически.
+`NODE_AUTH_TOKEN` в шаг публикации **не передаётся**: если OIDC сломается,
+job упадёт с `ENEEDAUTH` сразу, а не через 90 дней, когда истечёт токен.
 
-Подтвердить релиз:
+**Важно про первый релиз.** Самую первую версию пакета нельзя опубликовать через
+OIDC — trusted publisher настраивается на странице пакета, которой ещё нет
+([npm/cli#8544](https://github.com/npm/cli/issues/8544)). Поэтому 2.7.0 уехала
+granular-токеном (он уже удалён), а 2.7.1 — первая версия, которую валидирует TP.
+Неподтверждённая конфигурация истекает через **2 суток**.
+
+Проверить, что публикация прошла именно по OIDC:
 
 ```bash
-npm stage list kremle-react        # что ждёт подтверждения
-npm stage approve <stageId>        # 2FA спросит код
+curl -s https://registry.npmjs.org/-/npm/v1/attestations/kremle-react@2.7.1 \
+  | grep -o 'slsa.dev/provenance/v1'
+```
+
+**Если всё-таки нужен токен** (например, для первого релиза нового пакета):
+granular token с правом Read and write на пакет, **Bypass 2FA** включён,
+срок — 7 дней (максимум для write-токенов — 90). Секрет `NPM_TOKEN`, после
+публикации — удалить.
+
+**Staged publishing.** Если в конфигурации отмечен только `npm stage publish`,
+`npm publish` не публикует сразу: версия уходит на подтверждение, а в реестре
+появляется заглушка `0.0.0-stage`. Workflow такое ловит и печатает warning.
+Подтверждение:
+
+```bash
+npm stage list kremle-react
+npm stage approve <stageId>          # спросит 2FA-код
 ```
 
 или в браузере: npmjs.com → `kremle-react` → **Staged publishes** → **Approve**.
-После подтверждения `latest` переключается на реальную версию, заглушка уходит.
 
-Если подтверждать каждый релиз не хочется — пересоздайте trusted publisher
-(существующие конфигурации нельзя редактировать) и отметьте **Allow npm publish**:
-тогда `npm publish` из CI публикует сразу, с provenance. Stage-only — самый
-безопасный режим: без вашего 2FA ни одна версия не станет публичной.
+### Как закрыть публикацию по токенам
+
+Когда TP подтверждён, стоит запретить старый путь: npmjs.com → `kremle-react` →
+Settings → **Publishing access** → *Require two-factor authentication and disallow
+bypass 2fa tokens* → Update Package Settings. По документации это не влияет на
+trusted publishers, но убивает возможность опубликовать по утёкшему токену.
 
 ## Безопасность: что честно
 

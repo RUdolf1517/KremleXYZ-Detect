@@ -126,6 +126,23 @@ class TestHeadlessMiddleware:
         r = client.get('/protected', headers={'User-Agent': NORMAL_UA, 'X-Forwarded-For': '10.0.0.99'})
         assert r.status_code == 200
 
+    def test_xff_from_loopback_trusted_by_default(self):
+        """Без trusted_proxies loopback — доверенный прокси (nginx на хосте)."""
+        storage = MemoryStorage()
+        storage.blacklist_add('10.0.0.99', ttl=3600)
+        app = FastAPI()
+        KremleFastAPI(app, secret='test-secret', storage=storage, headless=True,
+                      question_count=3, max_errors=1)
+
+        @app.get('/protected')
+        async def protected():
+            return {'ok': True}
+
+        client = make_client(app, peer='127.0.0.1')
+        r = client.get('/protected', headers={'User-Agent': NORMAL_UA, 'X-Forwarded-For': '10.0.0.99'})
+        assert r.status_code == 403
+        assert r.json()['reason'] == 'blacklisted'
+
     def test_xff_honored_from_trusted_proxy(self):
         storage = MemoryStorage()
         storage.blacklist_add('10.0.0.99', ttl=3600)

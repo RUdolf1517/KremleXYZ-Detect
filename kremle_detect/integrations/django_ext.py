@@ -23,7 +23,7 @@ Django-интеграция KremleDetect (middleware).
     KREMLE_ONLY_EXTRA = False
     KREMLE_FAIL_THRESHOLD = 0
     KREMLE_BLACKLIST_TTL = 86400
-    KREMLE_TRUSTED_PROXIES = ['127.0.0.1', '10.0.0.0/8']   # кому доверяем X-Forwarded-For
+    KREMLE_TRUSTED_PROXIES = None   # None → loopback+приватные, [] → никому, список → только он
     KREMLE_CHALLENGE_RATE_LIMIT = 60                       # выдач челленджа с IP за окно
 
 Также нужно подключить URL-ы в urls.py:
@@ -104,7 +104,7 @@ def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
     return ip_matches(ip, whitelist)
 
 
-def _get_client_ip(request, trusted_proxies=()) -> str:
+def _get_client_ip(request, trusted_proxies=None) -> str:
     """
     IP клиента; X-Forwarded-For учитывается только если запрос пришёл
     от доверенного прокси (KREMLE_TRUSTED_PROXIES).
@@ -127,7 +127,7 @@ class KremleDjangoMiddleware:
 
         skip_paths = getattr(settings, 'KREMLE_SKIP_PATHS', ['/admin/', '/static/'])
         whitelist = getattr(settings, 'KREMLE_WHITELIST', [])
-        trusted_proxies = getattr(settings, 'KREMLE_TRUSTED_PROXIES', [])
+        trusted_proxies = getattr(settings, 'KREMLE_TRUSTED_PROXIES', None)
 
         if not hasattr(request, 'session'):
             from django.core.exceptions import ImproperlyConfigured
@@ -183,7 +183,7 @@ def kremle_urls():
         from django.conf import settings
         engine = _get_engine(settings)
 
-        trusted_proxies = getattr(settings, 'KREMLE_TRUSTED_PROXIES', [])
+        trusted_proxies = getattr(settings, 'KREMLE_TRUSTED_PROXIES', None)
         ip = _get_client_ip(request, trusted_proxies)
         if engine.check_challenge_limit(ip):
             return HttpResponse('Слишком много запросов. Попробуйте позже.',
@@ -228,7 +228,7 @@ def kremle_urls():
         token = data.get('token') or request.session.get('kremle_token', '')
         answers = data.get('answers', {})
         fingerprint = data.get('fingerprint')
-        trusted_proxies = getattr(settings, 'KREMLE_TRUSTED_PROXIES', [])
+        trusted_proxies = getattr(settings, 'KREMLE_TRUSTED_PROXIES', None)
         ip = _get_client_ip(request, trusted_proxies)
 
         result = engine.verify(token, answers, ip=ip, fingerprint=fingerprint)

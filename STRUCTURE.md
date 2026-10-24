@@ -14,7 +14,7 @@ KremleXYZ-Detect/
 │   ├── detector.py                  Детекция (UA, боты, referer, Client Hints)
 │   ├── captcha.py                   Ядро: CaptchaEngine, Challenge, лимиты, callbacks
 │   ├── storage.py                   MemoryStorage, RedisStorage, EventLog
-│   ├── ip.py                        Резолвинг IP, trusted proxies, IP/CIDR-матчинг
+│   ├── ip.py                        Резолвинг IP, авто/явные trusted proxies, IP/CIDR
 │   ├── questions/                   Банк вопросов (60 шт.)
 │   │   ├── __init__.py              get_questions(), validate_questions()
 │   │   ├── math.py                  15 заданий — ЕГЭ математика
@@ -29,7 +29,7 @@ KremleXYZ-Detect/
 │   └── templates/
 │       └── kremle_captcha.html      HTML капчи + JS-фингерпринт
 ├── kremle-react/                    React-компонент и хук (tsup, TypeScript)
-├── tests/                           201 тест
+├── tests/                           214 тестов
 │   ├── test_detector.py             Детекция UA/referer/hints
 │   ├── test_captcha.py              Challenge, engine, storage, callbacks
 │   ├── test_engine_security.py      Валидация настроек, одноразовые токены, лимиты
@@ -107,15 +107,15 @@ KremleXYZ-Detect/
 
 ## Ключевое в 2.6
 
-- **Доверие к IP**: `trusted_proxies` — XFF читается только от известных прокси,
-  один резолвер на гард и на verify.
+- **Доверие к IP**: XFF читается только от loopback/приватных сетей или явного
+  `trusted_proxies`; один резолвер на гард и на verify.
 - **Лимиты, которые не бьют по людям**: считаются только неудачные проверки,
   успех сбрасывает счётчик; отдельный лимит на выдачу челленджей.
 - **Одноразовые токены**: повтор требует нового челленджа.
-- **Валидация конфига на старте**: `max_errors < question_count`, числа не отрицательные,
-  пул вопросов достаточный.
+- **Мягкая валидация конфига**: числа проверяются на старте, `max_errors` подрезается
+  под `question_count` и фактический пул вопросов (с предупреждением в лог).
 - **Атомарный Redis**: `INCR` + `EXPIRE` одним Lua-скриптом.
 - **Одинаковое поведение интеграций**: 400 на битый JSON, `no-store` на капче,
   429 при флуде челленджами.
-- **201 тест** и CI, который ставит все extras (раньше fastapi-тесты молча скипались),
+- **214 тестов** и CI, который ставит все extras (раньше fastapi-тесты молча скипались),
   собирает wheel и билдит React-пакет.

@@ -167,11 +167,15 @@ class CaptchaEngine:
         self.question_count = _require_int('question_count', question_count, 1)
         self.max_errors = _require_int('max_errors', max_errors, 0)
         if self.max_errors >= self.question_count:
-            raise ValueError(
-                f'max_errors ({self.max_errors}) должен быть меньше question_count '
-                f'({self.question_count}) — иначе капча проходится без единого '
-                f'правильного ответа'
+            # Не роняем приложение из-за настройки: подрезаем до безопасного
+            # значения (на 1 вопрос всегда должен быть хотя бы 1 верный ответ)
+            # и громко объясняем в лог.
+            logger.warning(
+                'max_errors=%d >= question_count=%d: капча проходилась бы без '
+                'правильных ответов. Значение уменьшено до %d.',
+                self.max_errors, self.question_count, self.question_count - 1,
             )
+            self.max_errors = self.question_count - 1
         self.secret = secret
         self.extra_questions = list(extra_questions) if extra_questions else []
         if self.extra_questions:
@@ -184,6 +188,7 @@ class CaptchaEngine:
             'challenge_rate_limit', challenge_rate_limit, 0
         )
         self._rng = random.SystemRandom()
+        self._warned_small_pool = False
 
         # Callbacks
         self.on_detect = on_detect
@@ -218,13 +223,15 @@ class CaptchaEngine:
         questions = pool[:self.question_count]
 
         # Пул может оказаться меньше question_count (мало категорий/своих вопросов).
-        # Если вопросам можно набрать max_errors ошибок и всё равно пройти — это
-        # дыра, а не настройка.
-        if len(questions) <= self.max_errors:
-            raise ValueError(
-                f'В пуле только {len(questions)} вопрос(ов), а max_errors={self.max_errors} — '
-                f'капча проходится без правильных ответов. Увеличьте question_count, '
-                f'добавьте категории/свои вопросы или уменьшите max_errors'
+        # Проверка реального числа вопросов — в verify(): лимит ошибок там
+        # подрезается до len(questions) - 1. Здесь только предупреждаем.
+        if len(questions) <= self.max_errors and not self._warned_small_pool:
+            self._warned_small_pool = True
+            logger.warning(
+                'В пуле %d вопрос(ов), а max_errors=%d — лимит ошибок будет '
+                'уменьшен до %d. Добавьте категории/свои вопросы или уменьшите '
+                'max_errors.',
+                len(questions), self.max_errors, max(len(questions) - 1, 0),
             )
 
         # Перемешиваем варианты ответов на сервере: индекс правильного ответа
@@ -433,9 +440,13 @@ class CaptchaEngine:
             except (TypeError, ValueError):
                 errors += 1
 
+        total = len(challenge.questions)
+        # На 1 вопрос — минимум 1 верный ответ: даже если пул оказался меньше
+        # question_count, свободного прохода не будет.
+        effective_max_errors = min(effective_max_errors, max(total - 1, 0))
+
         passed = errors <= effective_max_errors
 
-        total = len(challenge.questions)
         # Токен одноразовый: после любой проверки он сгорает, повтор требует
         # нового челленджа (иначе один токен = бесконечные попытки угадать).
         self.storage.delete(f'challenge:{token}')

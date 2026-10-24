@@ -23,13 +23,23 @@ def right_answers(challenge):
 
 
 class TestConfigValidation:
-    def test_max_errors_equal_question_count_rejected(self):
-        with pytest.raises(ValueError, match='max_errors'):
-            make_engine(question_count=3, max_errors=3)
+    def test_max_errors_equal_question_count_is_clamped(self, caplog):
+        """Старт не ломаем: подрезаем лимит и предупреждаем в лог."""
+        with caplog.at_level('WARNING', logger='kremle'):
+            engine = make_engine(question_count=3, max_errors=3)
+        assert engine.max_errors == 2
+        assert any('max_errors' in r.message for r in caplog.records)
 
-    def test_max_errors_greater_than_question_count_rejected(self):
-        with pytest.raises(ValueError, match='max_errors'):
-            make_engine(question_count=2, max_errors=10)
+    def test_max_errors_greater_than_question_count_is_clamped(self):
+        engine = make_engine(question_count=2, max_errors=10)
+        assert engine.max_errors == 1
+        ch = engine.create_challenge()
+        # даже все ответы неверные — не проходим
+        assert engine.verify(ch.token, {str(i): 99 for i in range(len(ch.questions))})['passed'] is False
+
+    def test_single_question_allows_no_errors(self):
+        engine = make_engine(question_count=1, max_errors=5)
+        assert engine.max_errors == 0
 
     def test_question_count_must_be_positive(self):
         with pytest.raises(ValueError, match='question_count'):
@@ -55,8 +65,8 @@ class TestConfigValidation:
         with pytest.raises(ValueError, match='rate_window'):
             make_engine(rate_window=0)
 
-    def test_pool_too_small_for_max_errors(self):
-        """15 вопросов в math + question_count=20 → 15 вопросов, max_errors=15 — дыра."""
+    def test_pool_smaller_than_question_count_stays_safe(self):
+        """Пул короче question_count: лимит ошибок подрезается под реальный пул."""
         engine = CaptchaEngine(
             categories=['math'],
             question_count=20,
@@ -64,20 +74,15 @@ class TestConfigValidation:
             secret='test',
             storage=MemoryStorage(),
         )
-        # 15 реальных вопросов > 14 ошибок — ок, но 14 ошибок из 15 это почти
-        # свободный проход; проверим что совсем дырявый конфиг падает.
-        engine2 = CaptchaEngine(
-            categories=['math'],
-            question_count=20,
-            max_errors=16,
-            secret='test',
-            storage=MemoryStorage(),
-        )
-        assert engine.question_count == 20
-        with pytest.raises(ValueError, match='max_errors'):
-            engine2.create_challenge()
+        ch = engine.create_challenge()
+        assert len(ch.questions) == 15
+        # 14 ошибок из 15 — теперь не проход: максимум 14 ... проверим границу
+        answers = {str(i): 99 for i in range(15)}
+        result = engine.verify(ch.token, answers)
+        assert result['passed'] is False
 
-    def test_small_pool_with_only_extra(self):
+    def test_small_pool_with_only_extra_is_not_free_pass(self, caplog):
+        """2 вопроса в пуле + max_errors=2 → капча всё равно не проходится даром."""
         engine = CaptchaEngine(
             extra_questions=[
                 {'q': 'A?', 'opts': ['1', '2'], 'ans': 0},
@@ -88,8 +93,18 @@ class TestConfigValidation:
             max_errors=2,
             secret='test',
         )
-        with pytest.raises(ValueError, match='В пуле только 2'):
-            engine.create_challenge()
+        with caplog.at_level('WARNING', logger='kremle'):
+            ch = engine.create_challenge()
+        assert len(ch.questions) == 2
+        assert any('В пуле' in r.message for r in caplog.records)
+
+        # 1 ошибка из 2 — проход (лимит подрезан до 1), 2 ошибки — провал
+        wrong_one = {str(i): q['ans'] for i, q in enumerate(ch.questions)}
+        wrong_one['0'] = 99
+        assert engine.verify(ch.token, wrong_one)['passed'] is True
+
+        ch2 = engine.create_challenge()
+        assert engine.verify(ch2.token, {str(i): 99 for i in range(2)})['passed'] is False
 
 
 class TestSingleUseToken:

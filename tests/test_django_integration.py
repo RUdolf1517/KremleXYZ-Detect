@@ -104,6 +104,14 @@ class TestMiddleware:
         assert not called
         assert result.status_code == 302
 
+    def test_xff_from_loopback_trusted_by_default(self):
+        """KREMLE_TRUSTED_PROXIES не задан → nginx на localhost работает сам."""
+        with override_settings(KREMLE_WHITELIST=['198.51.100.7'], KREMLE_TRUSTED_PROXIES=None):
+            result, called = run_middleware(
+                make_request(ua=YANDEX_UA, xff='198.51.100.7', remote='127.0.0.1')
+            )
+        assert called
+
     def test_xff_from_trusted_proxy_whitelists(self):
         with override_settings(
             KREMLE_WHITELIST=['198.51.100.7'],
@@ -113,6 +121,13 @@ class TestMiddleware:
                 make_request(ua=YANDEX_UA, xff='198.51.100.7', remote='127.0.0.1')
             )
         assert called
+
+    def test_explicit_empty_trust_list_blocks_xff(self):
+        with override_settings(KREMLE_WHITELIST=['198.51.100.7'], KREMLE_TRUSTED_PROXIES=[]):
+            result, called = run_middleware(
+                make_request(ua=YANDEX_UA, xff='198.51.100.7', remote='127.0.0.1')
+            )
+        assert not called
 
     def test_blacklisted_redirected(self):
         storage = MemoryStorage()

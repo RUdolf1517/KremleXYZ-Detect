@@ -45,7 +45,7 @@ def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
     return ip_matches(ip, whitelist)
 
 
-def _client_ip(request, trusted_proxies=()) -> str:
+def _client_ip(request, trusted_proxies=None) -> str:
     """IP клиента; X-Forwarded-For учитывается только от доверенных прокси."""
     peer = request.client.host if request.client else ''
     return client_ip(peer, request.headers.get('x-forwarded-for', ''), trusted_proxies)
@@ -104,7 +104,8 @@ class KremleFastAPI:
         self.custom_template = template
         self.secret = secret
         self.headless = headless
-        self.trusted_proxies = list(trusted_proxies or [])
+        # None → авто (loopback + приватные сети), [] → не доверять никому
+        self.trusted_proxies = None if trusted_proxies is None else list(trusted_proxies)
 
         if app is not None:
             self.init_app(app)

@@ -41,7 +41,7 @@ _SKIP_ENDPOINTS = frozenset({
 })
 
 
-def _get_client_ip(request, trusted_proxies=()) -> str:
+def _get_client_ip(request, trusted_proxies=None) -> str:
     """
     Реальный IP клиента. X-Forwarded-For учитывается только от доверенных
     прокси (``trusted_proxies``) — иначе его можно подделать.
@@ -80,7 +80,8 @@ class KremleFlask:
         on_fail: callback(ip, errors, total) — при провале
         extra_questions: свои вопросы
         only_extra: только свои вопросы
-        trusted_proxies: IP/CIDR прокси, которым доверяем X-Forwarded-For
+        trusted_proxies: IP/CIDR прокси, которым доверяем X-Forwarded-For;
+                         None — loopback и приватные сети, [] — никому
         challenge_rate_limit: макс. выдач челленджа с одного IP за rate_window (0 — off)
     """
 
@@ -126,7 +127,8 @@ class KremleFlask:
         self.only_extra = only_extra
         self.fail_threshold = fail_threshold
         self.blacklist_ttl = blacklist_ttl
-        self.trusted_proxies = list(trusted_proxies or [])
+        # None → авто (loopback + приватные сети), [] → не доверять никому
+        self.trusted_proxies = None if trusted_proxies is None else list(trusted_proxies)
         self.challenge_rate_limit = challenge_rate_limit
         self.engine: Optional[CaptchaEngine] = None
 

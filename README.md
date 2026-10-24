@@ -11,7 +11,7 @@
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
 [![version](https://img.shields.io/badge/version-2.6.0-111111?style=flat-square)](CHANGELOG.md)
-[![tests](https://img.shields.io/badge/tests-201%20passed-2ea44f?style=flat-square)](#тесты)
+[![tests](https://img.shields.io/badge/tests-214%20passed-2ea44f?style=flat-square)](#тесты)
 
 </div>
 
@@ -240,8 +240,10 @@ is_yandex_referrer('https://yandex.ru/search?q=test')     # True
 - **Строгий режим по фингерпринту.** Если JS сообщает `yaBrands`, `yandexApi` или honeypot,
   `max_errors` принудительно становится `0` — Яндекс Браузер должен сдать идеально.
   Это задуманное поведение, а не баг.
-- `max_errors` обязан быть **меньше** `question_count`, иначе капча проходится без
-  единого правильного ответа — такой конфиг падает с `ValueError` на старте.
+- `max_errors` не может быть больше или равен `question_count`: на старте значение
+  подрезается до `question_count - 1` с `WARNING` в лог — иначе капча проходится
+  без единого правильного ответа. Если пул вопросов оказался короче
+  `question_count`, лимит подрезается под фактическое число вопросов.
 
 Коды ошибок в ответе `/kremle/verify`:
 
@@ -338,23 +340,35 @@ kremle = KremleFlask(app, challenge_rate_limit=60)   # 60 челленджей �
 
 ## IP, прокси, whitelist, blacklist
 
-`X-Forwarded-For` по умолчанию **не** используется: подделать его может кто угодно.
-За nginx/CDN укажи, каким прокси доверять:
+`X-Forwarded-For` принимается только от доверенных прокси. По умолчанию доверяем
+**loopback и приватным сетям** — `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16`, `169.254.0.0/16`, IPv6 ULA и link-local. То есть nginx на том же
+хосте, docker/k8s-сеть и внутренний балансировщик работают **без настройки**.
+
+Нужен публичный балансировщик (Cloudflare, облачный LB) — перечисли его явно:
 
 ```python
 kremle = KremleFlask(
     app,
-    trusted_proxies=['127.0.0.1', '10.0.0.0/8'],
+    trusted_proxies=['203.0.113.10', '198.51.100.0/24'],
 )
 ```
 
 ```python
 # Django settings.py
-KREMLE_TRUSTED_PROXIES = ['127.0.0.1', '10.0.0.0/8']
+KREMLE_TRUSTED_PROXIES = ['203.0.113.10', '198.51.100.0/24']
 ```
 
-Цепочка читается справа налево, доверенные хопы пропускаются. Один и тот же резолвер
-используется в гарде, в `/kremle/verify` и в статистике — IP везде совпадает.
+Отключить доверие целиком (брать только адрес TCP-соединения):
+
+```python
+kremle = KremleFlask(app, trusted_proxies=[])
+```
+
+Если `X-Forwarded-For` пришёл от недоверенного адреса, в лог `kremle` уйдёт одно
+предупреждение с подсказкой — так виден забытый публичный LB. Цепочка читается
+справа налево, доверенные хопы пропускаются. Один и тот же резолвер используется
+в гарде, в `/kremle/verify` и в статистике — IP везде совпадает.
 
 ```python
 # статический вайтлист (IP и CIDR)
@@ -533,10 +547,10 @@ kremle-detect logs --no-color
 
 | Было | Стало |
 |---|---|
-| `X-Forwarded-For` принимался от всех | только от `trusted_proxies` |
+| `X-Forwarded-For` принимался от всех | только от loopback/приватных сетей и `trusted_proxies` |
 | rate limit считал все попытки | только неудачные, успех сбрасывает счётчик |
 | токен сгорал только после успеха | одноразовый: сгорает после любой проверки |
-| `max_errors >= question_count` проходился всегда | `ValueError` на старте |
+| `max_errors >= question_count` проходился всегда | значение подрезается с предупреждением в лог |
 | Flask-гард брал `remote_addr`, verify — XFF | один резолвер IP везде |
 | FastAPI: битый JSON → 500 | `400 {"error": "invalid_json"}` |
 | `path('kremle/', kremle_urls())` в Django падал | возвращается `include(...)`, роуты резолвятся |
@@ -544,14 +558,16 @@ kremle-detect logs --no-color
 | `blacklist add --ttl 0` → сутки | `0` = навсегда |
 | `random` для перемешивания | `secrets.SystemRandom` |
 
-Совместимость: если у тебя маленький `question_count` (например 3) и `max_errors=3`,
-конфиг теперь не запустится — это была дыра. За прокси добавь `trusted_proxies`,
-иначе все клиенты будут выглядеть одним IP.
+Ломающих изменений нет. За nginx/docker/k8s ничего настраивать не нужно —
+приватные и локальные прокси доверенные по умолчанию. Внешний LB виден по
+предупреждению в логе (или задай `trusted_proxies` сразу). Дырявый
+`max_errors >= question_count` больше не мешает запуску: лимит подрезается
+до безопасного значения.
 
 ## Тесты
 
 ```bash
-python -m pytest tests/ -q      # 201 тест
+python -m pytest tests/ -q      # 214 тестов
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,

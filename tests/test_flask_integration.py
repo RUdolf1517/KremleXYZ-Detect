@@ -87,7 +87,8 @@ class TestGuard:
 
 
 class TestSpoofedForwardedFor:
-    def test_xff_ignored_without_trusted_proxy(self):
+    def test_public_peer_cannot_spoof_xff(self):
+        """Публичный клиент не обойдёт rate limit сменой X-Forwarded-For."""
         app, kremle = make_app(max_errors=0, rate_limit=1, rate_window=600)
         client = app.test_client()
         for spoof in ('1.1.1.1', '2.2.2.2', '3.3.3.3'):
@@ -96,13 +97,43 @@ class TestSpoofedForwardedFor:
             r = client.post(
                 '/kremle/verify', json={'token': ch.token, 'answers': wrong},
                 headers={'X-Forwarded-For': spoof},
+                environ_base={'REMOTE_ADDR': '203.0.113.5'},
             )
         assert r.get_json()['error'] == 'rate_limited'
 
-    def test_xff_honored_from_trusted_proxy(self):
+    def test_loopback_proxy_trusted_by_default(self):
+        """nginx на том же хосте — работает без единой настройки."""
+        app, kremle = make_app(max_errors=0, rate_limit=1, rate_window=600)
+        client = app.test_client()
+        for spoof in ('1.1.1.1', '2.2.2.2', '3.3.3.3'):
+            ch = kremle.engine.create_challenge()
+            wrong = {str(i): 99 for i in range(len(ch.questions))}
+            r = client.post(
+                '/kremle/verify', json={'token': ch.token, 'answers': wrong},
+                headers={'X-Forwarded-For': spoof},
+                environ_base={'REMOTE_ADDR': '127.0.0.1'},
+            )
+            assert r.get_json().get('error') != 'rate_limited'
+
+    def test_explicit_empty_list_disables_trust(self):
+        app, kremle = make_app(
+            max_errors=0, rate_limit=1, rate_window=600, trusted_proxies=[],
+        )
+        client = app.test_client()
+        for spoof in ('1.1.1.1', '2.2.2.2'):
+            ch = kremle.engine.create_challenge()
+            wrong = {str(i): 99 for i in range(len(ch.questions))}
+            r = client.post(
+                '/kremle/verify', json={'token': ch.token, 'answers': wrong},
+                headers={'X-Forwarded-For': spoof},
+                environ_base={'REMOTE_ADDR': '127.0.0.1'},
+            )
+        assert r.get_json()['error'] == 'rate_limited'
+
+    def test_xff_honored_from_trusted_public_proxy(self):
         app, kremle = make_app(
             max_errors=0, rate_limit=1, rate_window=600,
-            trusted_proxies=['127.0.0.1'],
+            trusted_proxies=['203.0.113.10'],
         )
         client = app.test_client()
         for spoof in ('1.1.1.1', '2.2.2.2', '3.3.3.3'):
@@ -111,6 +142,7 @@ class TestSpoofedForwardedFor:
             r = client.post(
                 '/kremle/verify', json={'token': ch.token, 'answers': wrong},
                 headers={'X-Forwarded-For': spoof},
+                environ_base={'REMOTE_ADDR': '203.0.113.10'},
             )
             assert r.get_json().get('error') != 'rate_limited'
 

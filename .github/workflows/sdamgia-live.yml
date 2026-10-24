@@ -48,6 +48,44 @@ jobs:
           print('годится для капчи:', data['usable'])
           PY
 
+      - name: Скачать рисунки задания в локальный кеш (--download)
+        # Проверяем то, что обычный CI проверить не может: реально ли портал
+        # отдаёт файлы рисунков (Content-Type, доступность, отсутствие 403 на
+        # горячую ссылку) и читаются ли они потом из кеша.
+        run: |
+          kremle-detect questions check "${{ inputs.problem_id || '1001' }}" \
+            --images --download --json | tee problem-images.json
+          python - <<'PY'
+          import json
+          import sys
+
+          from kremle_detect import images
+
+          data = json.load(open('problem-images.json'))
+          cached = data.get('images_cached') or []
+          if not data['images']:
+              print('у задания нет рисунков — проверять нечего')
+              sys.exit(0)
+
+          bad = [item for item in cached if not item.get('ok')]
+          assert not bad, f'рисунки не скачались: {bad}'
+          assert cached, 'картинки есть, а в кеш ничего не попало'
+          for item in cached:
+              entry = images.read_image(item['key'])
+              assert entry and entry['bytes'], f'файл {item["key"]} не читается из кеша'
+              print(f'ok: {item["local"]} — {item["size"]} B, {item["content_type"]}')
+          print('всего рисунков в кеше:', images.stats()['count'])
+          PY
+
+      - name: Sync с рисунками и чистка кеша
+        # Заодно проверяем `--download` на пачке заданий и что кеш можно
+        # ограничить по размеру (`questions images --prune`).
+        run: |
+          kremle-detect questions sync -c math -n 2 --images --download
+          kremle-detect questions images
+          kremle-detect questions images --prune 1
+          kremle-detect questions images
+
       - name: Discover problem ids (newapi/general → страницы вариантов)
         run: |
           python - <<'PY'

@@ -1,77 +1,110 @@
 # -*- coding: utf-8 -*-
 """
-Общие куски интеграций: определение JSON-клиента и ответы гарда.
+Общие помощники интеграций (Flask, Django, FastAPI).
 
-Держим их отдельно, чтобы Flask/Django/FastAPI вели себя одинаково:
-один и тот же Accept-заголовок должен давать один и тот же JSON.
+Здесь только то, что не зависит от фреймворка: разбор ``Accept``, формат
+JSON-ответов для API-клиентов и заголовки, запрещающие кеширование капчи.
 """
 
 from __future__ import annotations
 
 from typing import Optional
 
-CHALLENGE_ERROR = 'captcha_required'
+#: Префиксы путей, которые считаем API по умолчанию (если запрос не сказал иначе).
+API_PATH_PREFIXES = ('/api/', '/api', '/v1/', '/v2/', '/graphql')
+
+CAPTCHA_ERROR = 'captcha_required'
+BLOCKED_ERROR = 'blocked'
+CHALLENGE_URL = '/kremle/challenge'
+
+NO_STORE_HEADERS = {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+    'Pragma': 'no-cache',
+}
+
+
+def no_store_headers() -> dict:
+    """Заголовки для ответов, содержащих токен капчи (кешировать нельзя)."""
+    return dict(NO_STORE_HEADERS)
 
 
 def accepts_json(accept: Optional[str]) -> bool:
     """
-    True, если клиент ждёт JSON (fetch/XHR/SPA), а не HTML-страницу.
+    Приоритет отдан JSON?
+
+    ``application/json`` в начале списка — да; ``text/html`` раньше JSON — нет;
+    ``*/*`` (curl, fetch по умолчанию) — нет, чтобы не ломать навигацию.
 
     Пример:
-        accepts_json('application/json')                  # True
-        accepts_json('text/html,application/xhtml+xml')   # False
-        accepts_json('*/*')                               # False (браузер)
+        accepts_json('application/json, text/plain, */*')  # True
+        accepts_json('text/html,application/xhtml+xml')    # False
     """
     if not accept:
         return False
     for part in accept.split(','):
         mime = part.split(';')[0].strip().lower()
-        if mime in ('application/json', 'application/problem+json'):
+        if not mime:
+            continue
+        if mime in ('text/html', 'application/xhtml+xml'):
+            return False
+        if mime == 'application/json' or mime.endswith('+json'):
             return True
     return False
 
 
-def wants_json(accept: Optional[str], xhr: Optional[str] = None) -> bool:
+def wants_json(
+    accept: Optional[str],
+    xhr: Optional[str] = None,
+    path: Optional[str] = None,
+    api_prefixes: tuple = API_PATH_PREFIXES,
+) -> bool:
     """
-    JSON нужен, если клиент просит JSON или это XHR-запрос.
+    Определяет, ждёт ли клиент JSON, а не HTML-страницу.
 
-    ``Accept: */*`` (обычный переход в браузере) JSON не считается.
+    Args:
+        accept: заголовок ``Accept``.
+        xhr: заголовок ``X-Requested-With`` (jQuery/axios).
+        path: путь запроса — для эвристики по префиксу ``/api/``.
+        api_prefixes: префиксы, которые считаем API.
+
+    Пример:
+        wants_json('application/json', None, '/api/orders')  # True
+        wants_json('text/html', None, '/')                   # False
     """
     if accepts_json(accept):
         return True
-    return (xhr or '').strip().lower() == 'xmlhttprequest'
+    if xhr and xhr.strip().lower() == 'xmlhttprequest':
+        return True
+    if path and api_prefixes and any(path.startswith(p) for p in api_prefixes):
+        return True
+    return False
 
 
-def challenge_payload(reason: Optional[str], action: str = 'challenge') -> dict:
+def challenge_payload(reason: Optional[str] = None) -> dict:
     """
-    Тело JSON-ответа гарда. Формат совпадает во всех интеграциях.
+    Тело ответа (403) для API-клиента, которому нужно пройти капчу.
 
     Пример:
-        challenge_payload('yandex_browser')
-        # → {'error': 'captcha_required', 'reason': 'yandex_browser',
-        #    'challenge_url': '/kremle/challenge'}
+        {'error': 'captcha_required', 'action': 'challenge',
+         'challenge_url': '/kremle/challenge', 'reason': 'yandex_browser'}
     """
-    return {
-        'error': CHALLENGE_ERROR,
-        'reason': reason,
-        'action': action,
-        'challenge_url': '/kremle/challenge',
+    payload = {
+        'error': CAPTCHA_ERROR,
+        'action': 'challenge',
+        'challenge_url': CHALLENGE_URL,
     }
+    if reason:
+        payload['reason'] = reason
+    return payload
 
 
-def blocked_payload(reason: str) -> dict:
-    """Тело ответа для действия ``block`` (без капчи)."""
-    return {
-        'error': 'blocked',
-        'reason': reason,
+def blocked_payload(reason: Optional[str] = None) -> dict:
+    """Тело ответа (403) для заблокированного клиента: капча не поможет."""
+    payload = {
+        'error': BLOCKED_ERROR,
         'action': 'block',
         'challenge_url': None,
     }
-
-
-def no_store_headers() -> dict:
-    """Заголовки для ответов, содержащих токен."""
-    return {
-        'Cache-Control': 'no-store, no-cache, must-revalidate',
-        'Pragma': 'no-cache',
-    }
+    if reason and reason != BLOCKED_ERROR:
+        payload['reason'] = reason
+    return payload

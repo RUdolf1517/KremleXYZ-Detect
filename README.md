@@ -717,7 +717,8 @@ logging.getLogger('kremle').setLevel(logging.INFO)
 
 ## React-компонент
 
-`kremle-react@1.1.0` — ESM + CJS + типы, 22 теста, ставится из репозитория или из npm.
+`kremle-react@2.7.0` — ESM + CJS + `'use client'` + типы, 24 теста, ставится из репозитория или из npm.
+Версия npm-пакета совпадает с версией Python-пакета — один релиз, один тег.
 
 ```bash
 npm install kremle-react
@@ -942,7 +943,7 @@ Workflow соберёт wheel/sdist, сверит версию с тегом, п
 | мониторинг только по логам | `/kremle/health`, `/kremle/stats`, `/kremle/metrics` |
 | синхронный Redis в async-приложении | `AsyncRedisStorage`, `AsyncStorageAdapter`, `async_offload` в FastAPI |
 | Django: без headless-режима и ops-роутов | паритет с Flask/FastAPI (`KREMLE_HEADLESS`, `KREMLE_ENABLE_OPS_ROUTES`) |
-| React-пакет не собирался и не тестировался | `kremle-react@1.1.0`: сборка, типы, 24 теста, атрибуция, retry |
+| React-пакет не собирался и не тестировался | `kremle-react@2.7.0`: сборка, типы, `'use client'`, 24 теста |
 | задания с рисунком молча терялись | парсер собирает `images`, `sync --images`, рендер в шаблоне и React |
 | «что придёт с портала?» — только руками в браузере | `kremle-detect questions check <id>` + `--json` для CI |
 | потрогать можно было только через свой сайт | `kremle-detect serve` и `docker compose up` — демо с `/stats` |

@@ -1,6 +1,6 @@
 {
   "name": "kremle-react",
-  "version": "1.1.0",
+  "version": "2.7.0",
   "description": "React captcha for the kremle-detect web filter",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

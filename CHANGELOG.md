@@ -54,7 +54,8 @@
   `--ids 1001,1002`, `--dry-run`; старые флаги `questions -c math -n 5` работают.
 - **Django — паритет с Flask/FastAPI:** JSON-гард, `KREMLE_HEADLESS`,
   `KREMLE_ENABLE_OPS_ROUTES`, health/stats/metrics, logout, TTL «пройдено».
-- **React-пакет `kremle-react@1.1.0`:** собирается (ESM+CJS+`.d.ts`), 22 теста
+- **React-пакет `kremle-react@2.7.0`:** собирается (ESM+CJS+`.d.ts`), 24 теста,
+  бандл начинается с `'use client'`
   (vitest + jsdom), `useKremle`, `collectFingerprint`, атрибуция источника,
   авто-перезапрос при `invalid_token`, человеческие тексты для `rate_limited`/
   `blacklisted`/`blocked`, кнопка «Попробовать снова» через `POST /kremle/logout`.

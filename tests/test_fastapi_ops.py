@@ -50,6 +50,17 @@ class TestJsonGuard:
         assert r.json()['challenge_url'] == '/kremle/challenge'
         assert 'no-store' in r.headers['cache-control']
 
+    def test_api_path_json_without_accept(self):
+        app, _ = make_app()
+        client = client_for(app, {'User-Agent': YANDEX_UA, 'Accept': 'text/html'})
+        # /protected — не /api/, поэтому редирект; /api/-путь даёт JSON
+        @app.get('/api/items')
+        async def items():
+            return {'items': []}
+
+        assert client.get('/api/items').status_code == 403
+        assert client.get('/protected', follow_redirects=False).status_code == 302
+
     def test_html_client_redirected(self):
         app, _ = make_app()
         client = client_for(app, {'User-Agent': YANDEX_UA, 'Accept': 'text/html'})

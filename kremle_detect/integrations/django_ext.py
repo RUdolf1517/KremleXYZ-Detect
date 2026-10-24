@@ -154,6 +154,7 @@ def _wants_json(request, settings) -> bool:
     return wants_json(
         request.META.get('HTTP_ACCEPT'),
         request.META.get('HTTP_X_REQUESTED_WITH'),
+        request.path,
     )
 
 

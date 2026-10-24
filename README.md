@@ -11,7 +11,7 @@
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
 [![version](https://img.shields.io/badge/version-2.7.0-111111?style=flat-square)](CHANGELOG.md)
-[![tests](https://img.shields.io/badge/tests-396%20passed%20%2B%2022%20react-2ea44f?style=flat-square)](#тесты)
+[![tests](https://img.shields.io/badge/tests-420%20passed%20%2B%2022%20react-2ea44f?style=flat-square)](#тесты)
 
 </div>
 
@@ -152,8 +152,8 @@ async def index():
 
 Блокирующая HTML-капча бессмысленна для `fetch`/XHR: клиент ждёт JSON, а получает
 страницу. Поэтому все три интеграции отвечают `403 JSON` любому запросу, который
-просит JSON (`Accept: application/json` или `X-Requested-With: XMLHttpRequest`),
-и редиректят только обычную навигацию. Отключается через `json_api=False`
+просит JSON (`Accept: application/json`, `X-Requested-With: XMLHttpRequest` или путь
+под `/api/`, `/v1/`, `/v2/`, `/graphql`), и редиректят только обычную навигацию. Отключается через `json_api=False`
 (Flask/FastAPI) или `KREMLE_JSON_API = False` (Django).
 
 `headless=True` (Flask/FastAPI) и `KREMLE_HEADLESS = True` (Django) — режим «весь
@@ -807,14 +807,14 @@ kremle-detect logs --no-color
 ## Тесты
 
 ```bash
-python -m pytest tests/ -q      # 396 тестов
+python -m pytest tests/ -q      # 420 тестов
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,
 резолвинг IP, политика сегментов и `sample_rate`, метрики и health, TTL «пройдено»,
 провайдер «Решу ЕГЭ» (разбор HTML, дистракторы, кеш, fallback), Flask/Django/FastAPI
-(JSON-гард, monitor, ops-роуты, logout), `AsyncRedisStorage`/`AsyncStorageAdapter`
-на фейковом клиенте и CLI вопросов.
+(JSON-гард и разбор `Accept`, monitor, ops-роуты, logout), `AsyncRedisStorage`/
+`AsyncStorageAdapter` на фейковом клиенте и CLI вопросов.
 
 ```bash
 cd kremle-react && npm test && npm run typecheck && npm run build   # 22 теста + сборка

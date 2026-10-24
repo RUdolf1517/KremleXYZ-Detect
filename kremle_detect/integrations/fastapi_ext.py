@@ -164,6 +164,7 @@ class KremleFastAPI:
         return wants_json(
             request.headers.get('accept'),
             request.headers.get('x-requested-with'),
+            request.url.path,
         )
 
     def _is_verified(self, request, ip: Optional[str] = None) -> bool:

@@ -66,6 +66,14 @@ class TestJsonGuard:
         assert result.status_code == 403
         assert json.loads(result.content)['error'] == 'captcha_required'
 
+    def test_api_path_gets_json_without_accept(self):
+        result, called = run_middleware(
+            make_request(path='/api/orders', ua=YANDEX_UA, accept='text/html')
+        )
+        assert not called
+        assert result.status_code == 403
+        assert json.loads(result.content)['error'] == 'captcha_required'
+
     def test_html_redirect(self):
         result, _ = run_middleware(make_request(ua=YANDEX_UA, accept='text/html'))
         assert result.status_code == 302

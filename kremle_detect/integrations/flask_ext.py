@@ -232,6 +232,7 @@ class KremleFlask:
         return wants_json(
             request.headers.get('Accept'),
             request.headers.get('X-Requested-With'),
+            request.path,
         )
 
     def _challenge_response(self, reason: Optional[str]):

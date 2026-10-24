@@ -24,6 +24,7 @@
   `X-Requested-With: XMLHttpRequest` получают `403 {"error": "captcha_required",
   "action": "challenge", "challenge_url": "/kremle/challenge", "reason": ...}`
   вместо HTML-редиректа. Для `block` — `{"error": "blocked", "challenge_url": null}`.
+  Путь под `/api/`, `/v1/`, `/v2/`, `/graphql` считается API и без заголовков.
   Отключается `json_api=False` / `KREMLE_JSON_API = False`. `headless=True`
   (Flask/FastAPI) и `KREMLE_HEADLESS = True` (Django) — весь сайт как API.
   JSON-блокировки отдаются с `Cache-Control: no-store`.
@@ -76,7 +77,7 @@
 
 ### Тесты
 
-396 Python-тестов (было 214) и 22 теста React: политика сегментов и `sample_rate`,
+420 Python-тестов (было 214) и 22 теста React: политика сегментов и `sample_rate`,
 метрики/health/`prometheus`, TTL и logout, провайдер «Решу ЕГЭ» на фикстурах HTML,
 JSON-гард и ops-роуты во всех трёх фреймворках, `AsyncRedisStorage` на фейковом
 клиенте, CLI вопросов.

@@ -35,7 +35,7 @@ KremleXYZ-Detect/
 │   └── templates/
 │       └── kremle_captcha.html      HTML капчи + JS-фингерпринт
 ├── kremle-react/                    React-компонент и хук (tsup, TypeScript)
-├── tests/                           396 тестов
+├── tests/                           420 тестов
 │   ├── test_detector.py             Детекция UA/referer/hints
 │   ├── test_captcha.py              Challenge, engine, storage, callbacks
 │   ├── test_engine_security.py      Валидация настроек, одноразовые токены, лимиты
@@ -53,7 +53,8 @@ KremleXYZ-Detect/
 │   ├── test_fastapi_ops.py          То же для FastAPI
 │   ├── test_django_ops.py           Паритет Django
 │   ├── test_storage_async.py        AsyncRedisStorage на фейковом клиенте
-│   └── test_cli_questions.py        show / sync / cache
+│   ├── test_cli_questions.py        show / sync / cache
+│   └── test_common.py               Accept, JSON-payload, no-store
 ├── NOTICE.md                        Атрибуция заданий «Решу ЕГЭ»
 ├── .github/workflows/ci.yml         Тесты 3.9–3.13, сборка wheel, билд React
 ├── pyproject.toml
@@ -142,4 +143,4 @@ KremleXYZ-Detect/
   fallback на встроенный банк; `kremle-detect questions sync` обновляет кеш.
 - **Эксплуатация**: `/kremle/health`, `/kremle/stats`, `/kremle/metrics` (Prometheus).
 - **Async**: `AsyncRedisStorage`, `AsyncStorageAdapter`, threadpool в FastAPI.
-- **396 Python-тестов + 22 React** и CI, который собирает wheel и React-пакет.
+- **420 Python-тестов + 22 React** и CI, который собирает wheel и React-пакет.

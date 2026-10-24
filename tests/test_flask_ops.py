@@ -81,6 +81,15 @@ class TestJsonGuard:
         assert r.status_code == 403
         assert r.get_json()['error'] == 'captcha_required'
 
+    def test_api_path_gets_json_without_accept(self):
+        """/api/* считаем API даже без явного Accept: text/html."""
+        app, _ = make_app()
+        r = app.test_client().get(
+            '/api/data', headers={'User-Agent': YANDEX_UA, 'Accept': 'text/html'},
+        )
+        assert r.status_code == 403
+        assert r.get_json()['challenge_url'] == '/kremle/challenge'
+
     def test_html_request_still_redirected(self):
         app, _ = make_app()
         r = app.test_client().get('/', headers={'User-Agent': YANDEX_UA, 'Accept': 'text/html'})

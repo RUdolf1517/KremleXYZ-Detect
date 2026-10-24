@@ -205,7 +205,8 @@ jobs:
           if npm view "kremle-react@${version}" version >/dev/null 2>&1; then
             echo "::notice::kremle-react@${version} опубликован и доступен"
           else
-            echo "::warning title=Staged publish::kremle-react@${version} принят, но ждёт подтверждения (2FA). npmjs.com → kremle-react → Staged publishes → Approve. До подтверждения в реестре видна заглушка $(npm view kremle-react version 2>/dev/null || echo '—')."
+            latest=$(npm view kremle-react version 2>/dev/null || echo '—')
+            echo "::warning title=Staged publish::kremle-react@${version} принят и ждёт подтверждения (2FA). Подтвердить: npm stage list kremle-react && npm stage approve <id> — или npmjs.com → kremle-react → Staged publishes → Approve. Пока не подтверждено, latest в реестре остаётся ${latest}."
           fi
 
   github-release:

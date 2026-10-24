@@ -12,7 +12,7 @@ requires-python = ">=3.9"
 authors = [
     { name = "RUdolf1517" },
 ]
-keywords = ["captcha", "yandex", "detect", "flask", "django", "fastapi"]
+keywords = ["captcha", "yandex", "detect", "flask", "django", "fastapi", "bot-protection"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Framework :: Flask",
@@ -33,7 +33,9 @@ flask = ["flask>=2.0"]
 django = ["django>=3.2"]
 fastapi = ["fastapi>=0.68", "jinja2>=3.0"]
 redis = ["redis>=4.0"]
-all = ["flask>=2.0", "django>=3.2", "fastapi>=0.68", "jinja2>=3.0", "redis>=4.0"]
+demo = ["fastapi>=0.68", "uvicorn>=0.20"]
+all = ["flask>=2.0", "django>=3.2", "fastapi>=0.68", "jinja2>=3.0",
+       "redis>=4.0", "uvicorn>=0.20"]
 
 [project.scripts]
 kremle-detect = "kremle_detect.cli:main"
@@ -43,3 +45,23 @@ include = ["kremle_detect*"]
 
 [tool.setuptools.package-data]
 kremle_detect = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Redis-тесты требуют живого сервера: pytest -m redis (в CI — сервис redis)
+markers = [
+    "redis: требует запущенного Redis (KREMLE_TEST_REDIS_URL, по умолчанию redis://localhost:6379/15)",
+]
+
+[tool.coverage.run]
+source = ["kremle_detect"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

@@ -6,6 +6,7 @@ export type {
   KremleChallengeData,
   KremleChallengeProps,
   KremleFingerprint,
+  KremleImage,
   KremleQuestion,
   KremleResult,
   KremleSource,

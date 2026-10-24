@@ -79,11 +79,10 @@ class FakeAsyncRedis:
         self.eval_calls = []
         self.closed = False
 
-    async def setex(self, key, ttl, value):
-        self.data[key] = (value, ttl)
 
-    async def set(self, key, value):
-        self.data[key] = (value, None)
+
+    async def set(self, key, value, ex=None):
+        self.data[key] = (value, ex)
 
     async def get(self, key):
         item = self.data.get(key)

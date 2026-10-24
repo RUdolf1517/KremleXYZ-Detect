@@ -106,6 +106,7 @@ class KremleFlask:
         bind_ip / bind_ua: переспрашивать капчу при смене IP / User-Agent
         questions_source: ``auto`` (кеш РешуЕГЭ → встроенный банк), ``builtin``,
                           ``sdamgia``
+        questions_images: показывать задания с рисунком из «Решу ЕГЭ»
         json_api: отвечать JSON клиентам, которые просят JSON (fetch/SPA),
                   вместо редиректа на HTML-капчу
         headless: всегда отвечать JSON (весь сайт — API)
@@ -142,6 +143,7 @@ class KremleFlask:
         bind_ip: bool = False,
         bind_ua: bool = False,
         questions_source: str = 'auto',
+        questions_images: bool = False,
         json_api: bool = True,
         headless: bool = False,
         enable_ops_routes: bool = True,
@@ -174,6 +176,7 @@ class KremleFlask:
         self.bind_ip = bind_ip
         self.bind_ua = bind_ua
         self.questions_source = questions_source
+        self.questions_images = questions_images
         self.json_api = json_api
         self.headless = headless
         self.enable_ops_routes = enable_ops_routes
@@ -211,6 +214,7 @@ class KremleFlask:
             bind_ip=self.bind_ip,
             bind_ua=self.bind_ua,
             questions_source=self.questions_source,
+            questions_images=self.questions_images,
         )
 
         bp = self._create_blueprint()
@@ -370,6 +374,7 @@ class KremleFlask:
                         'policy': dict(engine.policy),
                         'verified_ttl': engine.verified_ttl,
                         'questions_source': engine.questions_source,
+                        'questions_images': engine.questions_images,
                     },
                 )
                 return jsonify(payload), (200 if payload['storage_ok'] else 503)

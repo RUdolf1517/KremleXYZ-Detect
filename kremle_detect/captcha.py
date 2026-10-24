@@ -85,6 +85,12 @@ class Challenge:
                 safe['source'] = q['source']
             if 'problem_id' in q:
                 safe['problem_id'] = q['problem_id']
+            if q.get('images'):
+                safe['images'] = [
+                    {'url': img['url'], 'alt': img.get('alt', '')}
+                    for img in q['images'][:3]
+                    if isinstance(img, dict) and img.get('url')
+                ]
             self.safe_questions.append(safe)
 
     def to_dict(self, verify_url: str = '/kremle/verify') -> dict:
@@ -164,6 +170,7 @@ class CaptchaEngine:
         bind_ip: bool = False,
         bind_ua: bool = False,
         questions_source: str = 'auto',
+        questions_images: bool = False,
     ):
         """
         Args:
@@ -193,6 +200,7 @@ class CaptchaEngine:
             verified_ttl: сколько секунд действует «капча пройдена» (0 — бессрочно).
             bind_ip: переспрашивать капчу при смене IP.
             bind_ua: переспрашивать капчу при смене User-Agent.
+            questions_images: показывать задания с рисунком (по умолчанию нет)
             questions_source: ``auto`` (кеш РешуЕГЭ, если есть, иначе встроенный
                 банк), ``builtin`` (только встроенные), ``sdamgia`` (только кеш).
         """
@@ -249,6 +257,7 @@ class CaptchaEngine:
                 f"получено {questions_source!r}"
             )
         self.questions_source = questions_source
+        self.questions_images = bool(questions_images)
 
     # ── Политика сегментов ───────────────────────────────────────────────────
 
@@ -336,6 +345,7 @@ class CaptchaEngine:
                 count=None,
                 shuffle=False,
                 source=self.questions_source,
+                allow_images=self.questions_images,
             )
             for q in self.extra_questions:
                 entry = dict(q)

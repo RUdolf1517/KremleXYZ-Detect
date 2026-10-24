@@ -101,6 +101,7 @@ class KremleFastAPI:
         bind_ip: bool = False,
         bind_ua: bool = False,
         questions_source: str = 'auto',
+        questions_images: bool = False,
         json_api: bool = True,
         enable_ops_routes: bool = True,
         async_offload: bool = True,
@@ -128,6 +129,7 @@ class KremleFastAPI:
             bind_ip=bind_ip,
             bind_ua=bind_ua,
             questions_source=questions_source,
+            questions_images=questions_images,
         )
         self.skip_paths = list(skip_paths or ['/docs', '/openapi.json', '/redoc'])
         self.whitelist = whitelist or []
@@ -350,6 +352,7 @@ class KremleFastAPI:
                         'policy': dict(engine.policy),
                         'verified_ttl': engine.verified_ttl,
                         'questions_source': engine.questions_source,
+                        'questions_images': engine.questions_images,
                         'async_offload': self.async_offload,
                     },
                 )

@@ -20,7 +20,7 @@ KremleXYZ-Detect/
 │   ├── storage_async.py             AsyncRedisStorage, AsyncStorageAdapter (threadpool)
 │   ├── ip.py                        Резолвинг IP, авто/явные trusted proxies, IP/CIDR
 │   ├── questions/                   Банк вопросов
-│   │   ├── __init__.py              get_questions(source=...), attribution_text()
+│   │   ├── __init__.py              get_questions(source=..., allow_images=...)
 │   │   ├── sdamgia.py               Клиент «Решу ЕГЭ»: API, HTML-парсер, кеш, sync
 │   │   ├── math.py                  15 заданий — ЕГЭ математика
 │   │   ├── physics.py               15 заданий — ЕГЭ физика
@@ -31,11 +31,12 @@ KremleXYZ-Detect/
 │   │   ├── flask_ext.py             KremleFlask (before_request, protect, blueprint)
 │   │   ├── django_ext.py            KremleDjangoMiddleware + kremle_urls()
 │   │   └── fastapi_ext.py           KremleFastAPI (middleware + роуты, headless)
-│   ├── cli.py                       kremle-detect: диагностика, списки, логи
+│   ├── cli.py                       kremle-detect: диагностика, списки, логи, serve
+│   ├── demo.py                      Демо-приложение (FastAPI + /stats)
 │   └── templates/
 │       └── kremle_captcha.html      HTML капчи + JS-фингерпринт
 ├── kremle-react/                    React-компонент и хук (tsup, TypeScript)
-├── tests/                           420 тестов
+├── tests/                           490 тестов
 │   ├── test_detector.py             Детекция UA/referer/hints
 │   ├── test_captcha.py              Challenge, engine, storage, callbacks
 │   ├── test_engine_security.py      Валидация настроек, одноразовые токены, лимиты
@@ -54,9 +55,20 @@ KremleXYZ-Detect/
 │   ├── test_django_ops.py           Паритет Django
 │   ├── test_storage_async.py        AsyncRedisStorage на фейковом клиенте
 │   ├── test_cli_questions.py        show / sync / cache
-│   └── test_common.py               Accept, JSON-payload, no-store
+│   ├── test_common.py               Accept, JSON-payload, no-store
+│   ├── test_cli.py                  Диагностика, списки, логи, serve
+│   ├── test_demo.py                 Демо-страницы и полный цикл
+│   ├── test_e2e.py                  Живой HTTP-сервер (uvicorn), куки, logout
+│   └── test_redis_live.py           Redis/Lua/TTL на настоящем сервере (маркер redis)
+├── .github/workflows/
+│   ├── ci.yml                       Тесты 3.9–3.13 + Redis, покрытие, wheel, React, audit
+│   ├── release.yml                  Публикация по тегу: PyPI (OIDC), npm (provenance), Release
+│   └── sdamgia-live.yml             Ежедневная проверка живого «Решу ЕГЭ»
+├── scripts/loadtest.py              Нагрузочный смоук (rps, p50/p95)
+├── Dockerfile                       Демо-образ
+├── docker-compose.yml               Демо + профиль Redis
+├── SECURITY.md                      Политика раскрытия и модель угроз
 ├── NOTICE.md                        Атрибуция заданий «Решу ЕГЭ»
-├── .github/workflows/ci.yml         Тесты 3.9–3.13, сборка wheel, билд React
 ├── pyproject.toml
 ├── CHANGELOG.md
 ├── README.md
@@ -143,4 +155,4 @@ KremleXYZ-Detect/
   fallback на встроенный банк; `kremle-detect questions sync` обновляет кеш.
 - **Эксплуатация**: `/kremle/health`, `/kremle/stats`, `/kremle/metrics` (Prometheus).
 - **Async**: `AsyncRedisStorage`, `AsyncStorageAdapter`, threadpool в FastAPI.
-- **420 Python-тестов + 22 React** и CI, который собирает wheel и React-пакет.
+- **490 Python-тестов + 24 React** и CI, который собирает wheel и React-пакет.

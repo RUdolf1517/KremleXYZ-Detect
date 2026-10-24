@@ -28,7 +28,6 @@ def sdamgia_html():
   <div class="pbody">
     На экзамен вынесено 60 вопросов, Андрей не выучил 3 из них.
     Найдите вероятность того, что ему попадётся выученный вопрос.
-    <img src="/formula/abc.svg">
   </div>
   <div class="pbody">
     Решение. Андрей выучил 60 − 3 = 57 вопросов.
@@ -37,6 +36,23 @@ def sdamgia_html():
   <div class="minor"><a href="/problem?id=1002">1002</a></div>
 </div>
 <div class="footer">СДАМ ГИА</div>
+</body></html>'''
+
+
+@pytest.fixture
+def sdamgia_html_with_image():
+    """Задание с рисунком: без картинки условие не имеет смысла."""
+    return '''<!DOCTYPE html>
+<html><body>
+<div class="prob_maindiv">
+  <div class="pbody">
+    На рисунке изображён график функции. Найдите значение f(2).
+    <img src="/img/graph.png" alt="график">
+    <img src="https://cdn.example.test/extra.png">
+  </div>
+  <div class="pbody">Решение. Смотрим на график.</div>
+  <div class="answer">Ответ: 3</div>
+</div>
 </body></html>'''
 
 

@@ -41,6 +41,7 @@ Django-интеграция KremleDetect (middleware).
     KREMLE_BIND_IP = False
     KREMLE_BIND_UA = False
     KREMLE_QUESTIONS_SOURCE = 'auto'
+    KREMLE_QUESTIONS_IMAGES = False   # задания с рисунком из «Решу ЕГЭ»
     KREMLE_JSON_API = True        # JSON-ответ вместо редиректа для fetch/SPA
     KREMLE_HEADLESS = False       # всегда JSON (весь сайт — API)
     KREMLE_ENABLE_OPS_ROUTES = True
@@ -78,6 +79,7 @@ _ENGINE_SETTINGS = (
     'KREMLE_FAIL_THRESHOLD', 'KREMLE_BLACKLIST_TTL', 'KREMLE_POLICY',
     'KREMLE_SAMPLE_RATE', 'KREMLE_METRICS_ENABLED', 'KREMLE_VERIFIED_TTL',
     'KREMLE_BIND_IP', 'KREMLE_BIND_UA', 'KREMLE_QUESTIONS_SOURCE',
+    'KREMLE_QUESTIONS_IMAGES',
 )
 
 
@@ -122,6 +124,7 @@ def _get_engine(settings) -> CaptchaEngine:
             bind_ip=getattr(settings, 'KREMLE_BIND_IP', False),
             bind_ua=getattr(settings, 'KREMLE_BIND_UA', False),
             questions_source=getattr(settings, 'KREMLE_QUESTIONS_SOURCE', 'auto'),
+            questions_images=getattr(settings, 'KREMLE_QUESTIONS_IMAGES', False),
         )
     return _engine_cache[cache_key]
 
@@ -370,6 +373,7 @@ def kremle_urls():
                 'policy': dict(engine.policy),
                 'verified_ttl': engine.verified_ttl,
                 'questions_source': engine.questions_source,
+                'questions_images': engine.questions_images,
             },
         )
         return JsonResponse(payload, status=200 if payload['storage_ok'] else 503)

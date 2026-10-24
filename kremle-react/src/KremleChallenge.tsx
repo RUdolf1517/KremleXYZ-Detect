@@ -28,6 +28,15 @@ const base: Record<string, CSSProperties> = {
     paddingBottom: '1.25rem',
     borderBottom: '1px solid #1e1e1e',
   },
+  images: { margin: '0.5rem 0' },
+  image: {
+    maxWidth: '100%',
+    maxHeight: 220,
+    display: 'block',
+    margin: '0.35rem 0',
+    border: '1px solid #2a2a2a',
+    background: '#fff',
+  },
   questionText: {
     marginBottom: '0.6rem',
     lineHeight: 1.5,
@@ -210,6 +219,29 @@ export function KremleChallenge({
           style={{ ...base.question, border: 'none', borderBottom: '1px solid #1e1e1e', padding: 0, margin: 0 }}
         >
           <legend style={{ ...base.questionText, padding: 0 }}>{`${qi + 1}. ${q.q}`}</legend>
+          {q.images && q.images.length > 0 && (
+            <div style={base.images}>
+              {q.images.map((img, ii) => (
+                <img
+                  key={ii}
+                  src={img.url}
+                  alt={img.alt || 'рисунок к заданию'}
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  style={base.image}
+                  onError={(e) => {
+                    // Порталу может не понравиться горячая ссылка: капчу не ломаем
+                    const el = e.currentTarget
+                    el.style.display = 'none'
+                    if (!el.dataset.failed) {
+                      el.dataset.failed = '1'
+                      el.insertAdjacentText('afterend', ' [рисунок не загрузился]')
+                    }
+                  }}
+                />
+              ))}
+            </div>
+          )}
           {q.opts.map((opt, oi) => {
             const selected = answers[String(qi)] === oi
             return (

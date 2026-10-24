@@ -59,10 +59,58 @@
   авто-перезапрос при `invalid_token`, человеческие тексты для `rate_limited`/
   `blacklisted`/`blocked`, кнопка «Попробовать снова» через `POST /kremle/logout`.
 
+### Демо и релиз
+
+- **`kremle-detect serve`** — демо-сайт одной командой (FastAPI + uvicorn):
+  `/` с кнопкой fetch, `/api/me` для проверки JSON-гарда, `/stats` с живыми
+  счётчиками. `KREMLE_DEMO_POLICY=monitor` — полный shadow-режим.
+  Экстра `pip install "kremle-detect[demo]"`.
+- **`docker compose up --build`** — то же в контейнере, с томом под кеш вопросов,
+  healthcheck на `/kremle/health` и профилем `redis`.
+- **Публикация в PyPI и npm** по тегу `v*`: `.github/workflows/release.yml`
+  (PyPI trusted publishing через OIDC, npm `--provenance`, GitHub Release из
+  CHANGELOG). Версия в `pyproject.toml`, `__init__.py` и `package.json` сверяется
+  с тегом до публикации.
+
+### Задания с рисунком
+
+- **Парсер больше не теряет картинки условия.** `parse_problem_html()` собирает
+  `images` (относительные `src` превращаются в абсолютные URL), а `build_question()`
+  по умолчанию такие задания **отбрасывает**: без рисунка условие не решается,
+  а горячие ссылки на портал не должны попадать в капчу молча.
+- **`questions sync --images`** — сохранять задания с рисунком; движок показывает
+  их только при `questions_images=True` (`KREMLE_QUESTIONS_IMAGES`).
+- **`questions check <id>`** — самая простая проверка задания: скачивает страницу,
+  печатает условие, ответ и список картинок, говорит, пойдёт ли оно в капчу
+  (`--images` — считать пригодным, `--json` — машинный вывод). Коды возврата:
+  `0` — годится, `1` — сеть, `2` — разметка не разобралась, `3` — не годится для капчи.
+- **Картинки в UI**: HTML-шаблон (`#qimages`, `referrerPolicy=no-referrer`,
+  фолбэк «[рисунок не загрузился]») и React-компонент (`KremleImage`).
+
+### Надёжность и эксплуатация
+
+- **Redis в CI** (`services: redis`) + маркер `pytest -m redis`: проверяются Lua,
+  TTL, fixed window и одноразовые токены на настоящем сервере, а не на фейке.
+  Локально без Docker: `KREMLE_TEST_REDIS_FAKE=1` (через `fakeredis[lua]`).
+  Отдельный шаг CI падает, если Redis не поднялся и тесты молча скипнулись.
+- **Порог покрытия 85 %** (`--cov-fail-under`) на Python 3.12; тесты CLI выросли
+  с 64 % до полного покрытия команд.
+- **E2E на живом HTTP**: uvicorn в потоке, реальные сокеты, cookie сессии —
+  сценарий «403 → капча → 200 → logout → 403» и одноразовость токена.
+- **`scripts/loadtest.py`** — нагрузочный смоук без зависимостей: rps, p50/p95/max
+  для обычного запроса, запроса с Яндекс-UA и полного цикла капчи.
+- **SECURITY.md** — как сообщать об уязвимостях, что считается уязвимостью,
+  что by design (блокировка живых людей), где лежат публичные роуты метрик.
+- **Dependabot** (pip/npm/actions), `pip-audit` и `npm audit` в CI (адвайзори).
+- **sdamgia-live.yml** — ежедневная проверка настоящего портала: разбор задания,
+  картинки, поиск id и `sync --dry-run`. Ловит смену вёрстки раньше пользователей.
+
 ### Исправлено
 
 - **`bind_ua` был `True` в ядре и Flask, но `False` в FastAPI/Django.** Единый дефолт —
   `False`: обновление браузера меняет UA и не должно требовать перепройти капчу.
+- **`GET /kremle/challenge` возвращал HTML вместо JSON в Django**, если клиент
+  просил `Accept: application/json` через `KREMLE_HEADLESS` — приведено к паритету.
 - **Страница варианта «Решу ЕГЭ» — источник id заданий, а не `larinVariants[].id`.**
   `id` в `newapi/general` — идентификатор варианта; качать по нему `/problem?id=`
   нельзя. Добавлены `parse_problem_ids()`, `variant_hrefs()` и `discover_problem_ids()`
@@ -74,13 +122,24 @@
 - **`actions.allow` в `/kremle/stats` всегда был 0**, хотя `allowed_total` рос.
 - **Flask/FastAPI/Django не ставили `no-store` на JSON-блокировки** — 403 мог
   закешироваться прокси.
+- **`set(ttl=0)` в Redis-хранилище падал** (`SETEX` с нулём — ошибка), а «навсегда»
+  в блоклисте было «10 лет», из-за чего `/stats` и CLI показывали остаток.
+  Теперь `ttl=None` — ключ без срока жизни, `blacklist_add(ttl=0)` и вайтлист
+  используют именно его.
+- **`AsyncRedisStorage` вызывал deprecated `setex`** (redis-py 6), теперь
+  `set(..., ex=ttl)`; `ttl=0` не создаёт ключ с нулевым сроком.
+- **`blacklist remove` / `whitelist remove` рапортовали «Удалено»** даже когда
+  IP не было в списке. Теперь `exit 1` и сообщение в stderr.
+- **`blacklist list` не показывал TTL** — добавлен `storage.ttl()` и человеческий
+  формат «осталось 2 ч» / «навсегда».
 
 ### Тесты
 
-420 Python-тестов (было 214) и 22 теста React: политика сегментов и `sample_rate`,
-метрики/health/`prometheus`, TTL и logout, провайдер «Решу ЕГЭ» на фикстурах HTML,
-JSON-гард и ops-роуты во всех трёх фреймворках, `AsyncRedisStorage` на фейковом
-клиенте, CLI вопросов.
+490 Python-тестов (было 214) и 24 теста React: политика сегментов и `sample_rate`,
+метрики/health/`prometheus`, TTL и logout, провайдер «Решу ЕГЭ» на фикстурах HTML
+(включая задания с рисунком), JSON-гард и ops-роуты во всех трёх фреймворках,
+`AsyncRedisStorage` на фейковом клиенте, живой Redis (маркер `redis`), демо-приложение,
+E2E на настоящем HTTP-сервере и CLI целиком.
 
 ## [2.6.0] — 2026-10-24
 

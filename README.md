@@ -6,12 +6,13 @@
 Яндекс Браузер, Яндекс-боты и переходы с Яндекса получают капчу с вопросами ЕГЭ.
 Все остальные проходят сразу.
 
-[Установка](#установка) · [Быстрый старт](#быстрый-старт) · [Детекция](#что-считается-яндексом) · [Вопросы](#вопросы-банк-и-решу-егэ) · [Monitor](#monitor-режим-и-сегменты) · [Эксплуатация](#эксплуатация-health-stats-metrics) · [CLI](#cli) · [2.7](#что-изменилось-в-27)
+[Установка](#установка) · [Демо за минуту](#демо-за-минуту) · [Быстрый старт](#быстрый-старт) · [Детекция](#что-считается-яндексом) · [Вопросы](#вопросы-банк-и-решу-егэ) · [Monitor](#monitor-режим-и-сегменты) · [Эксплуатация](#эксплуатация-health-stats-metrics) · [CLI](#cli) · [2.7](#что-изменилось-в-27)
 
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
 [![version](https://img.shields.io/badge/version-2.7.0-111111?style=flat-square)](CHANGELOG.md)
-[![tests](https://img.shields.io/badge/tests-420%20passed%20%2B%2022%20react-2ea44f?style=flat-square)](#тесты)
+[![tests](https://img.shields.io/badge/tests-490%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
+[![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
 </div>
 
@@ -33,23 +34,28 @@ KremleFlask(app, question_count=15, max_errors=3)
 ## Установка
 
 ```bash
-pip install "kremle-detect @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
+pip install "kremle-detect[flask]"     # Flask
+pip install "kremle-detect[django]"    # Django
+pip install "kremle-detect[fastapi]"   # FastAPI
+pip install "kremle-detect[all]"       # всё сразу + Redis
+pip install "kremle-detect[demo]"      # демо-сервер (uvicorn)
 ```
 
-С зависимостями конкретного фреймворка:
+React-компонент:
 
 ```bash
-pip install "kremle-detect[flask]   @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
-pip install "kremle-detect[django]  @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
-pip install "kremle-detect[fastapi] @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
-pip install "kremle-detect[all]     @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
+npm install kremle-react
 ```
 
-Обновление:
+<details>
+<summary>Если пакета ещё нет в индексе (или нужен конкретный коммит)</summary>
 
 ```bash
-pip install --force-reinstall "kremle-detect @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
+pip install "kremle-detect[all] @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
+npm install /path/to/KremleXYZ-Detect/kremle-react
 ```
+
+</details>
 
 Ядро (`detect`, `CaptchaEngine`, `MemoryStorage`) работает на чистой стандартной библиотеке — без Flask, Django и Redis. Опциональные зависимости: `flask`, `django`, `fastapi` + `jinja2`, `redis`.
 
@@ -65,6 +71,43 @@ python -m pytest tests/ -q
 ```
 
 </details>
+
+## Демо за минуту
+
+Не хочется читать документацию, чтобы понять, как это выглядит?
+
+```bash
+pip install "kremle-detect[demo]"
+kremle-detect serve            # → http://localhost:8000
+```
+
+Или в контейнере:
+
+```bash
+docker compose up --build      # → http://localhost:8000
+```
+
+Что внутри демо:
+
+| Путь | Что показывает |
+|---|---|
+| `/` | страница-визитка и кнопка `fetch` на `/api/me` |
+| `/api/me` | JSON-эндпоинт: из Яндекс Браузера приходит `403 captcha_required` |
+| `/kremle/challenge` | сама капча с вопросами ЕГЭ |
+| `/stats` | живые счётчики (`/kremle/stats`), обновление каждые 3 с |
+| `/kremle/metrics` | Prometheus-метрики |
+
+Посмотреть, сколько трафика задевает фильтр, ничего не блокируя:
+
+```bash
+KREMLE_DEMO_POLICY=monitor kremle-detect serve
+```
+
+Нагрузочный смоук (rps, p50/p95) — без зависимостей:
+
+```bash
+python scripts/loadtest.py -n 500 -c 20
+```
 
 ## Быстрый старт
 
@@ -305,9 +348,81 @@ kremle = KremleFlask(app, verified_ttl=3600, bind_ua=True, bind_ip=False)
 kremle-detect questions sync                    # скачать задания в кеш (все категории)
 kremle-detect questions sync -c math -n 100     # только математика, до 100 заданий
 kremle-detect questions sync --ids 1001,1002    # конкретные задания портала
+kremle-detect questions sync --images           # включить задания с рисунком
 kremle-detect questions sync --dry-run          # скачать, но не записывать
 kremle-detect questions cache                   # сколько в кеше и когда обновляли
+
+kremle-detect questions check 1001              # проверить одно задание целиком
+kremle-detect questions check 1001 --json       # то же машинно (для скриптов/CI)
 ```
+
+### «А это задание вообще годится?» — `questions check`
+
+Самая простая проверка того, что реально придёт с портала: одна команда, один id.
+
+```console
+$ kremle-detect questions check 1001
+GET https://math-ege.sdamgia.ru/problem?id=1001
+
+Условие: На экзамен вынесено 60 вопросов, Андрей не выучил 3 из них...
+Ответ:   0,95
+Картинок в условии: 0
+
+В капчу пойдёт. Варианты:
+    0. 0,9
+    1. 1,95
+  ✓ 2. 0,95
+    3. 0,05
+```
+
+Если в условии есть рисунок, команда честно скажет об этом:
+
+```console
+$ kremle-detect questions check 314159
+Условие: На рисунке изображён график функции. Найдите значение f(2).
+Ответ:   3
+Картинок в условии: 1
+  - https://math-ege.sdamgia.ru/img/graph.png
+
+В капчу НЕ пойдёт: есть картинка, а --images не указан.
+Проверить как пригодное: kremle-detect questions check 314159 --images
+```
+
+Коды возврата: `0` — задание годится, `1` — не скачалось (сеть/прокси),
+`2` — страница скачалась, но разметка не разобралась (портал сменил вёрстку),
+`3` — для капчи не годится (картинка без `--images`, текстовый ответ, длинное условие).
+`--json` печатает всё то же машинно — удобно для CI и баг-репортов.
+
+### Задания с рисунком
+
+Часть заданий «Решу ЕГЭ» без картинки не имеет смысла. По умолчанию такие задания
+**отбрасываются**: горячие ссылки на портал не должны попадать в капчу молча.
+Если рисунки нужны:
+
+```bash
+kremle-detect questions sync --images
+```
+
+```python
+kremle = KremleFlask(app, questions_source='sdamgia', questions_images=True)
+```
+
+```python
+# Django
+KREMLE_QUESTIONS_IMAGES = True
+```
+
+Тогда в JSON капчи у вопроса появляется `images`:
+
+```jsonc
+{"q": "На рисунке изображён график…", "opts": ["3", "4", "5", "6"],
+ "images": [{"url": "https://math-ege.sdamgia.ru/img/1.png", "alt": ""}]}
+```
+
+Шаблон капчи и React-компонент рисуют их с `referrerPolicy="no-referrer"`; если портал
+не отдаёт картинку, вместо неё появляется «[рисунок не загрузился]» — капча не ломается.
+Если картинки нужны локально (портал закрыл горячие ссылки), положите их в свой CDN
+и подмените `url` при сборке вопросов.
 
 Кеш лежит в `$KREMLE_CACHE_DIR` или `~/.cache/kremle-detect/sdamgia-<категория>.json`.
 Свежесть — 30 дней; устаревший кеш всё равно используется (лучше старые задания, чем
@@ -733,6 +848,16 @@ kremle-detect whitelist add    10.0.0.1
 kremle-detect whitelist remove 10.0.0.1
 ```
 
+### Демо-сервер
+
+```bash
+kremle-detect serve                  # FastAPI + капча + /stats на localhost:8000
+kremle-detect serve --port 9000
+KREMLE_DEMO_POLICY=monitor kremle-detect serve     # shadow: ничего не блокировать
+```
+
+Нужен экстра `pip install "kremle-detect[demo]"` (fastapi + uvicorn).
+
 ### Логи событий
 
 ```bash
@@ -778,7 +903,11 @@ kremle-detect logs --no-color
 | мониторинг только по логам | `/kremle/health`, `/kremle/stats`, `/kremle/metrics` |
 | синхронный Redis в async-приложении | `AsyncRedisStorage`, `AsyncStorageAdapter`, `async_offload` в FastAPI |
 | Django: без headless-режима и ops-роутов | паритет с Flask/FastAPI (`KREMLE_HEADLESS`, `KREMLE_ENABLE_OPS_ROUTES`) |
-| React-пакет не собирался и не тестировался | `kremle-react@1.1.0`: сборка, типы, 22 теста, атрибуция, retry |
+| React-пакет не собирался и не тестировался | `kremle-react@1.1.0`: сборка, типы, 24 теста, атрибуция, retry |
+| задания с рисунком молча терялись | парсер собирает `images`, `sync --images`, рендер в шаблоне и React |
+| «что придёт с портала?» — только руками в браузере | `kremle-detect questions check <id>` + `--json` для CI |
+| потрогать можно было только через свой сайт | `kremle-detect serve` и `docker compose up` — демо с `/stats` |
+| Redis проверялся фейком | живой Redis в CI + e2e на настоящем HTTP + нагрузочный смоук |
 
 Ломающих изменений нет: без явной настройки политика остаётся `challenge` для всех
 сигналов, а старый флаг «пройдено» просто истекает один раз.
@@ -807,7 +936,7 @@ kremle-detect logs --no-color
 ## Тесты
 
 ```bash
-python -m pytest tests/ -q      # 420 тестов
+python -m pytest tests/ -q      # 490 тестов
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,
@@ -817,11 +946,37 @@ python -m pytest tests/ -q      # 420 тестов
 `AsyncStorageAdapter` на фейковом клиенте и CLI вопросов.
 
 ```bash
-cd kremle-react && npm test && npm run typecheck && npm run build   # 22 теста + сборка
+cd kremle-react && npm test && npm run typecheck && npm run build   # 24 теста + сборка
 ```
 
-CI гоняет Python 3.9–3.13, собирает wheel, проверяет, что шаблон попал в пакет,
-и собирает React-пакет.
+Что ещё есть в тестах:
+
+```bash
+# живой Redis (нужен docker run -p 6379:6379 redis:7)
+KREMLE_TEST_REDIS_URL=redis://localhost:6379/15 pytest -m redis
+
+# без Docker: in-memory двойник с поддержкой Lua (pip install "fakeredis[lua]")
+KREMLE_TEST_REDIS_FAKE=1 pytest -m redis
+
+# e2e на настоящем HTTP-сервере (uvicorn в потоке, реальные куки)
+pytest tests/test_e2e.py
+
+# нагрузочный смоук (нужен `kremle-detect serve`)
+python scripts/loadtest.py -n 500 -c 20
+```
+
+CI гоняет Python 3.9–3.13 с сервисом Redis (и **падает**, если Redis-тесты
+молча скипнулись), порог покрытия 85 %, сборку wheel с проверкой содержимого,
+`pip-audit`/`npm audit`, тесты и сборку React-пакета. Отдельные workflow:
+публикация по тегу `v*` (PyPI + npm) и ежедневная проверка живого портала
+«Решу ЕГЭ».
+
+## Безопасность
+
+Как сообщить об уязвимости, что считается уязвимостью и что — осознанное
+поведение (блокировка живых людей на Яндекс Браузере), — в [SECURITY.md](SECURITY.md).
+Коротко: `/kremle/stats`, `/kremle/metrics` и `/kremle/health` — публичные роуты,
+закройте их на прокси, если не хотите отдавать цифры наружу.
 
 ## Лицензия
 

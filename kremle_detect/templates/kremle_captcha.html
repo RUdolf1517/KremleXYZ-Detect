@@ -35,6 +35,15 @@ body {
 .header p { font-size: 0.76rem; opacity: 0.4; letter-spacing: 0.04em; }
 .sources a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .sources { margin-top: 0.35rem; }
+.qimages { margin: 0.75rem 0; }
+.qimage {
+  max-width: 100%;
+  max-height: 220px;
+  display: block;
+  margin: 0.35rem 0;
+  border: 1px solid #2a2a2a;
+  background: #fff;
+}
 .category-badge {
   display: inline-block;
   font-size: 0.6rem;
@@ -123,6 +132,7 @@ body {
   <div class="header">
     <h1>Возможно вы кремлебот.<br>Пройдите капчу чтобы доказать что это не так.</h1>
     <p id="subtitle"></p>
+    <div id="qimages" class="qimages" style="display:none"></div>
     <p id="sources" class="sources"></p>
   </div>
 
@@ -260,6 +270,7 @@ var prepared = QUESTIONS.map(function(q, idx) {
     q: q.q,
     opts: q.opts,   /* shuffled server-side */
     category: q.category || '',
+    images: q.images || [],
     origIdx: idx
   };
 });
@@ -274,6 +285,7 @@ function render() {
   document.getElementById('qnum').textContent =
     'Вопрос ' + (current + 1) + ' из ' + prepared.length;
   document.getElementById('qtext').textContent = p.q;
+  renderImages(p.images);
   document.getElementById('prog').style.width =
     (current / prepared.length * 100) + '%';
   document.getElementById('fb').textContent = '';
@@ -300,6 +312,31 @@ function render() {
     btn.onclick = function() { pick(i); };
     container.appendChild(btn);
   });
+}
+
+/* Рисунок из условия задания «Решу ЕГЭ»: грузим с портала, без referrer. */
+function renderImages(images) {
+  var box = document.getElementById('qimages');
+  box.innerHTML = '';
+  if (!images || !images.length) {
+    box.style.display = 'none';
+    return;
+  }
+  images.forEach(function(img) {
+    if (!img || !img.url) return;
+    var el = document.createElement('img');
+    el.src = img.url;
+    el.alt = img.alt || 'рисунок к заданию';
+    el.loading = 'lazy';
+    el.referrerPolicy = 'no-referrer';
+    el.className = 'qimage';
+    el.onerror = function() {
+      /* Порталу не понравилась горячая ссылка — не ломаем капчу, пишем текстом. */
+      el.replaceWith(document.createTextNode('[рисунок не загрузился] '));
+    };
+    box.appendChild(el);
+  });
+  box.style.display = 'block';
 }
 
 function pick(i) {

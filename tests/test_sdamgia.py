@@ -42,6 +42,52 @@ class TestParseProblemHtml:
         assert parsed['answer'] == '42'
 
 
+class TestImages:
+    def test_parser_collects_images(self, sdamgia_html_with_image):
+        parsed = parse_problem_html(sdamgia_html_with_image, base_url='https://math-ege.sdamgia.ru')
+        assert [i['url'] for i in parsed['images']] == [
+            'https://math-ege.sdamgia.ru/img/graph.png',
+            'https://cdn.example.test/extra.png',
+        ]
+        assert parsed['images'][0]['alt'] == 'график'
+
+    def test_absolute_urls_kept(self, sdamgia_html_with_image):
+        parsed = parse_problem_html(sdamgia_html_with_image)
+        assert parsed['images'][1]['url'] == 'https://cdn.example.test/extra.png'
+
+    def test_no_images(self, sdamgia_html):
+        assert parse_problem_html(sdamgia_html)['images'] == []
+
+    def test_task_with_image_skipped_by_default(self, sdamgia_html_with_image):
+        parsed = parse_problem_html(sdamgia_html_with_image, base_url='https://x.test')
+        assert build_question(parsed, 'math', '1', 'https://x.test') is None
+
+    def test_task_with_image_allowed(self, sdamgia_html_with_image):
+        parsed = parse_problem_html(sdamgia_html_with_image, base_url='https://x.test')
+        question = build_question(
+            parsed, 'math', '1', 'https://x.test', allow_images=True,
+        )
+        assert question is not None
+        assert len(question['images']) == 2
+        assert question['q'].startswith('На рисунке изображён график')
+
+    def test_fetch_honours_allow_images(self, sdamgia_html_with_image):
+        def get(url):
+            return sdamgia_html_with_image
+
+        assert fetch_questions('math', limit=1, problem_ids=['1'], get=get) == []
+        kept = fetch_questions(
+            'math', limit=1, problem_ids=['1'], get=get, allow_images=True,
+        )
+        assert len(kept) == 1 and kept[0]['images']
+
+    def test_sync_keeps_images_with_flag(self, tmp_path, sdamgia_html_with_image):
+        sync(['math'], limit=1, cache_dir=str(tmp_path), problem_ids=['1'],
+             get=lambda url: sdamgia_html_with_image, allow_images=True)
+        cached = read_cache('math', str(tmp_path))['questions'][0]
+        assert cached['images'][0]['url'].endswith('/img/graph.png')
+
+
 class TestDistractors:
     def test_numeric_with_comma(self):
         distractors = build_distractors('0,95')
@@ -92,6 +138,11 @@ class TestBuildQuestion:
             category='math', problem_id='1', base_url='https://example.test',
         )
         validate_questions([question])   # не должно бросить
+
+    def test_images_not_in_default_question(self, sdamgia_html):
+        parsed = parse_problem_html(sdamgia_html)
+        question = build_question(parsed, 'math', '1', 'https://x.test')
+        assert 'images' not in question
 
     def test_too_long_condition_skipped(self):
         question = build_question(
@@ -335,3 +386,60 @@ class TestGetQuestionsSource:
         assert data['sources'][0]['url']
         assert all(q['source']['name'] == 'РешуЕГЭ' for q in data['questions'])
         assert 'ans' not in data['questions'][0]
+
+
+class TestImagesInRuntime:
+    """Картинки в кеше и поведение при выключенном показе рисунков."""
+
+    def _write(self, tmp_path, with_images):
+        questions = [{
+            'q': 'Найдите f(2) по графику',
+            'opts': ['3', '4', '5', '6'],
+            'ans': 0,
+            'category': 'math',
+            'problem_id': '7',
+            'source': {'name': 'РешуЕГЭ', 'url': 'https://x.test/problem?id=7',
+                       'author': 'Д. Д. Гущин и авторы портала'},
+        }]
+        if with_images:
+            questions[0]['images'] = [{'url': 'https://x.test/img/1.png', 'alt': ''}]
+        write_cache('math', questions, cache_dir=str(tmp_path))
+
+    def test_images_filtered_from_runtime(self, tmp_path):
+        self._write(tmp_path, with_images=True)
+        usable = get_questions(['math'], source='sdamgia', cache_dir=str(tmp_path))
+        assert usable == []
+
+        kept = get_questions(['math'], source='sdamgia', cache_dir=str(tmp_path),
+                             allow_images=True)
+        assert len(kept) == 1
+
+    def test_challenge_passes_images_to_client(self, tmp_path, monkeypatch):
+        # движок читает KREMLE_CACHE_DIR (см. conftest), а не tmp_path напрямую
+        self._write(sdamgia.default_cache_dir(), with_images=True)
+        engine = CaptchaEngine(
+            categories=['math'], question_count=1, max_errors=0, secret='s',
+            questions_source='sdamgia', questions_images=True,
+        )
+        challenge = engine.create_challenge()
+        data = challenge.to_dict()
+        assert data['questions'][0]['images'][0]['url'].endswith('/img/1.png')
+
+    def test_challenge_hides_images_when_disabled(self):
+        engine = CaptchaEngine(
+            categories=['math'], question_count=1, max_errors=0, secret='s',
+            questions_source='builtin',
+        )
+        assert engine.questions_images is False
+        assert 'images' not in engine.create_challenge().to_dict()['questions'][0]
+
+    def test_template_renders_images(self):
+        import os
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            'kremle_detect', 'templates', 'kremle_captcha.html',
+        )
+        html = open(path, encoding='utf-8').read()
+        assert 'id="qimages"' in html
+        assert 'renderImages' in html
+        assert 'q.images' in html

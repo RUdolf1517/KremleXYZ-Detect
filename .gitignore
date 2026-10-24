@@ -19,3 +19,8 @@ venv/
 .claude/
 kremle-react/node_modules/
 kremle-react/dist/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+kremle-react/coverage/

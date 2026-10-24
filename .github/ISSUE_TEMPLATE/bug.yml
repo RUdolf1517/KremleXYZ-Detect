@@ -1,0 +1,44 @@
+name: Баг
+description: Что-то работает не так
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за отчёт. Если речь о безопасности — не открывайте issue,
+        см. [SECURITY.md](https://github.com/RUdolf1517/KremleXYZ-Detect/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Версия
+      description: "`pip show kremle-detect` или `npm ls kremle-react`"
+      placeholder: 2.7.0
+    validations:
+      required: true
+  - type: dropdown
+    id: framework
+    attributes:
+      label: Интеграция
+      options: [Flask, Django, FastAPI, голое ядро, CLI, React, не знаю]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Что произошло
+      description: Ожидаемое и фактическое поведение
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Как воспроизвести
+      description: Минимальный код/команда; для вопросов — `kremle-detect questions check <id> --json`
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Окружение
+      description: Python/Node, ОС, MemoryStorage или Redis

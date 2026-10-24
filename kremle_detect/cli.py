@@ -20,6 +20,7 @@ CLI для kremle-detect.
 
     # Вопросы из «Решу ЕГЭ»
     kremle-detect questions sync  --limit 60
+    kremle-detect questions check 1001     # проверить одно задание (и картинки)
     kremle-detect questions cache          # состояние кеша
 
     # Логи событий (detect / shadow / pass / fail / blocked)
@@ -74,6 +75,13 @@ def _print_result(result, field, value):
         sys.exit(1)
 
 
+def cmd_serve(args):
+    """Демо-сервер одной командой: `kremle-detect serve`."""
+    from .demo import main as run_demo
+
+    run_demo(host=args.host, port=args.port)
+
+
 def cmd_help(args):
     text = """\
 kremle-detect — управление KremleDetect из командной строки
@@ -85,6 +93,7 @@ kremle-detect — управление KremleDetect из командной ст
   kremle-detect questions  [-c <кат>] [-n N]  Показать вопросы из банка
   kremle-detect questions sync [-c <кат>] [-n N] [--ids 1001,1002] [--dry-run]
                                              Скачать вопросы «Решу ЕГЭ» в кеш
+  kremle-detect questions check <id>         Проверить одно задание и его картинки
   kremle-detect questions cache              Состояние кеша вопросов
 
 БЛОКЛИСТ
@@ -96,6 +105,9 @@ kremle-detect — управление KremleDetect из командной ст
   kremle-detect whitelist list    [--redis URL]           Все разрешённые IP
   kremle-detect whitelist add     <IP>                    Добавить в вайтлист
   kremle-detect whitelist remove  <IP>                    Убрать из вайтлиста
+
+ДЕМО
+  kremle-detect serve [--port 8000]          Демо-сайт + капча + /stats в браузере
 
 ЛОГИ
   kremle-detect logs  [-n N] [--no-color]     Последние N событий (по умолч. 50)
@@ -130,16 +142,28 @@ def cmd_blacklist(args):
             print('Блоклист пуст.')
         else:
             print(f'Заблокировано IP ({len(ips)}):')
+            ttl_of = getattr(storage, 'ttl', None)
             for ip in sorted(ips):
-                print(f'  {ip}')
+                suffix = ''
+                remaining = ttl_of(f'blacklist:{ip}') if callable(ttl_of) else None
+                if remaining == 0:
+                    suffix = '  (навсегда)'
+                elif remaining:
+                    suffix = f'  (осталось {_human_ttl(remaining)})'
+                print(f'  {ip}{suffix}')
     elif args.bl_action == 'add':
         # 0 — осознанный «навсегда», поэтому проверяем именно на None
         ttl = args.ttl if args.ttl is not None else 86400
         storage.blacklist_add(args.ip, ttl)
         print(f'Добавлено в блоклист: {args.ip} (TTL {ttl if ttl else "навсегда"})')
     elif args.bl_action == 'remove':
+        existed = storage.blacklist_check(args.ip)
         storage.blacklist_remove(args.ip)
-        print(f'Удалено из блоклиста: {args.ip}')
+        if existed:
+            print(f'Удалено из блоклиста: {args.ip}')
+        else:
+            print(f'IP не найден в блоклисте: {args.ip}', file=sys.stderr)
+            sys.exit(1)
 
 
 def cmd_whitelist(args):
@@ -156,8 +180,24 @@ def cmd_whitelist(args):
         storage.whitelist_add(args.ip)
         print(f'Добавлено в вайтлист: {args.ip}')
     elif args.wl_action == 'remove':
+        existed = storage.whitelist_check(args.ip)
         storage.whitelist_remove(args.ip)
-        print(f'Удалено из вайтлиста: {args.ip}')
+        if existed:
+            print(f'Удалено из вайтлиста: {args.ip}')
+        else:
+            print(f'IP не найден в вайтлисте: {args.ip}', file=sys.stderr)
+            sys.exit(1)
+
+
+def _human_ttl(seconds: int) -> str:
+    """«3600» → «1 ч», «86400» → «1 дн.». Мелочь, но читать логи/списки проще."""
+    if seconds < 60:
+        return f'{seconds} с'
+    if seconds < 3600:
+        return f'{seconds // 60} мин.'
+    if seconds < 86400:
+        return f'{seconds // 3600} ч'
+    return f'{seconds // 86400} дн.'
 
 
 _EVENT_LABELS = {
@@ -251,18 +291,96 @@ def cmd_questions_sync(args):
     if args.dry_run:
         from .questions.sdamgia import fetch_questions
         for cat in cats:
-            questions = fetch_questions(cat, limit=args.limit, problem_ids=ids or None)
+            questions = fetch_questions(
+                cat, limit=args.limit, problem_ids=ids or None,
+                allow_images=args.images,
+            )
             print(f'  {cat}: {len(questions)} вопрос(ов) — кеш не записан (--dry-run)')
         return
 
     result = sync(cats, limit=args.limit, cache_dir=args.cache_dir,
-                  problem_ids=ids or None)
+                  problem_ids=ids or None, allow_images=args.images)
     if not result:
         print('Ничего не скачано. Проверьте сеть и доступность sdamgia.ru.', file=sys.stderr)
         sys.exit(1)
     for cat, count in result.items():
         print(f'  {cat}: {count} вопрос(ов) записано в кеш')
     print('Готово. Вопросы будут использоваться автоматически (questions_source="auto").')
+
+
+def cmd_questions_check(args):
+    """
+    Проверка одного задания портала: скачать, разобрать, показать картинки.
+
+    Самая простая проверка «а что придёт с „Решу ЕГЭ“»: одна команда, один id.
+    """
+    from .questions.sdamgia import (
+        BASE_URLS, SUBJECTS, build_question, http_get, parse_problem_html,
+    )
+
+    category = args.category or 'math'
+    base_url = BASE_URLS[SUBJECTS[category]]
+    url = f'{base_url}/problem?id={args.problem_id}'
+    if not args.json:
+        print(f'GET {url}')
+
+    try:
+        html = http_get(url)
+    except Exception as exc:  # noqa: BLE001 — CLI не должен падать трейсбеком
+        print(f'Не удалось скачать: {exc}', file=sys.stderr)
+        print('Проверьте сеть/прокси: портал доступен не из каждой сети.', file=sys.stderr)
+        sys.exit(1)
+
+    parsed = parse_problem_html(html, base_url=base_url)
+    if not parsed:
+        print('Страница скачалась, но условие/ответ не разобрались.', file=sys.stderr)
+        print('Скорее всего портал сменил вёрстку — см. prompts в sdamgia.py.', file=sys.stderr)
+        sys.exit(2)
+
+    images = parsed.get('images') or []
+    question = build_question(
+        parsed, category, args.problem_id, base_url, allow_images=args.images,
+    )
+
+    if args.json:
+        print(json.dumps({
+            'problem_id': args.problem_id,
+            'category': category,
+            'url': url,
+            'condition': parsed['condition'],
+            'answer': parsed['answer'],
+            'images': images,
+            'usable': question is not None,
+            'question': question,
+        }, ensure_ascii=False, indent=2))
+        return
+
+    print()
+    print(f'Условие: {parsed["condition"]}')
+    print(f'Ответ:   {parsed["answer"]}')
+    print(f'Картинок в условии: {len(images)}')
+    for image in images:
+        print(f'  - {image["url"]}' + (f'  (alt: {image["alt"]})' if image['alt'] else ''))
+    print()
+
+    if question is None:
+        if images and not args.images:
+            print('В капчу НЕ пойдёт: есть картинка, а --images не указан.')
+            print('Проверить как пригодное: kremle-detect questions check %s --images'
+                  % args.problem_id)
+        elif not str(parsed['answer']).strip():
+            print('В капчу НЕ пойдёт: нет ответа.')
+        else:
+            print('В капчу НЕ пойдёт: ответ не числовой или условие слишком длинное.')
+        sys.exit(3)
+
+    print('В капчу пойдёт. Варианты:')
+    for j, opt in enumerate(question['opts']):
+        marker = '✓' if j == question['ans'] else ' '
+        print(f'  {marker} {j}. {opt}')
+    if images and not args.images:
+        print()
+        print('Внимание: в кеш такое задание попадёт только с `questions sync --images`.')
 
 
 def cmd_questions_cache(args):
@@ -335,8 +453,20 @@ def main():
     q_sync.add_argument('--cache-dir', metavar='PATH', help='Каталог кеша')
     q_sync.add_argument('--ids', metavar='ID[,ID...]',
                         help='Конкретные id заданий вместо поиска по каталогу')
+    q_sync.add_argument('--images', action='store_true',
+                        help='Сохранять задания с рисунком (картинки грузятся с портала)')
     q_sync.add_argument('--dry-run', action='store_true', help='Скачать, но не записывать')
     q_sync.set_defaults(func=cmd_questions_sync)
+
+    q_check = q_sub.add_parser('check', help='Проверить одно задание портала (и картинки)')
+    q_check.add_argument('problem_id', help='id задания, например 1001')
+    q_check.add_argument('--category', '-c',
+                         choices=['math', 'physics', 'russian', 'literature'],
+                         default='math', help='Предмет (по умолч. math)')
+    q_check.add_argument('--images', action='store_true',
+                         help='Учитывать задания с картинкой как пригодные')
+    q_check.add_argument('--json', action='store_true', help='Вывод в JSON')
+    q_check.set_defaults(func=cmd_questions_check)
 
     q_cache = q_sub.add_parser('cache', help='Состояние кеша вопросов')
     q_cache.add_argument('--cache-dir', metavar='PATH', help='Каталог кеша')
@@ -395,6 +525,12 @@ def main():
     wl_rm.set_defaults(func=cmd_whitelist)
 
     # help
+    p_serve = sub.add_parser('serve', help='Запустить демо-сервер (FastAPI + капча)')
+    p_serve.add_argument('--host', default='0.0.0.0', help='Адрес (по умолч. 0.0.0.0)')
+    p_serve.add_argument('--port', '-p', type=int, default=None,
+                         help='Порт (по умолч. 8000 или $KREMLE_DEMO_PORT)')
+    p_serve.set_defaults(func=cmd_serve)
+
     p_help = sub.add_parser('help', help='Показать справку по всем командам')
     p_help.set_defaults(func=cmd_help)
 

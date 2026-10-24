@@ -130,7 +130,12 @@ class AsyncRedisStorage:
         return f'{self._prefix}{key}'
 
     async def set(self, key: str, value: dict, ttl: int) -> None:
-        await self._redis.setex(self._key(key), ttl, json.dumps(value, ensure_ascii=False))
+        # set(..., ex=) вместо setex: setex помечен deprecated в redis-py 6
+        payload = json.dumps(value, ensure_ascii=False)
+        if ttl and ttl > 0:
+            await self._redis.set(self._key(key), payload, ex=ttl)
+        else:
+            await self._redis.set(self._key(key), payload)
 
     async def get(self, key: str) -> Optional[dict]:
         raw = await self._redis.get(self._key(key))
@@ -159,10 +164,10 @@ class AsyncRedisStorage:
             return 0
 
     async def blacklist_add(self, ip: str, ttl: int) -> None:
-        await self._redis.setex(
+        await self._redis.set(
             self._key(f'blacklist:{ip}'),
-            ttl if ttl > 0 else 86400 * 365 * 10,
             json.dumps({'ip': ip}),
+            ex=ttl if ttl > 0 else 86400 * 365 * 10,
         )
 
     async def blacklist_check(self, ip: str) -> bool:
@@ -172,8 +177,8 @@ class AsyncRedisStorage:
         return await self._redis.exists(self._key(f'whitelist:{ip}')) == 1
 
     async def whitelist_add(self, ip: str) -> None:
-        await self._redis.setex(
-            self._key(f'whitelist:{ip}'), 86400 * 365 * 10, json.dumps({'ip': ip})
+        await self._redis.set(
+            self._key(f'whitelist:{ip}'), json.dumps({'ip': ip}), ex=86400 * 365 * 10
         )
 
     async def log_event(self, event: dict) -> None:

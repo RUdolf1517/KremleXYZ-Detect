@@ -1,0 +1,69 @@
+name: Решу ЕГЭ (живой портал)
+
+# Провайдер вопросов проверяется на реальных страницах портала, а не только на
+# фикстурах. В обычном CI сеть к sdamgia.ru недоступна/нежелательна, поэтому это
+# отдельный workflow: по расписанию и руками.
+#
+# Что ловит: смену вёрстки `/problem?id=`, изменение ответа `newapi/general`,
+# отвалившийся TLS. Если краснеет — смотрите `kremle_detect/questions/sdamgia.py`
+# (парсер `_ProblemHTMLParser` и `discover_problem_ids`).
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # каждый день в 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      problem_id:
+        description: 'Проверить конкретное задание'
+        default: '1001'
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Check one problem (разбор + картинки)
+        run: |
+          kremle-detect questions check "${{ inputs.problem_id || '1001' }}" --json \
+            | tee problem.json
+          python - <<'PY'
+          import json
+          data = json.load(open('problem.json'))
+          assert data['condition'], 'условие не разобралось'
+          assert data['answer'], 'ответ не разобрался'
+          print('условие:', data['condition'][:120])
+          print('ответ:', data['answer'])
+          print('картинок:', len(data['images']))
+          print('годится для капчи:', data['usable'])
+          PY
+
+      - name: Discover problem ids (newapi/general → страницы вариантов)
+        run: |
+          python - <<'PY'
+          from kremle_detect.questions.sdamgia import discover_problem_ids
+          ids = discover_problem_ids('math', limit=5)
+          print('найдено id:', ids)
+          assert ids, 'портал не отдал ни одного id задания'
+          PY
+
+      - name: Sync dry-run
+        run: kremle-detect questions sync -c math -n 3 --dry-run
+
+      - name: Upload parsed problem
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdamgia-problem
+          path: problem.json
+          if-no-files-found: ignore

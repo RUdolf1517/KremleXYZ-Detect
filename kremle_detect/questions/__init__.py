@@ -56,6 +56,7 @@ def get_questions(
     shuffle: bool = True,
     source: str = 'auto',
     cache_dir: Optional[str] = None,
+    allow_images: bool = False,
 ) -> List[dict]:
     """
     Возвращает список вопросов.
@@ -72,6 +73,8 @@ def get_questions(
                 * ``builtin`` — только встроенный банк (работает без сети);
                 * ``sdamgia`` — только кеш «Решу ЕГЭ» (без кеша — пусто).
         cache_dir: каталог кеша (по умолчанию ``~/.cache/kremle-detect``).
+        allow_images: отдавать задания с рисунком (по умолчанию отбрасываются:
+                      картинки грузятся с портала и могут не открыться).
 
     Returns:
         Список dict с ключами: q, opts, ans, category (+ source у вопросов
@@ -110,6 +113,9 @@ def get_questions(
 
     if not pool and source != 'sdamgia':
         pool = _builtin_pool(cats)
+
+    if not allow_images:
+        pool = [q for q in pool if not q.get('images')]
 
     if shuffle:
         random.shuffle(pool)

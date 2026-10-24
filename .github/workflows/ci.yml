@@ -14,6 +14,21 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
 
+    services:
+      # Живой Redis: фейковый клиент не проверяет Lua, TTL и гонки
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      KREMLE_TEST_REDIS_URL: redis://localhost:6379/15
+
     steps:
       - uses: actions/checkout@v4
 
@@ -26,13 +41,33 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # Всё сразу: иначе интеграционные тесты молча скипаются через importorskip
-          pip install -e ".[all]" pytest
+          pip install -e ".[all]" pytest pytest-cov
 
       - name: Run tests
         run: python -m pytest tests/ -v
 
+      - name: Redis tests must actually run (не скипнуться)
+        # Если сервис не поднялся, тесты молча скипнутся и «зелёный» CI соврёт
+        run: |
+          python - <<'PY'
+          import redis, sys
+          try:
+              redis.from_url('redis://localhost:6379/15').ping()
+          except Exception as exc:
+              print('Redis недоступен:', exc)
+              sys.exit(1)
+          print('redis ok')
+          PY
+          python -m pytest tests/test_redis_live.py -m redis -q --no-header -p no:cacheprovider
+
+      - name: Coverage
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pytest tests/ -q --cov=kremle_detect --cov-report=term-missing \
+            --cov-fail-under=85
+
   package:
-    # Проверяем, что пакет собирается и HTML-шаблон попадает в wheel
+    # Проверяем, что пакет собирается и данные попадают в wheel
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +88,9 @@ jobs:
           wheel = glob.glob('dist/*.whl')[0]
           names = zipfile.ZipFile(wheel).namelist()
           assert any(n.endswith('templates/kremle_captcha.html') for n in names), names
+          for module in ('policy.py', 'metrics.py', 'session.py', 'demo.py',
+                         'storage_async.py', 'questions/sdamgia.py'):
+              assert any(n.endswith(module) for n in names), module
           print('ok:', wheel)
           PY
 
@@ -79,3 +117,29 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  security:
+    # Адвайзори-проверки: падение не должно блокировать релиз, но должно быть видно
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit --strict --desc || true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: npm audit
+        working-directory: kremle-react
+        run: |
+          npm ci --ignore-scripts
+          npm audit --audit-level=high || true

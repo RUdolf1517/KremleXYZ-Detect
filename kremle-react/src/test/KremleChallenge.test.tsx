@@ -193,3 +193,39 @@ describe('KremleChallenge', () => {
     expect(screen.getByRole('alert').textContent).toContain('offline')
   })
 })
+
+describe('картинки в условии', () => {
+  it('рисует изображения задания с no-referrer', async () => {
+    const withImage = {
+      ...CHALLENGE,
+      questions: [
+        {
+          q: 'Найдите f(2) по графику',
+          opts: ['3', '4', '5', '6'],
+          images: [{ url: 'https://math-ege.sdamgia.ru/img/1.png', alt: 'график' }],
+        },
+      ],
+    }
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(withImage),
+    } as Response)
+
+    render(<KremleChallenge />)
+    const img = (await screen.findByAltText('график')) as HTMLImageElement
+    expect(img.getAttribute('src')).toBe('https://math-ege.sdamgia.ru/img/1.png')
+    expect(img.getAttribute('referrerpolicy')).toBe('no-referrer')
+  })
+
+  it('не падает, если задания без картинок', async () => {
+    const noImages = {
+      ...CHALLENGE,
+      questions: [{ q: 'Сколько будет 2+2?', opts: ['3', '4', '5', '6'], category: 'math' }],
+    }
+    mockFetch({ challenge: () => jsonResponse(noImages) })
+    render(<KremleChallenge />)
+    await screen.findByText(/2\+2/)
+    expect(document.querySelectorAll('img').length).toBe(0)
+  })
+})

@@ -6,7 +6,8 @@ React-компонент и хук для капчи [`kremle-detect`](https://g
 (по умолчанию включено): компонент запрашивает вопросы у `/kremle/challenge`
 и отправляет ответы на `/kremle/verify`.
 
-- SSR-safe (Next.js / Remix): никаких обращений к `window` при рендере
+- SSR-safe (Next.js / Remix): `'use client'` в бандле, никаких обращений к `window` при рендере
+- задания с рисунком: `<img referrerPolicy="no-referrer">` и текстовый фолбэк
 - honeypot-поля и `navigator.userAgentData` в фингерпринте
 - атрибуция источника вопросов («Решу ЕГЭ») со ссылкой
 - автоматически запрашивает новый челлендж, если токен истёк
@@ -115,7 +116,10 @@ export function MyCaptcha() {
 ```jsonc
 // GET /kremle/challenge
 {
-  "questions": [{ "q": "…", "opts": ["…"], "category": "math" }],
+  "questions": [{
+    "q": "…", "opts": ["…"], "category": "math",
+    "images": [{ "url": "https://math-ege.sdamgia.ru/img/1.png", "alt": "" }]
+  }],
   "token": "…",
   "verify_url": "/kremle/verify",
   "sources": [{ "name": "РешуЕГЭ", "url": "https://sdamgia.ru/", "author": "…" }],
@@ -140,7 +144,7 @@ export function MyCaptcha() {
 
 ```bash
 npm install
-npm test            # vitest + jsdom, 22 теста
+npm test            # vitest + jsdom, 24 теста
 npm run typecheck   # tsc --noEmit
 npm run build       # ESM + CJS + .d.ts
 ```

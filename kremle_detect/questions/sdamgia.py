@@ -184,6 +184,8 @@ class _ProblemHTMLParser(HTMLParser):
         self._pbody_count = 0
         self.condition = ''
         self.answer = ''
+        #: Картинки из условия: у «Решу ЕГЭ» часть заданий без рисунка не решить.
+        self.images: List[dict] = []
 
     def handle_starttag(self, tag, attrs):
         if tag == 'div':
@@ -213,6 +215,11 @@ class _ProblemHTMLParser(HTMLParser):
                 self._buf = []
         elif self._capture and tag in ('br', 'p'):
             self._buf.append(' ')
+        elif self._capture == 'condition' and tag == 'img':
+            attrs_map = dict(attrs)
+            src = (attrs_map.get('src') or '').strip()
+            if src:
+                self.images.append({'url': src, 'alt': (attrs_map.get('alt') or '').strip()})
 
     def handle_endtag(self, tag):
         if tag != 'div':
@@ -237,13 +244,17 @@ class _ProblemHTMLParser(HTMLParser):
             self._buf.append(data)
 
 
-def parse_problem_html(html: str) -> Optional[dict]:
+def parse_problem_html(html: str, base_url: Optional[str] = None) -> Optional[dict]:
     """
-    Возвращает ``{'condition': str, 'answer': str}`` или None.
+    Возвращает ``{'condition', 'answer', 'images'}`` или None.
+
+    ``images`` — картинки из условия (например чертёж или график). У «Решу ЕГЭ»
+    часть заданий без рисунка не имеет смысла, поэтому их нельзя молча терять.
 
     Пример:
-        parse_problem_html(open('problem.html').read())
-        # → {'condition': 'На экзамен вынесено 60 вопросов...', 'answer': '0,95'}
+        parse_problem_html(open('problem.html').read(), 'https://math-ege.sdamgia.ru')
+        # → {'condition': 'На рисунке изображён график...', 'answer': '0,95',
+        #    'images': [{'url': 'https://math-ege.sdamgia.ru/img/1.png', 'alt': ''}]}
     """
     parser = _ProblemHTMLParser()
     try:
@@ -256,7 +267,21 @@ def parse_problem_html(html: str) -> Optional[dict]:
     answer = re.sub(r'^\s*Ответ\s*:\s*', '', answer, flags=re.IGNORECASE).strip()
     if not condition or not answer:
         return None
-    return {'condition': condition, 'answer': answer}
+
+    images = []
+    seen = set()
+    for image in parser.images:
+        url = image['url']
+        if base_url and url.startswith('/'):
+            url = f'{base_url}{url}'
+        elif base_url and not url.startswith(('http://', 'https://', 'data:')):
+            url = f'{base_url}/{url}'
+        if url in seen:
+            continue
+        seen.add(url)
+        images.append({'url': url, 'alt': image.get('alt', '')})
+
+    return {'condition': condition, 'answer': answer, 'images': images}
 
 
 # ── Построение вариантов ответа ──────────────────────────────────────────────
@@ -346,12 +371,20 @@ def build_distractors(answer: str, count: int = 3, rng=None) -> Optional[List[st
     return result
 
 
-def build_question(problem: dict, category: str, problem_id: str, base_url: str, rng=None) -> Optional[dict]:
+def build_question(
+    problem: dict,
+    category: str,
+    problem_id: str,
+    base_url: str,
+    rng=None,
+    allow_images: bool = False,
+) -> Optional[dict]:
     """
     Превращает задачу портала в вопрос капчи с 4 вариантами.
 
-    Возвращает None, если ответ не числовой или условие слишком длинное
-    (капча не должна быть простынёй).
+    Возвращает None, если ответ не числовой, условие слишком длинное или в
+    условии есть картинка, а ``allow_images=False`` (по умолчанию: горячие
+    ссылки на изображения портала не должны попадать в капчу без спроса).
     """
     import random as _random
 
@@ -359,7 +392,10 @@ def build_question(problem: dict, category: str, problem_id: str, base_url: str,
 
     condition = (problem.get('condition') or '').strip()
     answer = (problem.get('answer') or '').strip()
+    images = [i for i in (problem.get('images') or []) if isinstance(i, dict) and i.get('url')]
     if not condition or not answer:
+        return None
+    if images and not allow_images:
         return None
     if len(condition) > 400:
         return None
@@ -371,7 +407,7 @@ def build_question(problem: dict, category: str, problem_id: str, base_url: str,
     opts = [answer] + distractors
     rng.shuffle(opts)
 
-    return {
+    question = {
         'q': condition,
         'opts': opts,
         'ans': opts.index(answer),
@@ -383,6 +419,9 @@ def build_question(problem: dict, category: str, problem_id: str, base_url: str,
             'author': SOURCE['author'],
         },
     }
+    if images:
+        question['images'] = images
+    return question
 
 
 # ── Сеть ─────────────────────────────────────────────────────────────────────
@@ -524,6 +563,7 @@ def fetch_questions(
     problem_ids: Optional[Sequence[str]] = None,
     get: Optional[Callable[[str], str]] = None,
     rng=None,
+    allow_images: bool = False,
 ) -> List[dict]:
     """
     Скачивает задания и превращает их в вопросы капчи.
@@ -560,10 +600,12 @@ def fetch_questions(
         except (HTTPError, URLError, OSError) as exc:
             logger.warning('РешуЕГЭ: задание %s не скачалось (%s)', pid, exc)
             continue
-        parsed = parse_problem_html(html)
+        parsed = parse_problem_html(html, base_url=base_url)
         if not parsed:
             continue
-        question = build_question(parsed, category, str(pid), base_url, rng=rng)
+        question = build_question(
+            parsed, category, str(pid), base_url, rng=rng, allow_images=allow_images,
+        )
         if question:
             questions.append(question)
 
@@ -578,6 +620,7 @@ def sync(
     get: Optional[Callable[[str], str]] = None,
     rng=None,
     problem_ids: Optional[Sequence[str]] = None,
+    allow_images: bool = False,
 ) -> Dict[str, int]:
     """
     Скачивает вопросы и пишет их в кеш.
@@ -597,7 +640,8 @@ def sync(
             continue
         try:
             questions = fetch_questions(
-                category, limit=limit, problem_ids=problem_ids, get=get, rng=rng,
+                category, limit=limit, problem_ids=problem_ids, get=get,
+                rng=rng, allow_images=allow_images,
             )
         except ValueError as exc:
             logger.warning('%s', exc)

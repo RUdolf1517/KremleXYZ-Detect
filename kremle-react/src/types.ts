@@ -8,12 +8,20 @@ export interface KremleSource {
   author?: string
 }
 
+/** Рисунок из условия задания (грузится с портала-первоисточника). */
+export interface KremleImage {
+  url: string
+  alt?: string
+}
+
 export interface KremleQuestion {
   q: string
   opts: string[]
   category?: string
   source?: KremleSource
   problem_id?: string
+  /** Картинки условия: у «Решу ЕГЭ» часть заданий без рисунка не решается */
+  images?: KremleImage[]
 }
 
 export interface KremleResult {

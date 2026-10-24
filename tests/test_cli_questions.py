@@ -98,3 +98,84 @@ class TestCacheCommand:
         assert 'math' in out
         assert '3 вопрос' in out
         assert 'только что' in out
+
+
+class TestCheck:
+    """`questions check` — самая простая проверка задания и его картинок."""
+
+    def _patch(self, monkeypatch, html):
+        monkeypatch.setattr(sdamgia, 'http_get', lambda url: html)
+
+    def test_plain_task_is_usable(self, monkeypatch, capsys, sdamgia_html):
+        self._patch(monkeypatch, sdamgia_html)
+        run_cli_ok(['questions', 'check', '1001'], monkeypatch)
+        out = capsys.readouterr().out
+        assert 'Картинок в условии: 0' in out
+        assert 'В капчу пойдёт' in out
+        assert 'Ответ:   0,95' in out
+
+    def test_task_with_image_skipped_without_flag(self, monkeypatch, capsys,
+                                                 sdamgia_html_with_image):
+        self._patch(monkeypatch, sdamgia_html_with_image)
+        code = run_cli(['questions', 'check', '1001'], monkeypatch)
+        out = capsys.readouterr().out
+        assert code == 3
+        assert 'Картинок в условии: 2' in out
+        assert 'есть картинка' in out
+
+    def test_task_with_image_usable_with_flag(self, monkeypatch, capsys,
+                                             sdamgia_html_with_image):
+        self._patch(monkeypatch, sdamgia_html_with_image)
+        run_cli_ok(['questions', 'check', '1001', '--images'], monkeypatch)
+        out = capsys.readouterr().out
+        assert 'В капчу пойдёт' in out
+        assert 'img/graph.png' in out
+
+    def test_json_output(self, monkeypatch, capsys, sdamgia_html_with_image):
+        self._patch(monkeypatch, sdamgia_html_with_image)
+        run_cli_ok(['questions', 'check', '1001', '--images', '--json'], monkeypatch)
+        import json as _json
+        data = _json.loads(capsys.readouterr().out)
+        assert data['problem_id'] == '1001'
+        assert len(data['images']) == 2
+        # без --images задание с рисунком не годится для капчи
+        assert data['usable'] is True
+        assert data['question']['opts'][data['question']['ans']] == '3'
+
+    def test_network_error(self, monkeypatch, capsys):
+        def boom(url):
+            raise OSError('network down')
+
+        monkeypatch.setattr(sdamgia, 'http_get', boom)
+        assert run_cli(['questions', 'check', '1'], monkeypatch) == 1
+        assert 'Не удалось скачать' in capsys.readouterr().err
+
+    def test_unparsable_page(self, monkeypatch, capsys):
+        self._patch(monkeypatch, '<html><body>ничего</body></html>')
+        assert run_cli(['questions', 'check', '1'], monkeypatch) == 2
+        assert 'не разобрались' in capsys.readouterr().err
+
+    def test_text_answer_not_usable(self, monkeypatch, capsys):
+        html = ('<div class="prob_maindiv"><div class="pbody">Назовите город</div>'
+                '<div class="answer">Ответ: Москва</div></div>')
+        self._patch(monkeypatch, html)
+        assert run_cli(['questions', 'check', '1'], monkeypatch) == 3
+        assert 'В капчу НЕ пойдёт' in capsys.readouterr().out
+
+
+class TestSyncImages:
+    def test_sync_with_images_flag(self, monkeypatch, capsys, tmp_path,
+                                   sdamgia_html_with_image):
+        monkeypatch.setattr(sdamgia, 'http_get', lambda url: sdamgia_html_with_image)
+        run_cli_ok(['questions', 'sync', '-c', 'math', '-n', '1', '--ids', '5',
+                    '--images', '--cache-dir', str(tmp_path)], monkeypatch)
+        data = sdamgia.read_cache('math', str(tmp_path))
+        assert data['questions'][0]['images']
+
+    def test_sync_without_flag_skips_images(self, monkeypatch, capsys, tmp_path,
+                                            sdamgia_html_with_image):
+        monkeypatch.setattr(sdamgia, 'http_get', lambda url: sdamgia_html_with_image)
+        code = run_cli(['questions', 'sync', '-c', 'math', '-n', '1', '--ids', '5',
+                        '--cache-dir', str(tmp_path)], monkeypatch)
+        assert code == 1
+        assert sdamgia.read_cache('math', str(tmp_path)) is None

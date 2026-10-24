@@ -19,8 +19,8 @@ class BaseStorage(ABC):
     """Абстрактный бэкенд хранения."""
 
     @abstractmethod
-    def set(self, key: str, value: dict, ttl: int) -> None:
-        """Сохранить данные с TTL в секундах."""
+    def set(self, key: str, value: dict, ttl: Optional[int]) -> None:
+        """Сохранить данные с TTL в секундах (``None``/``0`` — не истекает)."""
 
     @abstractmethod
     def get(self, key: str) -> Optional[dict]:
@@ -50,7 +50,9 @@ class BaseStorage(ABC):
 
     def blacklist_add(self, ip: str, ttl: int) -> None:
         """Добавить IP в чёрный список на ttl секунд (0 = навсегда)."""
-        self.set(f'blacklist:{ip}', {'ip': ip}, ttl if ttl > 0 else 86400 * 365 * 10)
+        # 0 → ключ без срока жизни, а не «через 10 лет»: иначе /stats и CLI
+        # показывают остаток, и «навсегда» незаметно превращается в дату.
+        self.set(f'blacklist:{ip}', {'ip': ip}, ttl if ttl > 0 else None)
 
     def blacklist_check(self, ip: str) -> bool:
         """True если IP в чёрном списке."""
@@ -70,7 +72,7 @@ class BaseStorage(ABC):
 
     def whitelist_add(self, ip: str) -> None:
         """Добавить IP в белый список навсегда."""
-        self.set(f'whitelist:{ip}', {'ip': ip}, self._WHITELIST_TTL)
+        self.set(f'whitelist:{ip}', {'ip': ip}, None)
 
     def whitelist_check(self, ip: str) -> bool:
         """True если IP в белом списке."""
@@ -79,6 +81,14 @@ class BaseStorage(ABC):
     def whitelist_remove(self, ip: str) -> None:
         """Убрать IP из белого списка."""
         self.delete(f'whitelist:{ip}')
+
+    def ttl(self, key: str) -> Optional[int]:
+        """
+        Сколько секунд осталось жить ключу.
+
+        ``None`` — ключа нет; ``0`` — ключ бессрочный; иначе остаток в секундах.
+        """
+        raise NotImplementedError
 
     def whitelist_list(self) -> list:
         """Список всех IP в белом списке."""
@@ -114,8 +124,10 @@ class MemoryStorage(BaseStorage):
         self._last_cleanup: float = time.time()
         self._events: collections.deque = collections.deque(maxlen=self._LOG_MAX)
 
-    def set(self, key: str, value: dict, ttl: int) -> None:
-        self._data[key] = (value, time.time() + ttl)
+    def set(self, key: str, value: dict, ttl: Optional[int]) -> None:
+        # ttl=None — бессрочно; ttl=0 — уже просрочено (историческое поведение)
+        expires_at = time.time() + ttl if ttl is not None else None
+        self._data[key] = (value, expires_at)
         self._cleanup()
 
     def get(self, key: str) -> Optional[dict]:
@@ -170,6 +182,19 @@ class MemoryStorage(BaseStorage):
             if k.startswith(prefix) and (exp is None or now <= exp)
         ]
 
+    def ttl(self, key: str) -> Optional[int]:
+        entry = self._data.get(key)
+        if entry is None:
+            return None
+        _, expires_at = entry
+        if expires_at is None:
+            return 0
+        remaining = expires_at - time.time()
+        if remaining <= 0:
+            del self._data[key]
+            return None
+        return int(remaining)
+
     def log_event(self, event: dict) -> None:
         self._events.appendleft(event)
 
@@ -223,8 +248,12 @@ class RedisStorage(BaseStorage):
     def _key(self, key: str) -> str:
         return f'{self._prefix}{key}'
 
-    def set(self, key: str, value: dict, ttl: int) -> None:
-        self._redis.setex(self._key(key), ttl, json.dumps(value, ensure_ascii=False))
+    def set(self, key: str, value: dict, ttl: Optional[int]) -> None:
+        payload = json.dumps(value, ensure_ascii=False)
+        if ttl is None:
+            self._redis.set(self._key(key), payload)
+        else:
+            self._redis.setex(self._key(key), ttl, payload)
 
     def get(self, key: str) -> Optional[dict]:
         raw = self._redis.get(self._key(key))
@@ -265,6 +294,14 @@ class RedisStorage(BaseStorage):
             return int(raw)
         except (TypeError, ValueError):
             return 0
+
+    def ttl(self, key: str) -> Optional[int]:
+        raw = self._redis.ttl(self._key(key))
+        if raw == -2:
+            return None
+        if raw == -1:
+            return 0
+        return int(raw)
 
     def _scan_suffix(self, ns: str) -> list:
         """Вернуть всё что идёт после kremle:{ns}: для найденных ключей."""

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Тесты локального кеша картинок и роутов /kremle/img/<key>."""
 
+import json
 import os
 
 import pytest
@@ -8,7 +9,7 @@ import pytest
 from kremle_detect import images
 from kremle_detect.images import (
     KEY_RE, ImageError, cache_questions, clear, download_image, has_image,
-    image_key, local_url, localize_image, read_image, rewrite_questions,
+    image_key, local_url, localize_image, prune, read_image, rewrite_questions,
     stats, store_image,
 )
 
@@ -386,43 +387,70 @@ class TestDjangoRoute:
             assert missing.status_code == 404
 
 
-class TestRealHttp:
-    """Скачивание по-настоящему: локальный сервер вместо портала."""
+@pytest.fixture
+def server():
+    import http.server
+    import threading
 
-    @pytest.fixture
-    def server(self):
-        import http.server
-        import threading
-
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                if self.path == '/big.png':
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'image/png')
-                    self.send_header('Content-Length', str(len(PNG) * 2))
-                    self.end_headers()
-                    self.wfile.write(PNG * 2)
-                    return
-                if self.path == '/missing.png':
-                    self.send_error(404)
-                    return
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == '/big.png':
                 self.send_response(200)
                 self.send_header('Content-Type', 'image/png')
-                self.send_header('Content-Length', str(len(PNG)))
+                self.send_header('Content-Length', str(len(PNG) * 2))
                 self.end_headers()
-                self.wfile.write(PNG)
+                self.wfile.write(PNG * 2)
+                return
+            if self.path == '/missing.png':
+                self.send_error(404)
+                return
+            if self.path == '/to-image.png':
+                # относительный редирект на нормальную картинку
+                self.send_response(302)
+                self.send_header('Location', '/graph.png')
+                self.end_headers()
+                return
+            if self.path == '/to-metadata.png':
+                # абсолютный редирект на внутренний адрес — классический SSRF
+                self.send_response(302)
+                self.send_header('Location', 'http://169.254.169.254/latest/meta-data/')
+                self.end_headers()
+                return
+            if self.path == '/to-file.png':
+                self.send_response(302)
+                self.send_header('Location', 'file:///etc/passwd')
+                self.end_headers()
+                return
+            if self.path == '/loop.png':
+                self.send_response(302)
+                self.send_header('Location', '/loop.png')
+                self.end_headers()
+                return
+            if self.path == '/no-location.png':
+                self.send_response(302)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/png')
+            self.send_header('Content-Length', str(len(PNG)))
+            self.end_headers()
+            self.wfile.write(PNG)
 
-            def log_message(self, *args):  # тишина в выводе тестов
-                pass
+        def log_message(self, *args):  # тишина в выводе тестов
+            pass
 
-        httpd = http.server.HTTPServer(('127.0.0.1', 0), Handler)
-        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-        thread.start()
-        try:
-            yield f'http://127.0.0.1:{httpd.server_port}'
-        finally:
-            httpd.shutdown()
-            httpd.server_close()
+    httpd = http.server.HTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f'http://127.0.0.1:{httpd.server_port}'
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+class TestRealHttp:
+    """Скачивание по-настоящему: локальный сервер вместо портала."""
 
     def test_downloads_from_server(self, server, tmp_path):
         result = download_image(f'{server}/graph.png', str(tmp_path), allow_private=True)
@@ -437,3 +465,91 @@ class TestRealHttp:
         with pytest.raises(ImageError):
             download_image(f'{server}/big.png', str(tmp_path), allow_private=True,
                            max_bytes=len(PNG) + 8)
+
+
+class TestRedirectSafety:
+    """
+    Редирект не должен превращать скачивание в SSRF.
+
+    ``urlopen`` по умолчанию ходит по 302 сам, поэтому проверка только
+    исходного адреса ничего не гарантирует.
+    """
+
+    def test_relative_redirect_followed(self, server, tmp_path):
+        result = download_image(f'{server}/to-image.png', str(tmp_path),
+                                allow_private=True)
+        assert read_image(result['key'], str(tmp_path))['bytes'] == PNG
+
+    def test_redirect_to_internal_address_blocked(self, server, tmp_path):
+        with pytest.raises(ImageError) as exc:
+            download_image(f'{server}/to-metadata.png', str(tmp_path),
+                           allow_private=True)
+        assert '169.254.169.254' in str(exc.value) or 'внутренний' in str(exc.value)
+
+    def test_redirect_to_internal_address_blocked_without_opt_in(self, server, tmp_path):
+        with pytest.raises(ImageError):
+            download_image(f'{server}/to-metadata.png', str(tmp_path))
+
+    def test_redirect_to_file_scheme_blocked(self, server, tmp_path):
+        with pytest.raises(ImageError):
+            download_image(f'{server}/to-file.png', str(tmp_path), allow_private=True)
+
+    def test_redirect_loop_is_limited(self, server, tmp_path):
+        with pytest.raises(ImageError) as exc:
+            download_image(f'{server}/loop.png', str(tmp_path), allow_private=True)
+        assert 'редирект' in str(exc.value)
+
+    def test_redirect_without_location(self, server, tmp_path):
+        with pytest.raises(ImageError):
+            download_image(f'{server}/no-location.png', str(tmp_path), allow_private=True)
+
+
+class TestPrune:
+    """Чистка кеша рисунков по возрасту."""
+
+    def _store(self, tmp_path, name, age, size=100):
+        url = f'https://cdn.example.test/{name}.png'
+        stored = store_image(url, PNG + b'\x00' * size, 'image/png', str(tmp_path))
+        # управляем возрастом через метаданные
+        meta_path = os.path.join(images.images_dir(str(tmp_path)), f'{stored["key"]}.json')
+        meta = json.loads(open(meta_path, encoding='utf-8').read())
+        meta['fetched_at'] = 1_000_000 + age
+        with open(meta_path, 'w', encoding='utf-8') as f:
+            json.dump(meta, f)
+        return stored['key']
+
+    def test_removes_oldest_first(self, tmp_path):
+        old = self._store(tmp_path, 'old', age=10)
+        mid = self._store(tmp_path, 'mid', age=20)
+        new = self._store(tmp_path, 'new', age=30)
+        total = stats(str(tmp_path))['bytes']
+
+        result = prune(total - 1, str(tmp_path))  # не хватает одного байта
+        assert result['removed'] == 1
+        assert not has_image(old, str(tmp_path))
+        assert has_image(mid, str(tmp_path)) and has_image(new, str(tmp_path))
+        assert result['bytes'] <= total - 1
+
+    def test_noop_when_fits(self, tmp_path):
+        self._store(tmp_path, 'a', age=1)
+        self._store(tmp_path, 'b', age=2)
+        total = stats(str(tmp_path))['bytes']
+        result = prune(total + 1024, str(tmp_path))
+        assert result['removed'] == 0
+        assert stats(str(tmp_path))['count'] == 2
+
+    def test_zero_limit_removes_everything(self, tmp_path):
+        self._store(tmp_path, 'a', age=1)
+        self._store(tmp_path, 'b', age=2)
+        result = prune(0, str(tmp_path))
+        assert result['removed'] == 2
+        assert result['count'] == 0
+        assert result['bytes'] == 0
+        assert stats(str(tmp_path))['count'] == 0
+
+    def test_negative_limit_rejected(self, tmp_path):
+        with pytest.raises(ValueError):
+            prune(-1, str(tmp_path))
+
+    def test_missing_dir_is_fine(self, tmp_path):
+        assert prune(1024, str(tmp_path / 'nope'))['removed'] == 0

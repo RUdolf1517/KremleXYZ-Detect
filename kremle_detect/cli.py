@@ -98,6 +98,8 @@ kremle-detect — управление KremleDetect из командной ст
   kremle-detect questions check <id> [--images] [--download]
                                              Проверить одно задание и его картинки
   kremle-detect questions cache              Состояние кеша вопросов
+  kremle-detect questions images [--prune <МиБ>|--clear]
+                                             Кеш рисунков: размер и чистка
 
 БЛОКЛИСТ
   kremle-detect blacklist list    [--redis URL]           Все заблокированные IP
@@ -449,6 +451,40 @@ def cmd_questions_check(args):
         print('Внимание: в кеш такое задание попадёт только с `questions sync --images`.')
 
 
+def cmd_questions_images(args):
+    """
+    Кеш рисунков: размер, чистка по возрасту, полное удаление.
+
+    Рисунки копятся без срока жизни (задание могло исчезнуть с портала),
+    поэтому место возвращаем вручную.
+    """
+    from .images import clear, prune, stats
+
+    if args.clear:
+        removed = clear(args.cache_dir)
+        print(f'Кеш рисунков очищен: удалено {removed} файл(ов).')
+        return
+
+    if args.prune is not None:
+        limit = int(args.prune * 1024 * 1024)
+        result = prune(limit, args.cache_dir)
+        if not result['removed']:
+            print(f'Чистить нечего: {result["bytes"] / 1024:.0f} КиБ — это в пределах '
+                  f'{args.prune:g} МиБ.')
+            return
+        print(f'Удалено {result["removed"]} старых рисунков '
+              f'({result["freed"] / 1024:.0f} КиБ).')
+        print(f'Осталось: {result["count"]} файл(ов), {result["bytes"] / 1024:.0f} КиБ.')
+        return
+
+    info = stats(args.cache_dir)
+    print(f'Кеш рисунков ({info["dir"]}):')
+    if not info['count']:
+        print('  пусто — скачать: kremle-detect questions sync --images --download')
+        return
+    print(f'  {info["count"]} файл(ов), {info["bytes"] / 1024:.0f} КиБ')
+
+
 def cmd_questions_cache(args):
     from .questions.sdamgia import SUBJECTS, cache_age, cache_path, read_cache
 
@@ -553,7 +589,17 @@ def main():
 
     q_cache = q_sub.add_parser('cache', help='Состояние кеша вопросов')
     q_cache.add_argument('--cache-dir', metavar='PATH', help='Каталог кеша')
+
+    q_images = q_sub.add_parser('images', help='Кеш рисунков: размер и чистка')
+    q_images.add_argument('--cache-dir', metavar='PATH', help='Каталог кеша')
+    q_images_group = q_images.add_mutually_exclusive_group()
+    q_images_group.add_argument('--prune', type=float, metavar='МИБ',
+                                help='Удалить самые старые рисунки, пока кеш не станет '
+                                     'не больше указанного размера')
+    q_images_group.add_argument('--clear', action='store_true',
+                                help='Удалить все рисунки из кеша')
     q_cache.set_defaults(func=cmd_questions_cache)
+    q_images.set_defaults(func=cmd_questions_images)
 
     # обратная совместимость: kremle-detect questions --count 5
     p_q.add_argument('--category', '-c', dest='legacy_category',

@@ -36,8 +36,9 @@ import re
 import socket
 import time
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.parse import urljoin, urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .questions.sdamgia import USER_AGENT, default_cache_dir
 
@@ -51,6 +52,10 @@ KEY_RE = re.compile(r'^[0-9a-f]{32}$')
 MAX_IMAGE_BYTES = 3 * 1024 * 1024
 
 DEFAULT_TIMEOUT = 10.0
+
+#: Сколько редиректов проходим, проверяя каждый. Портал отдаёт файлы напрямую,
+#: больше двух хопов не встречается; ограничение нужно, чтобы цикл не крутился.
+MAX_REDIRECTS = 3
 
 #: Заголовки ответа роута картинок: ключ — хеш содержимого, поэтому кеш
 #: «навсегда»; nosniff и sandbox — на случай SVG, который может нести скрипт.
@@ -285,18 +290,69 @@ def _assert_public_url(url: str, allow_private: bool = False) -> None:
             )
 
 
-def _http_get_image(url: str, timeout: float = DEFAULT_TIMEOUT,
-                    max_bytes: int = MAX_IMAGE_BYTES) -> Tuple[bytes, str]:
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """
+    Обработчик, который не ходит по редиректам сам.
+
+    ``urlopen`` по умолчанию выполняет 302 за нас — и тогда проверка адреса
+    видит только первый хоп. Публичный URL мог бы увести на ``127.0.0.1``
+    или ``169.254.169.254``. Поэтому редирект возвращаем вызывающему коду,
+    он проверит новый адрес тем же ``_assert_public_url``.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
+
+
+_OPENER = build_opener(_NoRedirectHandler())
+
+_REDIRECT_CODES = (301, 302, 303, 307, 308)
+
+
+def _fetch_once(url: str, timeout: float,
+                max_bytes: int) -> Tuple[Optional[Tuple[bytes, str]], Optional[str]]:
+    """
+    Один HTTP-запрос без автоматических редиректов.
+
+    Returns:
+        ``((data, content_type), None)`` или ``(None, location)`` для 3xx.
+    """
     request = Request(url, headers={
         'User-Agent': USER_AGENT,
         'Accept': 'image/avif,image/webp,image/png,image/*;q=0.8,*/*;q=0.5',
     })
-    with urlopen(request, timeout=timeout) as response:  # noqa: S310 — схема проверена выше
-        content_type = response.headers.get_content_type()
-        data = response.read(max_bytes + 1)
+    try:
+        with _OPENER.open(request, timeout=timeout) as response:  # noqa: S310 — схема проверена
+            content_type = response.headers.get_content_type()
+            data = response.read(max_bytes + 1)
+    except HTTPError as exc:
+        location = exc.headers.get('Location') if exc.headers else None
+        if exc.code in _REDIRECT_CODES and location:
+            return None, urljoin(url, location)
+        raise ImageError(f'{url}: HTTP {exc.code}') from exc
+
     if len(data) > max_bytes:
         raise ImageError(f'файл больше {max_bytes} байт')
-    return data, content_type
+    return (data, content_type), None
+
+
+def _http_get_image(url: str, timeout: float = DEFAULT_TIMEOUT,
+                    max_bytes: int = MAX_IMAGE_BYTES,
+                    allow_private: bool = False) -> Tuple[bytes, str]:
+    """
+    Скачивает картинку, проверяя **каждый** хоп редиректа.
+
+    Проверять только исходный URL мало: публичный сервер может ответить
+    ``302 → http://127.0.0.1/...``, и это уже SSRF.
+    """
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        _assert_public_url(current, allow_private=allow_private)
+        result, redirect = _fetch_once(current, timeout, max_bytes)
+        if redirect is None and result is not None:
+            return result
+        current = redirect  # type: ignore[assignment]
+    raise ImageError(f'слишком много редиректов (>{MAX_REDIRECTS}): {url}')
 
 
 def download_image(url: str, cache_dir: Optional[str] = None,
@@ -327,15 +383,14 @@ def download_image(url: str, cache_dir: Optional[str] = None,
     if url.startswith('data:'):
         raise ImageError('data-URI уже встроен в условие, скачивать нечего')
 
-    fetcher = get or _http_get_image
-    if get is None:
-        _assert_public_url(url, allow_private=allow_private)
-
     try:
-        if get is None:
-            data, content_type = fetcher(url, timeout=timeout, max_bytes=max_bytes)  # type: ignore[call-arg]
+        if get is not None:
+            data, content_type = get(url)
         else:
-            data, content_type = fetcher(url)  # type: ignore[call-arg]
+            # адрес (и каждый хоп редиректа) проверяется внутри
+            data, content_type = _http_get_image(
+                url, timeout=timeout, max_bytes=max_bytes, allow_private=allow_private,
+            )
     except ImageError:
         raise
     except Exception as exc:  # noqa: BLE001 — любая сетевая ошибка = ImageError
@@ -464,6 +519,72 @@ def stats(cache_dir: Optional[str] = None) -> dict:
     except OSError:
         return {'count': 0, 'bytes': 0, 'dir': directory}
     return {'count': count, 'bytes': total, 'dir': directory}
+
+
+def _entry_age(key: str, cache_dir: Optional[str]) -> float:
+    """Чем свежее скачано, тем больше число (для сортировки «старые первыми»)."""
+    fetched = _read_meta(key, cache_dir).get('fetched_at')
+    if isinstance(fetched, (int, float)):
+        return float(fetched)
+    try:
+        return os.path.getmtime(_data_path(key, cache_dir))
+    except OSError:
+        return 0.0
+
+
+def prune(max_bytes: int, cache_dir: Optional[str] = None) -> dict:
+    """
+    Удаляет самые старые картинки, пока кеш не станет не больше ``max_bytes``.
+
+    Кеш картинок не имеет естественного срока жизни: задание могло исчезнуть
+    с портала, а файл останется навсегда. Чистка по возрасту — самый
+    предсказуемый способ вернуть место, не ломая свежие задания.
+
+    Returns:
+        ``{'removed', 'freed', 'count', 'bytes'}`` — удалено файлов и байт,
+        сколько осталось.
+    """
+    if max_bytes < 0:
+        raise ValueError('max_bytes должен быть >= 0')
+
+    directory = images_dir(cache_dir)
+    try:
+        names = [n for n in os.listdir(directory) if KEY_RE.match(n)]
+    except OSError:
+        return {'removed': 0, 'freed': 0, 'count': 0, 'bytes': 0}
+
+    entries = []
+    total = 0
+    for name in names:
+        path = os.path.join(directory, name)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        total += size
+        entries.append((_entry_age(name, cache_dir), size, name))
+
+    removed = 0
+    freed = 0
+    for _, size, name in sorted(entries):  # старые первыми
+        if total <= max_bytes:
+            break
+        data_path = os.path.join(directory, name)
+        meta_path = os.path.join(directory, f'{name}.json')
+        try:
+            os.remove(data_path)
+        except OSError:
+            continue
+        try:
+            os.remove(meta_path)
+        except OSError:
+            pass
+        total -= size
+        removed += 1
+        freed += size
+
+    return {'removed': removed, 'freed': freed, 'count': len(names) - removed,
+            'bytes': max(total, 0)}
 
 
 def clear(cache_dir: Optional[str] = None) -> int:

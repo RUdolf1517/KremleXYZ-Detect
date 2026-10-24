@@ -36,7 +36,7 @@ KremleXYZ-Detect/
 │   └── templates/
 │       └── kremle_captcha.html      HTML капчи + JS-фингерпринт
 ├── kremle-react/                    React-компонент и хук (tsup, TypeScript)
-├── tests/                           490 тестов
+├── tests/                           491 тестов
 │   ├── test_detector.py             Детекция UA/referer/hints
 │   ├── test_captcha.py              Challenge, engine, storage, callbacks
 │   ├── test_engine_security.py      Валидация настроек, одноразовые токены, лимиты
@@ -155,4 +155,4 @@ KremleXYZ-Detect/
   fallback на встроенный банк; `kremle-detect questions sync` обновляет кеш.
 - **Эксплуатация**: `/kremle/health`, `/kremle/stats`, `/kremle/metrics` (Prometheus).
 - **Async**: `AsyncRedisStorage`, `AsyncStorageAdapter`, threadpool в FastAPI.
-- **490 Python-тестов + 24 React** и CI, который собирает wheel и React-пакет.
+- **491 Python-тестов + 24 React** и CI, который собирает wheel и React-пакет.

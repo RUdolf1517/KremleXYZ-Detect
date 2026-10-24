@@ -216,3 +216,12 @@ class TestArgParsing:
             cli.main()
         out = capsys.readouterr().out
         assert 'check' in out and 'sync' in out and 'cache' in out
+
+    def test_version_flag(self, monkeypatch, capsys):
+        from kremle_detect import __version__
+
+        monkeypatch.setattr(sys, 'argv', ['kremle-detect', '--version'])
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        assert exc.value.code == 0
+        assert __version__ in capsys.readouterr().out

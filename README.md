@@ -11,7 +11,7 @@
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
 [![version](https://img.shields.io/badge/version-2.7.0-111111?style=flat-square)](CHANGELOG.md)
-[![tests](https://img.shields.io/badge/tests-490%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
+[![tests](https://img.shields.io/badge/tests-491%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
 </div>
@@ -849,6 +849,12 @@ kremle-detect whitelist add    10.0.0.1
 kremle-detect whitelist remove 10.0.0.1
 ```
 
+### Версия
+
+```bash
+kremle-detect --version      # kremle-detect 2.7.0
+```
+
 ### Демо-сервер
 
 ```bash
@@ -976,7 +982,7 @@ Workflow соберёт wheel/sdist, сверит версию с тегом, п
 ## Тесты
 
 ```bash
-python -m pytest tests/ -q      # 490 тестов
+python -m pytest tests/ -q      # 491 тестов
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,

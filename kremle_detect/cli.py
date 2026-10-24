@@ -408,10 +408,14 @@ def cmd_questions_cache(args):
 
 
 def main():
+    from . import __version__
+
     parser = argparse.ArgumentParser(
         prog='kremle-detect',
         description='Утилита для диагностики детекции Яндекс-пользователей.',
     )
+    parser.add_argument('--version', action='version',
+                        version=f'kremle-detect {__version__}')
     sub = parser.add_subparsers(dest='command', required=True)
 
     # check-ua

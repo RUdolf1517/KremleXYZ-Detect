@@ -71,7 +71,9 @@
 - **Публикация в PyPI и npm** по тегу `v*`: `.github/workflows/release.yml`
   (PyPI trusted publishing через OIDC, npm `--provenance`, GitHub Release из
   CHANGELOG). Версия в `pyproject.toml`, `__init__.py` и `package.json` сверяется
-  с тегом до публикации.
+  с тегом до публикации. В npm-джобе Node 22 + `npm@latest`: без этого не работает
+  trusted publishing (нужен CLI ≥ 11.5.1). Повторный запуск по тому же тегу
+  не падает — артефакты релиза перезаливаются.
 
 ### Задания с рисунком
 

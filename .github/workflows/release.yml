@@ -7,8 +7,15 @@ name: Release
 #     project: kremle-detect, owner: RUdolf1517, repo: KremleXYZ-Detect,
 #     workflow: release.yml, environment: pypi
 #
-# npm — provenance + NPM_TOKEN:
-#   Repository secret NPM_TOKEN (granular token с правом publish на kremle-react)
+# npm — два пути:
+#   1) Первый релиз пакета: granular token (секрет NPM_TOKEN). OIDC не умеет
+#      публиковать самую первую версию — пакета ещё нет в реестре.
+#      Write-токены npm живут максимум 90 дней (по умолчанию 7) — ставьте
+#      короткий срок и удалите токен после настройки OIDC.
+#   2) Дальше — trusted publishing (OIDC): npmjs.com → kremle-react → Settings →
+#      Trusted publishing → GitHub Actions (RUdolf1517 / KremleXYZ-Detect /
+#      release.yml), обязательно включив «Allow npm publish».
+#      Токен после этого не нужен, секрет можно удалить.
 #
 # Если OIDC на PyPI недоступен, добавьте секрет PYPI_API_TOKEN и раскомментируйте
 # строку password в шаге публикации.
@@ -104,8 +111,24 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Эта версия уже на npm?
+        id: published
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "kremle-react@${version}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "kremle-react@${version} уже опубликован — публикацию пропускаю."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "kremle-react@${version} в реестре нет — публикую."
+          fi
+
       - name: Publish
+        if: steps.published.outputs.exists != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Повторный запуск по тому же тегу: файлы уже загружены — это не ошибка
+          skip-existing: true
         # password: ${{ secrets.PYPI_API_TOKEN }}   # если публикуете токеном
 
   npm:
@@ -124,8 +147,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'   # OIDC trusted publishing требует Node >= 22.14
           registry-url: 'https://registry.npmjs.org'
+
+      - name: npm CLI >= 11.5.1 (нужен для OIDC)
+        run: |
+          npm install -g npm@latest
+          echo "node $(node --version), npm $(npm --version)"
 
       - name: Install
         run: npm ci
@@ -148,8 +176,29 @@ jobs:
             console.log('version ok:', tag);
           "
 
+      - name: Эта версия уже на npm?
+        id: published
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "kremle-react@${version}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "kremle-react@${version} уже опубликован — публикацию пропускаю."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "kremle-react@${version} в реестре нет — публикую."
+          fi
+
       - name: Publish
-        run: npm publish --provenance --access public
+        if: steps.published.outputs.exists != 'true'
+        # npm CLI сам выбирает способ: OIDC (если настроен trusted publisher)
+        # или NODE_AUTH_TOKEN. --provenance при OIDC избыточен, но не мешает.
+        run: |
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "Публикую по токену (NPM_TOKEN)."
+          else
+            echo "Токена нет — публикую через OIDC trusted publishing."
+          fi
+          npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

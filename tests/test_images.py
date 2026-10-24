@@ -364,7 +364,7 @@ class TestFastapiRoute:
 
 class TestDjangoRoute:
     def test_serves_cached_image(self, tmp_path):
-        django = pytest.importorskip('django')
+        pytest.importorskip('django')
         from django.conf import settings as dj_settings
         from django.test import override_settings
 

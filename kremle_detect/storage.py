@@ -99,7 +99,7 @@ class BaseStorage(ABC):
     _LOG_KEY = 'events'
     _LOG_MAX = 1000  # хранить последние N событий
 
-    def log_event(self, event: dict) -> None:
+    def log_event(self, event: dict) -> None:  # noqa: B027 — не абстрактный: no-op по умолчанию
         """Записать событие в ring buffer. По умолчанию — no-op."""
 
     def log_get(self, n: int = 100) -> list:
@@ -236,10 +236,10 @@ class RedisStorage(BaseStorage):
         elif url is not None:
             try:
                 import redis
-            except ImportError:
+            except ImportError as exc:
                 raise ImportError(
                     'Для Redis-бэкенда нужна библиотека redis: pip install redis'
-                )
+                ) from exc
             self._redis = redis.from_url(url)
         else:
             raise ValueError('Укажите url или redis_client')

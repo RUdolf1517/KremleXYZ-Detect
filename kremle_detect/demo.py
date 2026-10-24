@@ -16,21 +16,67 @@
     KREMLE_DEMO_POLICY=monitor   — полный shadow-режим (ничего не блокировать)
     KREMLE_DEMO_PORT=8000
     KREMLE_REDIS_URL=redis://... — хранилище вместо MemoryStorage
+    KREMLE_QUESTIONS_IMAGES=1    — показывать задания с рисунком
+    KREMLE_DEMO_SAMPLE_IMAGE=1   — одно локальное задание с картинкой (без сети)
 """
 
 from __future__ import annotations
 
 import os
+import urllib.parse
 from typing import Optional
 
 
-def build_app(policy: Optional[dict] = None):
+# Демо-задание с рисунком. Картинка — SVG прямо в data-URI: не требует сети,
+# не зависит от «Решу ЕГЭ» и живёт ровно столько, сколько живёт этот файл.
+_SAMPLE_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180' "
+    "viewBox='0 0 180 180'>"
+    "<rect x='4' y='4' width='172' height='172' fill='#ffffff' "
+    "stroke='#111111' stroke-width='2'/>"
+    "<path d='M20 160 L160 160 L160 20 Z' fill='#cfe0ff' stroke='#111111' "
+    "stroke-width='2'/>"
+    "<path d='M20 160 L160 20' stroke='#111111' stroke-width='1' "
+    "stroke-dasharray='5 5'/>"
+    "</svg>"
+)
+
+SAMPLE_IMAGE_QUESTION = {
+    'q': 'Квадрат со стороной 4 разделён диагональю. Найдите площадь '
+         'закрашенной фигуры (рисунок в условии).',
+    'opts': ['4', '8', '12', '16'],
+    'ans': 1,
+    'category': 'custom',
+    'images': [{
+        'url': 'data:image/svg+xml;charset=utf-8,'
+               + urllib.parse.quote(_SAMPLE_SVG),
+        'alt': 'квадрат, разделённый диагональю',
+    }],
+}
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def build_app(policy: Optional[dict] = None,
+              questions_images: Optional[bool] = None,
+              sample_image: Optional[bool] = None):
     """
     Собирает демо-приложение FastAPI.
 
     Пример:
         app = build_app()                       # блокирующая политика
         app = build_app({'yandex_browser': 'monitor'})   # shadow
+        app = build_app(questions_images=True)  # капча с рисунками
+        app = build_app(sample_image=True)      # одно встроенное задание с SVG
+
+    ``sample_image`` подмешивает задание с картинкой, нарисованной прямо в
+    странице (data-URI SVG): капчу с рисунком можно посмотреть в любом браузере
+    и без доступа к «Решу ЕГЭ».
     """
     from fastapi import FastAPI
     from fastapi.responses import HTMLResponse, JSONResponse
@@ -45,18 +91,38 @@ def build_app(policy: Optional[dict] = None):
         from .storage import RedisStorage
         storage = RedisStorage(url=redis_url)
 
+    if questions_images is None:
+        questions_images = _env_flag('KREMLE_QUESTIONS_IMAGES')
+    if sample_image is None:
+        sample_image = _env_flag('KREMLE_DEMO_SAMPLE_IMAGE')
+
+    extra_questions = None
+    only_extra = False
+    question_count = 3
+    max_errors = 1
+    if sample_image:
+        # Детерминированное демо: ровно одно задание, и оно с рисунком
+        questions_images = True
+        extra_questions = [dict(SAMPLE_IMAGE_QUESTION)]
+        only_extra = True
+        question_count = 1
+        max_errors = 0
+
     kremle = KremleFastAPI(
         app,
         secret=os.environ.get('KREMLE_SECRET', 'demo-secret-not-for-production'),
         storage=storage,
         categories=['math', 'physics'],
-        question_count=3,
-        max_errors=1,
+        question_count=question_count,
+        max_errors=max_errors,
+        extra_questions=extra_questions,
+        only_extra=only_extra,
         policy=policy,
         verified_ttl=300,
         # демо не должно упираться в лимит выдачи при нагрузочном смоуке
         challenge_rate_limit=1000,
         questions_source=os.environ.get('KREMLE_QUESTIONS_SOURCE', 'auto'),
+        questions_images=questions_images,
     )
 
     @app.get('/', response_class=HTMLResponse)
@@ -75,7 +141,9 @@ def build_app(policy: Optional[dict] = None):
     return app
 
 
-def main(host: str = '0.0.0.0', port: Optional[int] = None) -> None:
+def main(host: str = '0.0.0.0', port: Optional[int] = None,
+         questions_images: Optional[bool] = None,
+         sample_image: Optional[bool] = None) -> None:
     """Запуск демо через uvicorn (нужен ``kremle-detect[demo]``)."""
     try:
         import uvicorn
@@ -94,11 +162,17 @@ def main(host: str = '0.0.0.0', port: Optional[int] = None) -> None:
             'yandex_referrer': 'monitor',
         }
 
-    app = build_app(policy)
+    app = build_app(policy, questions_images=questions_images,
+                    sample_image=sample_image)
+    engine = app.state.kremle.engine
     port = port or int(os.environ.get('KREMLE_DEMO_PORT', '8000'))
 
     banner = 'shadow (ничего не блокируется)' if policy else 'challenge (Яндекс — капча)'
     print(f'kremle-detect demo → http://localhost:{port}  [{banner}]')
+    if engine.questions_images:
+        print(f'   капча с рисунками: http://localhost:{port}/kremle/challenge')
+    else:
+        print('   рисунки выключены: kremle-detect serve --images (или --sample-image)')
     uvicorn.run(app, host=host, port=port, log_level='info')
 
 
@@ -137,6 +211,10 @@ _INDEX_HTML = """<!DOCTYPE html>
     <p><b>3. Сырой JSON.</b> <a href="/kremle/stats">/kremle/stats</a> ·
        <a href="/kremle/health">/kremle/health</a> ·
        <a href="/kremle/metrics">/kremle/metrics</a></p>
+    <p><b>4. Посмотреть капчу.</b> <a href="/kremle/challenge">/kremle/challenge</a> —
+       выдаётся любому браузеру, Яндекс для этого не нужен. Чтобы в заданиях были
+       рисунки, запустите <code>kremle-detect serve --images</code>, а чтобы
+       посмотреть на рисунок совсем без сети — <code>kremle-detect serve --sample-image</code>.</p>
   </div>
 
   <div class="box">

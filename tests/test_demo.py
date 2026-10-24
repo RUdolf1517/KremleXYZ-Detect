@@ -14,8 +14,9 @@ YANDEX_UA = 'Mozilla/5.0 (Windows NT 10.0) YaBrowser/24.1 Yowser/2.5 Safari/537.
 NORMAL_UA = 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0 Safari/537.36'
 
 
-def client(policy=None):
-    return TestClient(build_app(policy))
+def client(policy=None, **kwargs):
+    return TestClient(build_app(policy, **kwargs))
+
 
 
 class TestPages:
@@ -175,3 +176,48 @@ class TestSessionDependency:
         with pytest.raises(RuntimeError) as exc:
             build_app()
         assert 'itsdangerous' in str(exc.value)
+
+
+class TestImagesInDemo:
+    """Картинки в капче можно проверить без Яндекс Браузера и без сети."""
+
+    def test_sample_image_question_has_inline_picture(self):
+        c = client(sample_image=True)
+        payload = c.get('/kremle/challenge', headers={'Accept': 'application/json'}).json()
+
+        assert len(payload['questions']) == 1
+        images = payload['questions'][0]['images']
+        assert images and images[0]['url'].startswith('data:image/svg+xml')
+        assert images[0]['alt']
+
+    def test_challenge_page_knows_about_images(self):
+        c = client(sample_image=True)
+        html = c.get('/kremle/challenge').text
+
+        assert 'id="qimages"' in html
+        assert 'renderImages' in html
+        assert 'data:image/svg+xml' in html
+
+    def test_env_flag_enables_images(self, monkeypatch):
+        from kremle_detect import demo
+
+        monkeypatch.setenv('KREMLE_QUESTIONS_IMAGES', '1')
+        app = demo.build_app()
+        assert app.state.kremle.engine.questions_images is True
+
+    def test_env_flag_off_by_default(self, monkeypatch):
+        from kremle_detect import demo
+
+        monkeypatch.delenv('KREMLE_QUESTIONS_IMAGES', raising=False)
+        app = demo.build_app()
+        assert app.state.kremle.engine.questions_images is False
+
+    def test_sample_image_flag_via_env(self, monkeypatch):
+        from kremle_detect import demo
+
+        monkeypatch.setenv('KREMLE_DEMO_SAMPLE_IMAGE', '1')
+        app = demo.build_app()
+        engine = app.state.kremle.engine
+        assert engine.only_extra is True
+        assert engine.question_count == 1
+        assert engine.extra_questions[0]['images']

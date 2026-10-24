@@ -11,7 +11,7 @@
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
 [![version](https://img.shields.io/badge/version-2.7.0-111111?style=flat-square)](CHANGELOG.md)
-[![tests](https://img.shields.io/badge/tests-492%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
+[![tests](https://img.shields.io/badge/tests-499%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
 </div>
@@ -423,6 +423,42 @@ KREMLE_QUESTIONS_IMAGES = True
 не отдаёт картинку, вместо неё появляется «[рисунок не загрузился]» — капча не ломается.
 Если картинки нужны локально (портал закрыл горячие ссылки), положите их в свой CDN
 и подмените `url` при сборке вопросов.
+
+### Как проверить картинки в браузере (Яндекс не нужен)
+
+Капча не спрятана за детекцией: `/kremle/challenge` выдаёт задание любому клиенту,
+поэтому смотреть её можно в обычном Chrome/Firefox.
+
+**Вариант 1 — совсем без сети.** Встроенное задание, рисунок нарисован SVG прямо
+внутри страницы (data-URI):
+
+```bash
+kremle-detect serve --sample-image
+# открыть http://localhost:8000/kremle/challenge
+```
+
+**Вариант 2 — настоящие задания портала.** Сначала скачиваем задания с рисунками
+в кеш, потом запускаем демо с ними:
+
+```bash
+kremle-detect questions sync -c math -n 30 --images
+kremle-detect serve --images
+# открыть http://localhost:8000/kremle/challenge
+```
+
+Каждый заход на `/kremle/challenge` — новый набор вопросов, так что можно
+перезагружать страницу, пока не попадётся задание с рисунком. Те же флаги
+через окружение: `KREMLE_QUESTIONS_IMAGES=1`, `KREMLE_DEMO_SAMPLE_IMAGE=1`.
+
+**Вариант 3 — без браузера, один вопрос в терминале:**
+
+```bash
+kremle-detect questions check 314159 --images   # условие, ответ и URL картинок
+curl -s localhost:8000/kremle/challenge -H 'Accept: application/json' | python -m json.tool
+```
+
+В JSON картинки лежат в `questions[].images[].url` — по этим ссылкам можно быстро
+проверить, что портал их отдаёт (в браузере они грузятся без referrer).
 
 Кеш лежит в `$KREMLE_CACHE_DIR` или `~/.cache/kremle-detect/sdamgia-<категория>.json`.
 Свежесть — 30 дней; устаревший кеш всё равно используется (лучше старые задания, чем
@@ -982,7 +1018,7 @@ Workflow соберёт wheel/sdist, сверит версию с тегом, п
 ## Тесты
 
 ```bash
-python -m pytest tests/ -q      # 492 тестов
+python -m pytest tests/ -q      # 499 тестов
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,

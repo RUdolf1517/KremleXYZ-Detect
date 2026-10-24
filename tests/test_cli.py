@@ -225,3 +225,28 @@ class TestArgParsing:
             cli.main()
         assert exc.value.code == 0
         assert __version__ in capsys.readouterr().out
+
+
+class TestServe:
+    """`kremle-detect serve` — демо; флаги картинок должны доезжать до приложения."""
+
+    def test_flags_reach_demo(self, monkeypatch):
+        from kremle_detect import demo
+
+        calls = {}
+        monkeypatch.setattr(demo, 'main', lambda **kwargs: calls.update(kwargs))
+        run_ok(['serve', '--port', '8123', '--images', '--sample-image'], monkeypatch)
+
+        assert calls['port'] == 8123
+        assert calls['questions_images'] is True
+        assert calls['sample_image'] is True
+
+    def test_defaults_leave_env_in_charge(self, monkeypatch):
+        from kremle_detect import demo
+
+        calls = {}
+        monkeypatch.setattr(demo, 'main', lambda **kwargs: calls.update(kwargs))
+        run_ok(['serve'], monkeypatch)
+
+        assert calls['questions_images'] is None
+        assert calls['sample_image'] is None

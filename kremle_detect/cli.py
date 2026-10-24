@@ -79,7 +79,9 @@ def cmd_serve(args):
     """Демо-сервер одной командой: `kremle-detect serve`."""
     from .demo import main as run_demo
 
-    run_demo(host=args.host, port=args.port)
+    run_demo(host=args.host, port=args.port,
+             questions_images=True if args.images else None,
+             sample_image=True if args.sample_image else None)
 
 
 def cmd_help(args):
@@ -108,6 +110,8 @@ kremle-detect — управление KremleDetect из командной ст
 
 ДЕМО
   kremle-detect serve [--port 8000]          Демо-сайт + капча + /stats в браузере
+  kremle-detect serve --images               ... с заданиями, у которых есть рисунок
+  kremle-detect serve --sample-image         ... с одним встроенным рисунком (без сети)
 
 ЛОГИ
   kremle-detect logs  [-n N] [--no-color]     Последние N событий (по умолч. 50)
@@ -533,6 +537,10 @@ def main():
     p_serve.add_argument('--host', default='0.0.0.0', help='Адрес (по умолч. 0.0.0.0)')
     p_serve.add_argument('--port', '-p', type=int, default=None,
                          help='Порт (по умолч. 8000 или $KREMLE_DEMO_PORT)')
+    p_serve.add_argument('--images', action='store_true',
+                         help='Показывать задания с рисунком (кеш «Решу ЕГЭ»)')
+    p_serve.add_argument('--sample-image', action='store_true',
+                         help='Одно встроенное задание с рисунком (SVG, без сети)')
     p_serve.set_defaults(func=cmd_serve)
 
     p_help = sub.add_parser('help', help='Показать справку по всем командам')

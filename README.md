@@ -11,7 +11,7 @@
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
 [![version](https://img.shields.io/badge/version-2.7.0-111111?style=flat-square)](CHANGELOG.md)
-[![tests](https://img.shields.io/badge/tests-499%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
+[![tests](https://img.shields.io/badge/tests-502%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
 </div>
@@ -459,6 +459,20 @@ curl -s localhost:8000/kremle/challenge -H 'Accept: application/json' | python -
 
 В JSON картинки лежат в `questions[].images[].url` — по этим ссылкам можно быстро
 проверить, что портал их отдаёт (в браузере они грузятся без referrer).
+
+### Если при отправке капчи «Ошибка соединения»
+
+Это про сеть, а не про ответы. Причины по порядку:
+
+1. **Страница открыта не с того адреса.** Капча отправляет ответы на `verify_url`
+   из выдачи. В FastAPI он относительный (`/kremle/verify`) — специально, чтобы
+   работать за прокси и в подкаталоге; во Flask/Django тоже относительный.
+   Если вы открыли HTML-файл с диска (`file://`) — запрос уйдёт в никуда.
+2. **Сервер не запущен или упал** — проверьте `curl http://localhost:8000/kremle/health`.
+3. **Прокси режет POST** — смотрите в логах сервера, доходит ли
+   `POST /kremle/verify`; если нет, дело в прокси, а не в капче.
+4. **Картинка не загрузилась** — это не ошибка капчи: портал мог не отдать
+   горячую ссылку, вместо рисунка будет «[рисунок не загрузился]», ответить можно.
 
 Кеш лежит в `$KREMLE_CACHE_DIR` или `~/.cache/kremle-detect/sdamgia-<категория>.json`.
 Свежесть — 30 дней; устаревший кеш всё равно используется (лучше старые задания, чем
@@ -1018,7 +1032,7 @@ Workflow соберёт wheel/sdist, сверит версию с тегом, п
 ## Тесты
 
 ```bash
-python -m pytest tests/ -q      # 499 тестов
+python -m pytest tests/ -q      # 502 тестов
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,

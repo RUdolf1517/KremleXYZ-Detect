@@ -135,6 +135,11 @@
   `set(..., ex=ttl)`; `ttl=0` не создаёт ключ с нулевым сроком.
 - **`blacklist remove` / `whitelist remove` рапортовали «Удалено»** даже когда
   IP не было в списке. Теперь `exit 1` и сообщение в stderr.
+- **Капча не отправлялась за обратным прокси** («Ошибка соединения» в браузере):
+  FastAPI-интеграция клала в `verify_url` абсолютный адрес из `request.url_for()`,
+  а он собирается из `Host`. Если прокси не пробрасывает внешний Host, браузер
+  получал `http://127.0.0.1:8000/kremle/verify` и стучался к себе. Теперь URL
+  относительный (`/kremle/verify`), с учётом `root_path` при монтировании.
 - **FastAPI-интеграция падала с `NameError: SessionMiddleware`**, если не установлен
   `itsdangerous`: Starlette импортируется вместе с FastAPI, а его `SessionMiddleware`
   нет. Теперь `itsdangerous` входит в extras `fastapi`/`demo`/`all`, а при его
@@ -147,7 +152,7 @@
 
 ### Тесты
 
-499 Python-тестов (было 214) и 24 теста React: политика сегментов и `sample_rate`,
+502 Python-тестов (было 214) и 24 теста React: политика сегментов и `sample_rate`,
 метрики/health/`prometheus`, TTL и logout, провайдер «Решу ЕГЭ» на фикстурах HTML
 (включая задания с рисунком), JSON-гард и ops-роуты во всех трёх фреймворках,
 `AsyncRedisStorage` на фейковом клиенте, живой Redis (маркер `redis`), демо-приложение,

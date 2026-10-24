@@ -267,7 +267,12 @@ class KremleFastAPI:
             ch = await run(engine.create_challenge)
             request.session[TOKEN_KEY] = ch.token
 
-            verify_url = str(request.url_for('kremle_verify'))
+            # Относительный URL, а не абсолютный: request.url_for() собирает его
+            # из Host, а за обратным прокси/в песочнице Host бывает внутренним
+            # (127.0.0.1:8000). Тогда браузер стучится по этому адресу к себе
+            # и капча «не отправляется» с ошибкой соединения.
+            root_path = request.scope.get('root_path', '') or ''
+            verify_url = root_path + str(request.app.url_path_for('kremle_verify'))
 
             # to_dict — чистая сериализация без I/O, threadpool не нужен
             data = ch.to_dict(verify_url=verify_url)

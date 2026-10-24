@@ -221,3 +221,30 @@ class TestImagesInDemo:
         assert engine.only_extra is True
         assert engine.question_count == 1
         assert engine.extra_questions[0]['images']
+
+
+class TestVerifyUrlBehindProxy:
+    """За прокси Host бывает внутренним — браузер не должен ходить на localhost."""
+
+    def test_verify_url_is_relative(self):
+        c = client()
+        payload = c.get('/kremle/challenge', headers={
+            'Accept': 'application/json', 'Host': 'example.com',
+        }).json()
+        assert payload['verify_url'] == '/kremle/verify'
+
+    def test_verify_url_keeps_mount_prefix(self):
+        from kremle_detect.demo import build_app
+
+        c = TestClient(build_app(), root_path='/sub')
+        payload = c.get('/kremle/challenge', headers={
+            'Accept': 'application/json',
+        }).json()
+        assert payload['verify_url'] == '/sub/kremle/verify'
+
+    def test_verify_url_ignores_internal_host(self):
+        c = client()
+        payload = c.get('/kremle/challenge', headers={
+            'Accept': 'application/json', 'Host': '127.0.0.1:8000',
+        }).json()
+        assert not payload['verify_url'].startswith('http')

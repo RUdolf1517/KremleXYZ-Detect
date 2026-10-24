@@ -1,0 +1,180 @@
+name: Release
+
+# Публикация по тегу: git tag v2.7.0 && git push origin v2.7.0
+#
+# PyPI — trusted publishing (OIDC), токен не нужен:
+#   PyPI → Account → Publishing → Add a pending publisher:
+#     project: kremle-detect, owner: RUdolf1517, repo: KremleXYZ-Detect,
+#     workflow: release.yml, environment: pypi
+#
+# npm — provenance + NPM_TOKEN:
+#   Repository secret NPM_TOKEN (granular token с правом publish на kremle-react)
+#
+# Если OIDC на PyPI недоступен, добавьте секрет PYPI_API_TOKEN и раскомментируйте
+# строку password в шаге публикации.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build wheel + sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check version matches tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python - <<'PY'
+          import os, re, tomllib
+          tag = os.environ['GITHUB_REF_NAME'].lstrip('v')
+          with open('pyproject.toml', 'rb') as f:
+              version = tomllib.load(f)['project']['version']
+          init = open('kremle_detect/__init__.py', encoding='utf-8').read()
+          init_version = re.search(r"__version__ = '([^']+)'", init).group(1)
+          assert version == tag, f'pyproject: {version} != tag {tag}'
+          assert init_version == tag, f'__init__: {init_version} != tag {tag}'
+          print('version ok:', tag)
+          PY
+
+      - name: Build
+        run: |
+          set -o pipefail
+          pip install build
+          python -m build 2>&1 | tee /tmp/build.log
+
+      - name: Surface build failure in annotations
+        if: failure()
+        run: |
+          echo "::error title=build tail::$(tail -30 /tmp/build.log 2>/dev/null | tr '\n' '|' | cut -c1-900)"
+
+      - name: Check package data
+        run: |
+          python - <<'PY'
+          import glob, zipfile
+          wheel = glob.glob('dist/*.whl')[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          for expected in (
+              'templates/kremle_captcha.html',
+              'policy.py', 'metrics.py', 'session.py',
+              'storage_async.py', 'questions/sdamgia.py',
+              'integrations/_common.py', 'demo.py',
+          ):
+              assert any(n.endswith(expected) for n in names), expected
+          print('ok:', wheel)
+          PY
+
+      - name: Smoke install (wheel ставится и CLI живой)
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --quiet "$(ls dist/*.whl)[demo]" "httpx"
+          /tmp/smoke/bin/kremle-detect --version
+          /tmp/smoke/bin/kremle-detect questions --help >/dev/null
+          /tmp/smoke/bin/python -c "from kremle_detect.demo import build_app; build_app()"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  pypi:
+    name: Publish to PyPI
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/kremle-detect
+    permissions:
+      id-token: write   # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # password: ${{ secrets.PYPI_API_TOKEN }}   # если публикуете токеном
+
+  npm:
+    name: Publish kremle-react to npm
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # provenance
+    defaults:
+      run:
+        working-directory: kremle-react
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install
+        run: npm ci
+
+      - name: Test + build
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Check version matches tag
+        run: |
+          node -e "
+            const pkg = require('./package.json');
+            const tag = process.env.GITHUB_REF_NAME.replace(/^v/, '');
+            if (pkg.version !== tag) {
+              console.error(\`package.json \${pkg.version} != tag \${tag}\`);
+              process.exit(1);
+            }
+            console.log('version ok:', tag);
+          "
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  github-release:
+    name: GitHub Release
+    # Релиз с артефактами появляется даже если публикация в индекс упала:
+    # по тегу видно, что собралось, а что требует настройки (PyPI/npm).
+    needs: [build, pypi, npm]
+    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes=$(awk '/^## \[/{n++} n==1' CHANGELOG.md | head -n -1)
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "kremle-detect $GITHUB_REF_NAME" \
+            --notes "$notes"

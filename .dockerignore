@@ -1,0 +1,13 @@
+.git
+.github
+tests
+build
+dist
+*.egg-info
+__pycache__
+*.py[cod]
+.venv
+venv
+kremle-react/node_modules
+kremle-react/dist
+.arena

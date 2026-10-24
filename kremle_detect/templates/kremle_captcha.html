@@ -33,6 +33,17 @@ body {
   line-height: 1.45;
 }
 .header p { font-size: 0.76rem; opacity: 0.4; letter-spacing: 0.04em; }
+.sources a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.sources { margin-top: 0.35rem; }
+.qimages { margin: 0.75rem 0; }
+.qimage {
+  max-width: 100%;
+  max-height: 220px;
+  display: block;
+  margin: 0.35rem 0;
+  border: 1px solid #2a2a2a;
+  background: #fff;
+}
 .category-badge {
   display: inline-block;
   font-size: 0.6rem;
@@ -121,6 +132,8 @@ body {
   <div class="header">
     <h1>Возможно вы кремлебот.<br>Пройдите капчу чтобы доказать что это не так.</h1>
     <p id="subtitle"></p>
+    <div id="qimages" class="qimages" style="display:none"></div>
+    <p id="sources" class="sources"></p>
   </div>
 
   <!-- Honeypot: скрыто от людей, видно ботам -->
@@ -202,6 +215,7 @@ try {
 var DATA = {{ questions_json }};
 var QUESTIONS = DATA.questions;
 var TOKEN = DATA.token;
+var LOGOUT_URL = (DATA.verify_url || '/kremle/verify').replace(/verify\/?$/, 'logout');
 
 var CAT_LABELS = {
   math: 'математика',
@@ -219,6 +233,28 @@ QUESTIONS.forEach(function(q) {
 document.getElementById('subtitle').textContent =
   QUESTIONS.length + ' вопросов' + (catList.length ? ' · ' + catList.join(', ') : '');
 
+/* Атрибуция источников: «Задания: РешуЕГЭ» со ссылкой на первоисточник */
+(function renderSources() {
+  var el = document.getElementById('sources');
+  var sources = DATA.sources || [];
+  if (!sources.length) return;
+  el.appendChild(document.createTextNode('Задания: '));
+  sources.forEach(function(src, i) {
+    if (i > 0) el.appendChild(document.createTextNode(', '));
+    if (!src.url) {
+      el.appendChild(document.createTextNode(src.name || '—'));
+      return;
+    }
+    var a = document.createElement('a');
+    a.href = src.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = src.name || src.url;
+    if (src.author) a.title = src.author;
+    el.appendChild(a);
+  });
+})();
+
 function shuffle(a) {
   var arr = a.slice();
   for (var i = arr.length - 1; i > 0; i--) {
@@ -234,6 +270,7 @@ var prepared = QUESTIONS.map(function(q, idx) {
     q: q.q,
     opts: q.opts,   /* shuffled server-side */
     category: q.category || '',
+    images: q.images || [],
     origIdx: idx
   };
 });
@@ -248,6 +285,7 @@ function render() {
   document.getElementById('qnum').textContent =
     'Вопрос ' + (current + 1) + ' из ' + prepared.length;
   document.getElementById('qtext').textContent = p.q;
+  renderImages(p.images);
   document.getElementById('prog').style.width =
     (current / prepared.length * 100) + '%';
   document.getElementById('fb').textContent = '';
@@ -274,6 +312,31 @@ function render() {
     btn.onclick = function() { pick(i); };
     container.appendChild(btn);
   });
+}
+
+/* Рисунок из условия задания «Решу ЕГЭ»: грузим с портала, без referrer. */
+function renderImages(images) {
+  var box = document.getElementById('qimages');
+  box.innerHTML = '';
+  if (!images || !images.length) {
+    box.style.display = 'none';
+    return;
+  }
+  images.forEach(function(img) {
+    if (!img || !img.url) return;
+    var el = document.createElement('img');
+    el.src = img.url;
+    el.alt = img.alt || 'рисунок к заданию';
+    el.loading = 'lazy';
+    el.referrerPolicy = 'no-referrer';
+    el.className = 'qimage';
+    el.onerror = function() {
+      /* Порталу не понравилась горячая ссылка — не ломаем капчу, пишем текстом. */
+      el.replaceWith(document.createTextNode('[рисунок не загрузился] '));
+    };
+    box.appendChild(el);
+  });
+  box.style.display = 'block';
 }
 
 function pick(i) {
@@ -318,20 +381,60 @@ function sendAnswers() {
   });
 }
 
+function resultText(data) {
+  if (data.passed) {
+    return {
+      title: 'Человек подтверждён.',
+      desc: 'Все проверки пройдены. Добро пожаловать на сайт.'
+    };
+  }
+  /* Серверные блокировки: errors = -1, счётчика нет — не притворяемся,
+     что «ошибок -1 из 0». */
+  if (data.error === 'rate_limited') {
+    return {
+      title: 'Слишком много попыток.',
+      desc: 'С этого IP исчерпан лимит неудачных проверок. Попробуйте позже.'
+    };
+  }
+  if (data.error === 'blacklisted' || data.error === 'blocked') {
+    return {
+      title: 'Доступ заблокирован.',
+      desc: 'Этот IP в чёрном списке. Капча не поможет — обратитесь к администратору сайта.'
+    };
+  }
+  if (data.error === 'invalid_answers') {
+    return {
+      title: 'Некорректный ответ.',
+      desc: 'Сервер не смог прочитать отправленные ответы. Начните заново.'
+    };
+  }
+  if (data.error === 'invalid_token') {
+    return {
+      title: 'Проверка устарела.',
+      desc: 'Время на прохождение истекло или страница была открыта повторно. Начните заново.'
+    };
+  }
+  if (data.error) {
+    return { title: 'Ошибка проверки.', desc: 'Код: ' + data.error + '. Попробуйте ещё раз.' };
+  }
+  var wrong = data.errors > data.total / 2;
+  return {
+    title: wrong ? 'Кремлебот детектед.' : 'Почти.',
+    desc: 'Ошибок: ' + data.errors + ' из ' + data.total + '. ' +
+      (wrong
+        ? 'Слишком много ошибок. Выучите школьную программу и попробуйте снова.'
+        : 'Почти прошли. Повторите попытку.')
+  };
+}
+
 function showResult(data) {
   document.getElementById('quiz').style.display = 'none';
   var res = document.getElementById('result');
   res.style.display = 'block';
 
-  document.getElementById('rtitle').textContent =
-    data.passed ? 'Человек подтверждён.' : (data.errors > 10 ? 'Кремлебот детектед.' : 'Почти.');
-
-  document.getElementById('rdesc').textContent = data.passed
-    ? 'Все проверки пройдены. Добро пожаловать на сайт.'
-    : 'Ошибок: ' + data.errors + ' из ' + data.total + '. ' +
-      (data.errors > 10
-        ? 'Слишком много ошибок. Выучите школьную программу и попробуйте снова.'
-        : 'Почти прошли. Повторите попытку.');
+  var text = resultText(data);
+  document.getElementById('rtitle').textContent = text.title;
+  document.getElementById('rdesc').textContent = text.desc;
 
   var act = document.getElementById('ract');
   act.innerHTML = '';
@@ -345,7 +448,12 @@ function showResult(data) {
     var btn = document.createElement('button');
     btn.className = 'btn-retry';
     btn.textContent = 'Попробовать снова';
-    btn.onclick = function() { location.reload(); };
+    btn.onclick = function() {
+      /* Сбрасываем сессию и берём новый челлендж: старый токен уже сгорел */
+      fetch(LOGOUT_URL, { method: 'POST' }).catch(function() {}).then(function() {
+        location.reload();
+      });
+    };
     act.appendChild(btn);
   }
 }

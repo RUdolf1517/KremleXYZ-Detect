@@ -7,24 +7,30 @@ FastAPI / Starlette интеграция KremleDetect.
     from kremle_detect.integrations.fastapi_ext import KremleFastAPI
 
     app = FastAPI()
-    kremle = KremleFastAPI(
-        app,
-        categories=['math', 'physics'],
-        question_count=10,
-        secret='your-secret',
-    )
+    kremle = KremleFastAPI(app, categories=['math'], question_count=10, secret='...')
+
+Тяжёлые синхронные вызовы (движок капчи, Redis) выполняются в threadpool,
+чтобы не блокировать event loop: ``async_offload=True`` (по умолчанию).
 """
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import os
 from typing import Callable, List, Optional, Sequence
 
+from .. import __version__
 from ..captcha import CaptchaEngine
 from ..detector import detect
-from ..storage import BaseStorage
+from ..ip import client_ip, ip_matches
+from ..metrics import health_payload
+from ..session import (
+    NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification, is_verified, remaining_seconds,
+)
+from ..storage import BaseStorage, MemoryStorage, RedisStorage
+from ._common import (
+    accepts_json, blocked_payload, challenge_payload, no_store_headers, wants_json,
+)
 
 # FastAPI/Starlette are optional dependencies but this file is only imported
 # when they are available.  Module-level imports are required so that FastAPI
@@ -32,38 +38,39 @@ from ..storage import BaseStorage
 # that are defined inside init_app() closures.
 try:
     from fastapi import Request
-    from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+    from starlette.concurrency import run_in_threadpool
     from starlette.middleware.sessions import SessionMiddleware
-except ImportError:
-    pass  # will fail loudly at runtime if user calls init_app without fastapi
-
-SESSION_KEY = 'kremle_ok'
-NEXT_KEY = 'kremle_next'
+except ImportError:  # pragma: no cover - зависит от окружения
+    # SessionMiddleware отсутствует, если не установлен itsdangerous: сам Starlette
+    # импортируется вместе с fastapi, а его SessionMiddleware — нет.
+    SessionMiddleware = None
 
 
 def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        return False
-    for entry in whitelist:
-        try:
-            if '/' in entry:
-                if addr in ipaddress.ip_network(entry, strict=False):
-                    return True
-            else:
-                if addr == ipaddress.ip_address(entry):
-                    return True
-        except ValueError:
-            continue
-    return False
+    return ip_matches(ip, whitelist)
+
+
+def _client_ip(request, trusted_proxies=None) -> str:
+    """IP клиента; X-Forwarded-For учитывается только от доверенных прокси."""
+    peer = request.client.host if request.client else ''
+    return client_ip(peer, request.headers.get('x-forwarded-for', ''), trusted_proxies)
+
+
+def _storage_name(storage: BaseStorage) -> str:
+    if isinstance(storage, RedisStorage):
+        return 'redis'
+    if isinstance(storage, MemoryStorage):
+        return 'memory'
+    return type(storage).__name__
 
 
 class KremleFastAPI:
     """
     FastAPI-интеграция.
 
-    Добавляет middleware + роуты /kremle/challenge, /kremle/verify, /kremle/status.
+    Добавляет middleware + роуты /kremle/challenge, /kremle/verify, /kremle/status,
+    /kremle/logout, /kremle/health, /kremle/stats, /kremle/metrics.
     """
 
     def __init__(
@@ -87,6 +94,19 @@ class KremleFastAPI:
         fail_threshold: int = 0,
         blacklist_ttl: int = 86400,
         headless: bool = False,
+        trusted_proxies: Optional[Sequence[str]] = None,
+        challenge_rate_limit: int = 60,
+        policy: Optional[dict] = None,
+        sample_rate: float = 1.0,
+        metrics_enabled: bool = True,
+        verified_ttl: int = 86400,
+        bind_ip: bool = False,
+        bind_ua: bool = False,
+        questions_source: str = 'auto',
+        questions_images: bool = False,
+        json_api: bool = True,
+        enable_ops_routes: bool = True,
+        async_offload: bool = True,
     ):
         self.engine = CaptchaEngine(
             categories=categories,
@@ -103,15 +123,68 @@ class KremleFastAPI:
             only_extra=only_extra,
             fail_threshold=fail_threshold,
             blacklist_ttl=blacklist_ttl,
+            challenge_rate_limit=challenge_rate_limit,
+            policy=policy,
+            sample_rate=sample_rate,
+            metrics_enabled=metrics_enabled,
+            verified_ttl=verified_ttl,
+            bind_ip=bind_ip,
+            bind_ua=bind_ua,
+            questions_source=questions_source,
+            questions_images=questions_images,
         )
         self.skip_paths = list(skip_paths or ['/docs', '/openapi.json', '/redoc'])
         self.whitelist = whitelist or []
         self.custom_template = template
         self.secret = secret
         self.headless = headless
+        self.json_api = json_api
+        self.enable_ops_routes = enable_ops_routes
+        self.async_offload = async_offload
+        # None → авто (loopback + приватные сети), [] → не доверять никому
+        self.trusted_proxies = None if trusted_proxies is None else list(trusted_proxies)
+        self.bind_ip = bind_ip
+        self.bind_ua = bind_ua
 
         if app is not None:
             self.init_app(app)
+
+    # ── вспомогательное ──────────────────────────────────────────────────────
+
+    async def _run(self, func, *args, **kwargs):
+        """
+        Выполняет синхронную операцию в threadpool (Redis/движок не блокируют
+        event loop). При ``async_offload=False`` — вызывает напрямую.
+        """
+        if self.async_offload:
+            return await run_in_threadpool(func, *args, **kwargs)
+        return func(*args, **kwargs)
+
+    def _wants_json(self, request) -> bool:
+        if self.headless:
+            return True
+        if not self.json_api:
+            return False
+        return wants_json(
+            request.headers.get('accept'),
+            request.headers.get('x-requested-with'),
+            request.url.path,
+        )
+
+    def _is_verified(self, request, ip: Optional[str] = None) -> bool:
+        state = request.session.get(SESSION_KEY)
+        ok = is_verified(
+            state,
+            ip=ip,
+            ua=request.headers.get('user-agent'),
+            bind_ip=self.bind_ip,
+            bind_ua=self.bind_ua,
+        )
+        if not ok and state is not None:
+            request.session.pop(SESSION_KEY, None)
+        return ok
+
+    # ── инициализация ────────────────────────────────────────────────────────
 
     def init_app(self, app) -> None:
         engine = self.engine
@@ -119,7 +192,12 @@ class KremleFastAPI:
         whitelist = self.whitelist
         custom_template = self.custom_template
         headless = self.headless
+        trusted_proxies = self.trusted_proxies
+        enable_ops = self.enable_ops_routes
         template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
+        wants_json_fn = self._wants_json
+        is_verified_fn = self._is_verified
+        run = self._run
 
         @app.middleware('http')
         async def kremle_guard(request: Request, call_next):
@@ -128,24 +206,25 @@ class KremleFastAPI:
             if path.startswith('/kremle/') or any(path.startswith(s) for s in skip_paths):
                 return await call_next(request)
 
-            if request.session.get(SESSION_KEY):
+            ip = _client_ip(request, trusted_proxies)
+
+            if is_verified_fn(request, ip=ip):
                 return await call_next(request)
 
             # IP whitelist / blacklist
-            xff = request.headers.get('x-forwarded-for', '')
-            ip = xff.split(',')[0].strip() if xff else (request.client.host if request.client else '')
             if whitelist and _ip_in_whitelist(ip, whitelist):
                 return await call_next(request)
-            if engine.is_whitelisted(ip):
+            if await run(engine.is_whitelisted, ip):
                 return await call_next(request)
 
-            if engine.is_blacklisted(ip):
-                if headless:
-                    return JSONResponse(
-                        {'error': 'captcha_required', 'reason': 'blacklisted', 'challenge_url': '/kremle/challenge'},
-                        status_code=403,
-                    )
-                return RedirectResponse('/kremle/challenge', status_code=302)
+            await run(engine.metrics.count_request)
+
+            if await run(engine.is_blacklisted, ip):
+                await run(engine.metrics.count_blocked, 'blacklisted')
+                if wants_json_fn(request):
+                    return JSONResponse(blocked_payload('blacklisted'), status_code=403,
+                                        headers=no_store_headers())
+                return PlainTextResponse('Доступ заблокирован.', status_code=403)
 
             headers = {
                 'User-Agent': request.headers.get('user-agent', ''),
@@ -155,28 +234,52 @@ class KremleFastAPI:
                     'sec-ch-ua-full-version-list', ''
                 ),
             }
-            result = detect(headers)
-            if result:
-                engine.notify_detect(result, ip=ip)
-                if headless:
-                    return JSONResponse(
-                        {'error': 'captcha_required', 'reason': result.reason, 'challenge_url': '/kremle/challenge'},
-                        status_code=403,
-                    )
+            decision = await run(engine.decide, detect(headers))
+            await run(engine.record_decision, decision, ip)
+
+            if decision.action == 'monitor':
+                return await call_next(request)
+            if decision.action == 'block':
+                if wants_json_fn(request):
+                    return JSONResponse(blocked_payload(decision.reason or 'blocked'),
+                                        status_code=403, headers=no_store_headers())
+                return PlainTextResponse('Доступ заблокирован.', status_code=403)
+            if decision.action == 'challenge':
                 request.session[NEXT_KEY] = str(request.url)
+                if wants_json_fn(request):
+                    return JSONResponse(challenge_payload(decision.reason), status_code=403,
+                                        headers=no_store_headers())
                 return RedirectResponse('/kremle/challenge', status_code=302)
 
             return await call_next(request)
 
-        @app.get('/kremle/challenge', response_class=HTMLResponse)
+        @app.get('/kremle/challenge')
         async def kremle_challenge(request: Request):
-            ch = engine.create_challenge()
-            request.session['kremle_token'] = ch.token
+            ip = _client_ip(request, trusted_proxies)
+            if await run(engine.check_challenge_limit, ip):
+                return JSONResponse(
+                    {'error': 'too_many_requests'},
+                    status_code=429,
+                    headers={'Cache-Control': 'no-store'},
+                )
+            await run(engine.track_challenge, ip)
 
-            verify_url = str(request.url_for('kremle_verify'))
+            ch = await run(engine.create_challenge)
+            request.session[TOKEN_KEY] = ch.token
 
-            if headless:
-                return JSONResponse(ch.to_dict(verify_url=verify_url))
+            # Относительный URL, а не абсолютный: request.url_for() собирает его
+            # из Host, а за обратным прокси/в песочнице Host бывает внутренним
+            # (127.0.0.1:8000). Тогда браузер стучится по этому адресу к себе
+            # и капча «не отправляется» с ошибкой соединения.
+            root_path = request.scope.get('root_path', '') or ''
+            verify_url = root_path + str(request.app.url_path_for('kremle_verify'))
+
+            # to_dict — чистая сериализация без I/O, threadpool не нужен
+            data = ch.to_dict(verify_url=verify_url)
+            no_store = no_store_headers()
+
+            if headless or accepts_json(request.headers.get('accept', '')):
+                return JSONResponse(data, headers=no_store)
 
             tpl_path = custom_template or os.path.join(template_dir, 'kremle_captcha.html')
             try:
@@ -189,23 +292,33 @@ class KremleFastAPI:
 
             html = html.replace(
                 '{{ questions_json }}',
-                json.dumps(ch.to_dict(verify_url=verify_url), ensure_ascii=False),
+                json.dumps(data, ensure_ascii=False),
             )
-            return HTMLResponse(html)
+            return HTMLResponse(html, headers=no_store)
 
         @app.post('/kremle/verify')
         async def kremle_verify(request: Request):
-            data = await request.json()
-            token = data.get('token') or request.session.get('kremle_token', '')
+            try:
+                data = await request.json()
+            except (ValueError, TypeError):
+                return JSONResponse({'error': 'invalid_json'}, status_code=400)
+            if not isinstance(data, dict):
+                return JSONResponse({'error': 'invalid_json'}, status_code=400)
+
+            token = data.get('token') or request.session.get(TOKEN_KEY, '')
             answers = data.get('answers', {})
             fingerprint = data.get('fingerprint')
-            xff = request.headers.get('x-forwarded-for', '')
-            ip = xff.split(',')[0].strip() if xff else (request.client.host if request.client else '')
+            ip = _client_ip(request, trusted_proxies)
 
-            result = engine.verify(token, answers, ip=ip, fingerprint=fingerprint)
+            result = await run(engine.verify, token, answers, ip=ip, fingerprint=fingerprint)
+            request.session.pop(TOKEN_KEY, None)
 
             if result['passed']:
-                request.session[SESSION_KEY] = True
+                request.session[SESSION_KEY] = build_verification(
+                    ip=ip,
+                    ua=request.headers.get('user-agent'),
+                    ttl=engine.verified_ttl,
+                )
                 next_url = request.session.pop(NEXT_KEY, '/')
                 result['redirect'] = next_url
             else:
@@ -215,9 +328,51 @@ class KremleFastAPI:
 
         @app.get('/kremle/status')
         async def kremle_status(request: Request):
+            state = request.session.get(SESSION_KEY)
             return JSONResponse({
-                'verified': bool(request.session.get(SESSION_KEY))
+                'verified': is_verified(
+                    state,
+                    ua=request.headers.get('user-agent'),
+                    bind_ua=self.bind_ua,
+                ),
+                'expires_in': remaining_seconds(state),
             })
+
+        @app.post('/kremle/logout')
+        async def kremle_logout(request: Request):
+            request.session.pop(SESSION_KEY, None)
+            request.session.pop(TOKEN_KEY, None)
+            request.session.pop(NEXT_KEY, None)
+            return JSONResponse({'verified': False})
+
+        if enable_ops:
+            @app.get('/kremle/health')
+            async def kremle_health():
+                storage = engine.storage
+                payload = await run(
+                    health_payload,
+                    version=__version__,
+                    storage=storage,
+                    storage_name=_storage_name(storage),
+                    extra={
+                        'sample_rate': engine.sample_rate,
+                        'policy': dict(engine.policy),
+                        'verified_ttl': engine.verified_ttl,
+                        'questions_source': engine.questions_source,
+                        'questions_images': engine.questions_images,
+                        'async_offload': self.async_offload,
+                    },
+                )
+                return JSONResponse(payload, status_code=200 if payload['storage_ok'] else 503)
+
+            @app.get('/kremle/stats')
+            async def kremle_stats():
+                return JSONResponse(await run(engine.metrics.snapshot))
+
+            @app.get('/kremle/metrics')
+            async def kremle_metrics():
+                text = await run(engine.metrics.prometheus)
+                return PlainTextResponse(text, media_type='text/plain; version=0.0.4; charset=utf-8')
 
         # SessionMiddleware must be added AFTER kremle_guard so that it ends up as
         # the outermost middleware (Starlette builds the stack in reverse order of
@@ -228,4 +383,9 @@ class KremleFastAPI:
             for m in getattr(app, 'user_middleware', [])
         )
         if not has_session:
+            if SessionMiddleware is None:
+                raise RuntimeError(
+                    'Для сессий капчи нужен itsdangerous: '
+                    'pip install "kremle-detect[fastapi]" (или itsdangerous)'
+                )
             app.add_middleware(SessionMiddleware, secret_key=self.secret)

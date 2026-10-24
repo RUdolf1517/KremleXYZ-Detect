@@ -1,7 +1,7 @@
 {
   "name": "kremle-react",
-  "version": "1.0.0",
-  "description": "React component for kremle-detect captcha (Yandex Browser protection)",
+  "version": "2.7.0",
+  "description": "React captcha for the kremle-detect web filter",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -12,27 +12,56 @@
       "require": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch"
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
   "peerDependencies": {
     "react": ">=17.0.0",
     "react-dom": ">=17.0.0"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.1.0",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
+    "jsdom": "^25.0.1",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^2.1.0"
   },
-  "keywords": ["captcha", "yandex", "react", "kremle-detect"],
+  "keywords": [
+    "captcha",
+    "yandex",
+    "react",
+    "kremle-detect",
+    "bot-protection"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/RUdolf1517/KremleXYZ-Detect"
+    "url": "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git",
+    "directory": "kremle-react"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/RUdolf1517/KremleXYZ-Detect#react-компонент",
+  "bugs": {
+    "url": "https://github.com/RUdolf1517/KremleXYZ-Detect/issues"
   }
 }

@@ -1,0 +1,36 @@
+# Демо одной командой:
+#   docker compose up --build
+#   → http://localhost:8000
+#
+# С Redis (хранилище общее для нескольких воркеров):
+#   docker compose --profile redis up --build
+#   KREMLE_REDIS_URL=redis://redis:6379/0 docker compose --profile redis up --build
+
+services:
+  demo:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # monitor — ничего не блокировать, только считать (shadow)
+      KREMLE_DEMO_POLICY: ${KREMLE_DEMO_POLICY:-challenge}
+      KREMLE_REDIS_URL: ${KREMLE_REDIS_URL:-}
+      KREMLE_QUESTIONS_SOURCE: ${KREMLE_QUESTIONS_SOURCE:-auto}
+    volumes:
+      - kremle-cache:/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  kremle-cache:

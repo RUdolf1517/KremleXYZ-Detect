@@ -7,4 +7,7 @@ export default defineConfig({
   clean: true,
   external: ['react', 'react-dom', 'react/jsx-runtime'],
   sourcemap: true,
+  // 'use client' не нужен: компонент сам по себе SSR-safe, но в Next.js
+  // app router его всё равно импортируют из клиентского файла.
+  banner: { js: "'use client'" },
 })

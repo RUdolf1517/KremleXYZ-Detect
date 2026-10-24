@@ -19,8 +19,8 @@ class BaseStorage(ABC):
     """Абстрактный бэкенд хранения."""
 
     @abstractmethod
-    def set(self, key: str, value: dict, ttl: int) -> None:
-        """Сохранить данные с TTL в секундах."""
+    def set(self, key: str, value: dict, ttl: Optional[int]) -> None:
+        """Сохранить данные с TTL в секундах (``None``/``0`` — не истекает)."""
 
     @abstractmethod
     def get(self, key: str) -> Optional[dict]:
@@ -31,12 +31,28 @@ class BaseStorage(ABC):
         """Удалить по ключу."""
 
     @abstractmethod
-    def increment(self, key: str, ttl: int) -> int:
-        """Инкремент счётчика. Возвращает новое значение. TTL ставится при создании."""
+    def increment(self, key: str, ttl: Optional[int] = None) -> int:
+        """
+        Инкремент счётчика. Возвращает новое значение.
+
+        Args:
+            ttl: срок жизни ключа в секундах; ``None`` — не истекает
+                 (для метрик), TTL ставится только при создании ключа.
+        """
+
+    def get_counter(self, key: str) -> int:
+        """
+        Текущее значение счётчика без инкремента (0, если счётчика нет).
+
+        Нужен для проверки лимитов без «расхода» попытки.
+        """
+        return 0
 
     def blacklist_add(self, ip: str, ttl: int) -> None:
         """Добавить IP в чёрный список на ttl секунд (0 = навсегда)."""
-        self.set(f'blacklist:{ip}', {'ip': ip}, ttl if ttl > 0 else 86400 * 365 * 10)
+        # 0 → ключ без срока жизни, а не «через 10 лет»: иначе /stats и CLI
+        # показывают остаток, и «навсегда» незаметно превращается в дату.
+        self.set(f'blacklist:{ip}', {'ip': ip}, ttl if ttl > 0 else None)
 
     def blacklist_check(self, ip: str) -> bool:
         """True если IP в чёрном списке."""
@@ -56,7 +72,7 @@ class BaseStorage(ABC):
 
     def whitelist_add(self, ip: str) -> None:
         """Добавить IP в белый список навсегда."""
-        self.set(f'whitelist:{ip}', {'ip': ip}, self._WHITELIST_TTL)
+        self.set(f'whitelist:{ip}', {'ip': ip}, None)
 
     def whitelist_check(self, ip: str) -> bool:
         """True если IP в белом списке."""
@@ -65,6 +81,14 @@ class BaseStorage(ABC):
     def whitelist_remove(self, ip: str) -> None:
         """Убрать IP из белого списка."""
         self.delete(f'whitelist:{ip}')
+
+    def ttl(self, key: str) -> Optional[int]:
+        """
+        Сколько секунд осталось жить ключу.
+
+        ``None`` — ключа нет; ``0`` — ключ бессрочный; иначе остаток в секундах.
+        """
+        raise NotImplementedError
 
     def whitelist_list(self) -> list:
         """Список всех IP в белом списке."""
@@ -85,17 +109,25 @@ class BaseStorage(ABC):
 
 _CLEANUP_INTERVAL = 60  # секунд между принудительными очистками
 
+# Атомарный инкремент с установкой TTL только при создании ключа.
+_INCR_WITH_TTL_LUA = """
+local v = redis.call('INCR', KEYS[1])
+if v == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return v
+"""
 
 class MemoryStorage(BaseStorage):
     """In-memory хранение (один процесс). По умолчанию."""
 
     def __init__(self):
-        self._data: Dict[str, tuple] = {}  # key → (value, expires_at)
+        self._data: Dict[str, tuple] = {}  # key → (value, expires_at | None)
         self._last_cleanup: float = time.time()
         self._events: collections.deque = collections.deque(maxlen=self._LOG_MAX)
 
-    def set(self, key: str, value: dict, ttl: int) -> None:
-        self._data[key] = (value, time.time() + ttl)
+    def set(self, key: str, value: dict, ttl: Optional[int]) -> None:
+        # ttl=None — бессрочно; ttl=0 — уже просрочено (историческое поведение)
+        expires_at = time.time() + ttl if ttl is not None else None
+        self._data[key] = (value, expires_at)
         self._cleanup()
 
     def get(self, key: str) -> Optional[dict]:
@@ -103,7 +135,7 @@ class MemoryStorage(BaseStorage):
         if entry is None:
             return None
         value, expires_at = entry
-        if time.time() > expires_at:
+        if expires_at is not None and time.time() > expires_at:
             del self._data[key]
             return None
         return value
@@ -111,14 +143,26 @@ class MemoryStorage(BaseStorage):
     def delete(self, key: str) -> None:
         self._data.pop(key, None)
 
-    def increment(self, key: str, ttl: int) -> int:
+    def increment(self, key: str, ttl: Optional[int] = None) -> int:
+        expires_at = None if ttl is None else time.time() + ttl
         entry = self._data.get(key)
-        if entry is None or time.time() > entry[1]:
-            self._data[key] = ({'count': 1}, time.time() + ttl)
+        alive = entry is not None and (entry[1] is None or time.time() <= entry[1])
+        if not alive:
+            self._data[key] = ({'count': 1}, expires_at)
             return 1
         val = entry[0]
         val['count'] = val.get('count', 0) + 1
         return val['count']
+
+    def get_counter(self, key: str) -> int:
+        entry = self._data.get(key)
+        if entry is None:
+            return 0
+        value, expires_at = entry
+        if expires_at is not None and time.time() > expires_at:
+            del self._data[key]
+            return 0
+        return int(value.get('count', 0))
 
     def blacklist_list(self) -> list:
         now = time.time()
@@ -126,7 +170,7 @@ class MemoryStorage(BaseStorage):
         return [
             k[len(prefix):]
             for k, (_, exp) in list(self._data.items())
-            if k.startswith(prefix) and now <= exp
+            if k.startswith(prefix) and (exp is None or now <= exp)
         ]
 
     def whitelist_list(self) -> list:
@@ -135,8 +179,21 @@ class MemoryStorage(BaseStorage):
         return [
             k[len(prefix):]
             for k, (_, exp) in list(self._data.items())
-            if k.startswith(prefix) and now <= exp
+            if k.startswith(prefix) and (exp is None or now <= exp)
         ]
+
+    def ttl(self, key: str) -> Optional[int]:
+        entry = self._data.get(key)
+        if entry is None:
+            return None
+        _, expires_at = entry
+        if expires_at is None:
+            return 0
+        remaining = expires_at - time.time()
+        if remaining <= 0:
+            del self._data[key]
+            return None
+        return int(remaining)
 
     def log_event(self, event: dict) -> None:
         self._events.appendleft(event)
@@ -150,7 +207,10 @@ class MemoryStorage(BaseStorage):
         if now - self._last_cleanup < _CLEANUP_INTERVAL:
             return
         self._last_cleanup = now
-        expired = [k for k, (_, exp) in self._data.items() if now > exp]
+        expired = [
+            k for k, (_, exp) in self._data.items()
+            if exp is not None and now > exp
+        ]
         for k in expired:
             del self._data[k]
 
@@ -188,8 +248,13 @@ class RedisStorage(BaseStorage):
     def _key(self, key: str) -> str:
         return f'{self._prefix}{key}'
 
-    def set(self, key: str, value: dict, ttl: int) -> None:
-        self._redis.setex(self._key(key), ttl, json.dumps(value, ensure_ascii=False))
+    def set(self, key: str, value: dict, ttl: Optional[int]) -> None:
+        payload = json.dumps(value, ensure_ascii=False)
+        if ttl is None:
+            self._redis.set(self._key(key), payload)
+        else:
+            # setex объявлен deprecated в redis-py 6 — set(..., ex=) делает то же
+            self._redis.set(self._key(key), payload, ex=ttl)
 
     def get(self, key: str) -> Optional[dict]:
         raw = self._redis.get(self._key(key))
@@ -200,18 +265,44 @@ class RedisStorage(BaseStorage):
     def delete(self, key: str) -> None:
         self._redis.delete(self._key(key))
 
-    def increment(self, key: str, ttl: int) -> int:
+    def increment(self, key: str, ttl: Optional[int] = None) -> int:
         rk = self._key(key)
+        if ttl is None:
+            return int(self._redis.incr(rk))
+        # Атомарно INCR + EXPIRE одним Lua-скриптом: если процесс упадёт
+        # между двумя командами, ключ останется без TTL навсегда и клиент
+        # будет вечно упираться в rate limit / бан.
+        eval_fn = getattr(self._redis, 'eval', None)
+        if callable(eval_fn):
+            try:
+                return int(eval_fn(_INCR_WITH_TTL_LUA, 1, rk, int(ttl)))
+            except Exception:  # клиент без поддержки Lua — откатываемся на pipeline
+                pass
         pipe = self._redis.pipeline()
         pipe.incr(rk)
         result = pipe.execute()
         count = result[0]
-        # Set TTL only when the key is newly created (count == 1).
-        # Calling expire() on every increment would extend the window on each request
-        # (sliding window bug). Fixed window: TTL is set once at creation.
+        # TTL ставится только при создании ключа (fixed window, не sliding).
         if count == 1:
             self._redis.expire(rk, ttl)
         return count
+
+    def get_counter(self, key: str) -> int:
+        raw = self._redis.get(self._key(key))
+        if raw is None:
+            return 0
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
+
+    def ttl(self, key: str) -> Optional[int]:
+        raw = self._redis.ttl(self._key(key))
+        if raw == -2:
+            return None
+        if raw == -1:
+            return 0
+        return int(raw)
 
     def _scan_suffix(self, ns: str) -> list:
         """Вернуть всё что идёт после kremle:{ns}: для найденных ключей."""

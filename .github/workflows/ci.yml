@@ -48,16 +48,11 @@ jobs:
           set -o pipefail
           python -m pytest tests/ -v 2>&1 | tee /tmp/pytest.log
 
-      - name: Surface failure in annotations
-        # Логи Actions иногда недоступны (артефакты на отдельном хосте),
-        # а аннотации — всегда. Последние строки падения видны прямо в PR.
-        if: failure()
-        run: |
-          echo "::error title=pytest tail::$(tail -30 /tmp/pytest.log | tr '\n' '|' | cut -c1-900)"
 
       - name: Redis tests must actually run (не скипнуться)
         # Если сервис не поднялся, тесты молча скипнутся и «зелёный» CI соврёт
         run: |
+          set -o pipefail
           python - <<'PY'
           import redis, sys
           try:
@@ -67,13 +62,26 @@ jobs:
               sys.exit(1)
           print('redis ok')
           PY
-          python -m pytest tests/test_redis_live.py -m redis -q --no-header -p no:cacheprovider
+          python -m pytest tests/test_redis_live.py -m redis -q --no-header -p no:cacheprovider \
+            2>&1 | tee /tmp/redis.log
 
       - name: Coverage
         if: matrix.python-version == '3.12'
         run: |
+          set -o pipefail
           python -m pytest tests/ -q --cov=kremle_detect --cov-report=term-missing \
-            --cov-fail-under=85
+            --cov-fail-under=85 2>&1 | tee /tmp/coverage.log
+
+      - name: Failure details in annotations
+        # Логи Actions лежат на отдельном хосте и не всегда доступны,
+        # а аннотации — всегда. Хвост падения видно прямо в PR.
+        if: failure()
+        run: |
+          for f in /tmp/pytest.log /tmp/redis.log /tmp/coverage.log; do
+            if [ -f "$f" ]; then
+              echo "::error title=$(basename "$f")::$(tail -40 "$f" | tr '\n' '|' | cut -c1-900)"
+            fi
+          done
 
   package:
     # Проверяем, что пакет собирается и данные попадают в wheel

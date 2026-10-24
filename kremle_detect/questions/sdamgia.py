@@ -86,9 +86,47 @@ def cache_path(category: str, cache_dir: Optional[str] = None) -> str:
     return os.path.join(cache_dir or default_cache_dir(), f'sdamgia-{category}.json')
 
 
+#: Разобранный кеш по пути: ``путь → ((mtime_ns, size), data)``.
+#: Кеш читается на каждый челлендж, а разбор 200 КиБ JSON — это ~1 мс, то есть
+#: половина стоимости выдачи капчи. Запоминаем результат, пока файл не изменился.
+_CACHE_MEMO: Dict[str, tuple] = {}
+_CACHE_MEMO_MAX = 32
+
+
+def _stat_signature(path: str):
+    """Дешёвый признак версии файла (без чтения содержимого)."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def clear_cache_memo() -> None:
+    """Забыть разобранный кеш (после внешней правки файлов, в тестах)."""
+    _CACHE_MEMO.clear()
+
+
+def _copy_cache(data: dict) -> dict:
+    """
+    Неглубокая копия: верхний уровень и список вопросов.
+
+    Вызывающий код перемешивает и фильтрует список вопросов — это не должно
+    протекать в общий кеш.
+    """
+    result = dict(data)
+    questions = result.get('questions')
+    if isinstance(questions, list):
+        result['questions'] = list(questions)
+    return result
+
+
 def read_cache(category: str, cache_dir: Optional[str] = None) -> Optional[dict]:
     """
     Читает кеш. Возвращает ``{'questions': [...], 'fetched_at': ts}`` или None.
+
+    Результат запоминается до изменения файла (mtime + размер), поэтому
+    повторные вызовы в рамках процесса JSON не перебирают.
 
     Пример:
         data = read_cache('math')
@@ -96,14 +134,29 @@ def read_cache(category: str, cache_dir: Optional[str] = None) -> Optional[dict]
             questions = data['questions']
     """
     path = cache_path(category, cache_dir)
+    signature = _stat_signature(path)
+    if signature is None:
+        _CACHE_MEMO.pop(path, None)
+        return None
+
+    memo = _CACHE_MEMO.get(path)
+    if memo is not None and memo[0] == signature:
+        return _copy_cache(memo[1])
+
     try:
         with open(path, encoding='utf-8') as f:
             data = json.load(f)
     except (OSError, ValueError):
+        _CACHE_MEMO.pop(path, None)
         return None
     if not isinstance(data, dict) or not isinstance(data.get('questions'), list):
+        _CACHE_MEMO.pop(path, None)
         return None
-    return data
+
+    if len(_CACHE_MEMO) >= _CACHE_MEMO_MAX:
+        _CACHE_MEMO.clear()
+    _CACHE_MEMO[path] = (signature, data)
+    return _copy_cache(data)
 
 
 def write_cache(category: str, questions: Sequence[dict], cache_dir: Optional[str] = None) -> str:
@@ -120,11 +173,18 @@ def write_cache(category: str, questions: Sequence[dict], cache_dir: Optional[st
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(payload, f, ensure_ascii=False, indent=1)
     os.replace(tmp, path)
+    # новый файл — старый разбор больше не нужен (mtime может совпасть по
+    # гранулярности файловой системы, поэтому не полагаемся только на него)
+    _CACHE_MEMO.pop(path, None)
     return path
 
 
 def cache_age(category: str, cache_dir: Optional[str] = None) -> Optional[float]:
-    """Возраст кеша в секундах или None, если кеша нет."""
+    """
+    Возраст кеша в секундах или None, если кеша нет.
+
+    Если кеш уже читали в этом процессе, файл повторно не разбирается.
+    """
     data = read_cache(category, cache_dir)
     if not data:
         return None

@@ -443,3 +443,94 @@ class TestImagesInRuntime:
         assert 'id="qimages"' in html
         assert 'renderImages' in html
         assert 'q.images' in html
+
+
+class TestCacheMemo:
+    """
+    Разобранный кеш запоминается, пока файл не изменился.
+
+    Иначе каждый челлендж заново разбирает JSON на сотни вопросов — это была
+    половина стоимости выдачи капчи.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        sdamgia.clear_cache_memo()
+        yield
+        sdamgia.clear_cache_memo()
+
+    def _count_loads(self, monkeypatch):
+        calls = []
+        original = sdamgia.json.load
+
+        def counting(*args, **kwargs):
+            calls.append(1)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(sdamgia.json, 'load', counting)
+        return calls
+
+    def test_second_read_does_not_parse(self, tmp_path, monkeypatch):
+        write_cache('math', [{'q': 'a', 'opts': ['1'], 'ans': 0}], str(tmp_path))
+        calls = self._count_loads(monkeypatch)
+        read_cache('math', str(tmp_path))
+        read_cache('math', str(tmp_path))
+        assert len(calls) == 1
+
+    def test_cache_age_reuses_parsed_cache(self, tmp_path, monkeypatch):
+        write_cache('math', [{'q': 'a', 'opts': ['1'], 'ans': 0}], str(tmp_path))
+        calls = self._count_loads(monkeypatch)
+        read_cache('math', str(tmp_path))
+        age = cache_age('math', str(tmp_path))
+        assert age is not None and age >= 0
+        assert len(calls) == 1
+
+    def test_external_change_invalidates(self, tmp_path):
+        write_cache('math', [{'q': 'a', 'opts': ['1'], 'ans': 0}], str(tmp_path))
+        assert read_cache('math', str(tmp_path))['questions'][0]['q'] == 'a'
+
+        path = cache_path('math', str(tmp_path))
+        payload = json.loads(open(path, encoding='utf-8').read())
+        payload['questions'] = [{'q': 'b', 'opts': ['1'], 'ans': 0}]
+        payload['fetched_at'] -= 60
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f)
+
+        assert read_cache('math', str(tmp_path))['questions'][0]['q'] == 'b'
+
+    def test_write_cache_invalidates(self, tmp_path):
+        write_cache('math', [{'q': 'a', 'opts': ['1'], 'ans': 0}], str(tmp_path))
+        read_cache('math', str(tmp_path))
+        write_cache('math', [{'q': 'b', 'opts': ['1'], 'ans': 0}], str(tmp_path))
+        assert read_cache('math', str(tmp_path))['questions'][0]['q'] == 'b'
+
+    def test_returned_list_is_a_copy(self, tmp_path):
+        write_cache('math', [{'q': 'a', 'opts': ['1'], 'ans': 0}], str(tmp_path))
+        first = read_cache('math', str(tmp_path))
+        first['questions'].clear()
+
+        second = read_cache('math', str(tmp_path))
+        assert len(second['questions']) == 1
+
+    def test_broken_file_is_not_memoized(self, tmp_path):
+        path = cache_path('math', str(tmp_path))
+        tmp_path.mkdir(exist_ok=True, parents=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write('{ битый json')
+
+        assert read_cache('math', str(tmp_path)) is None
+
+        write_cache('math', [{'q': 'a', 'opts': ['1'], 'ans': 0}], str(tmp_path))
+        assert read_cache('math', str(tmp_path))['questions'][0]['q'] == 'a'
+
+    def test_clear_cache_memo_forces_reparse(self, tmp_path, monkeypatch):
+        write_cache('math', [{'q': 'a', 'opts': ['1'], 'ans': 0}], str(tmp_path))
+        calls = self._count_loads(monkeypatch)
+        read_cache('math', str(tmp_path))
+        sdamgia.clear_cache_memo()
+        read_cache('math', str(tmp_path))
+        assert len(calls) == 2
+
+    def test_missing_file_is_fine(self, tmp_path):
+        assert read_cache('math', str(tmp_path)) is None
+        assert cache_age('math', str(tmp_path)) is None

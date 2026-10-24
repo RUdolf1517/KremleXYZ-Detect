@@ -277,3 +277,59 @@ class TestCheckDownload:
         payload = jsonlib.loads(capsys.readouterr().out)
         assert payload['usable'] is True
         assert all(item['ok'] for item in payload['images_cached'])
+
+
+class TestImagesCommand:
+    """`questions images` — размер и чистка кеша рисунков."""
+
+    def _store(self, tmp_path, name):
+        from kremle_detect import images
+
+        return images.store_image(f'https://cdn.example.test/{name}.png',
+                                  b'\x89PNG\r\n\x1a\n' + b'\x00' * 64,
+                                  'image/png', cache_dir=str(tmp_path))
+
+    def test_empty(self, monkeypatch, capsys, tmp_path):
+        run_cli_ok(['questions', 'images', '--cache-dir', str(tmp_path)], monkeypatch)
+        out = capsys.readouterr().out
+        assert 'пусто' in out
+        assert '--download' in out
+
+    def test_stats(self, monkeypatch, capsys, tmp_path):
+        self._store(tmp_path, 'a')
+        run_cli_ok(['questions', 'images', '--cache-dir', str(tmp_path)], monkeypatch)
+        out = capsys.readouterr().out
+        assert '1 файл(ов)' in out
+
+    def test_clear(self, monkeypatch, capsys, tmp_path):
+        from kremle_detect import images
+
+        self._store(tmp_path, 'a')
+        run_cli_ok(['questions', 'images', '--cache-dir', str(tmp_path), '--clear'],
+                   monkeypatch)
+        assert 'очищен' in capsys.readouterr().out
+        assert images.stats(str(tmp_path))['count'] == 0
+
+    def test_prune_zero(self, monkeypatch, capsys, tmp_path):
+        from kremle_detect import images
+
+        self._store(tmp_path, 'a')
+        self._store(tmp_path, 'b')
+        run_cli_ok(['questions', 'images', '--cache-dir', str(tmp_path), '--prune', '0'],
+                   monkeypatch)
+        out = capsys.readouterr().out
+        assert 'Удалено 2 старых рисунков' in out
+        assert images.stats(str(tmp_path))['count'] == 0
+
+    def test_prune_nothing_to_do(self, monkeypatch, capsys, tmp_path):
+        self._store(tmp_path, 'a')
+        run_cli_ok(['questions', 'images', '--cache-dir', str(tmp_path), '--prune', '64'],
+                   monkeypatch)
+        assert 'Чистить нечего' in capsys.readouterr().out
+
+    def test_prune_and_clear_are_exclusive(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, 'argv', ['kremle-detect', 'questions', 'images',
+                                          '--prune', '1', '--clear'])
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        assert exc.value.code == 2

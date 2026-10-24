@@ -74,6 +74,14 @@ jobs:
           print('ok:', wheel)
           PY
 
+      - name: Smoke install (wheel ставится и CLI живой)
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --quiet "dist/"*.whl "fastapi" "uvicorn" "httpx"
+          /tmp/smoke/bin/kremle-detect --version
+          /tmp/smoke/bin/kremle-detect questions --help >/dev/null
+          /tmp/smoke/bin/python -c "from kremle_detect.demo import build_app; build_app()"
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -146,8 +154,10 @@ jobs:
 
   github-release:
     name: GitHub Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Релиз с артефактами появляется даже если публикация в индекс упала:
+    # по тегу видно, что собралось, а что требует настройки (PyPI/npm).
+    needs: [build, pypi, npm]
+    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write

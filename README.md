@@ -819,7 +819,8 @@ logging.getLogger('kremle').setLevel(logging.INFO)
 
 ## React-компонент
 
-`kremle-react@2.7.1` — ESM + CJS + `'use client'` + типы, 24 теста, ставится из репозитория или из npm.
+`kremle-react@2.8.0` — ESM + CJS + `'use client'` + типы, 24 теста, ставится из репозитория или из npm.
+Собирается на React 19, TypeScript 7 и jsdom 30 (`npm install` — Node ≥ 22).
 Версия npm-пакета совпадает с версией Python-пакета — один релиз, один тег.
 
 ```bash

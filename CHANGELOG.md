@@ -41,6 +41,11 @@
 
 - **JSON капчи**: у рисунка из кеша `url` становится локальным, исходный адрес
   остаётся в `remote_url`. Горячая ссылка — прежний фолбэк.
+- **`kremle-react`: React 19, TypeScript 7, jsdom 30** (peer-диапазон `react >= 17`
+  не менялся — React 17/18 продолжают работать). Из-за TypeScript 7 (нативная
+  версия без JS-компилятора) `.d.ts` теперь эмитит `tsc -p tsconfig.build.json`,
+  а в `tsup.config.ts` стоит `dts: false`; тесты переведены на Vitest 5
+  (0 уязвимостей в `npm audit`), в CI для `kremle-react` — Node 22 (требование jsdom 30).
 
 ## [2.7.1] — 2026-10-24
 

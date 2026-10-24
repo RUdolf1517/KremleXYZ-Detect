@@ -279,21 +279,25 @@ class TestEngineLocalization:
         assert image['url'] == URL
         assert 'remote_url' not in image
 
-    def test_images_flag_off_hides_questions(self, tmp_path):
-        from kremle_detect.captcha import CaptchaEngine
+    def test_images_flag_off_hides_library_questions(self, tmp_path):
+        """Без questions_images задания с рисунком из банка не попадают в капчу."""
+        from kremle_detect.questions import get_questions
+        from kremle_detect.questions.sdamgia import write_cache
 
-        engine = CaptchaEngine(
-            question_count=1, max_errors=0, secret='test',
-            extra_questions=[
-                {'q': 'График?', 'opts': ['1', '2'], 'ans': 0,
-                 'images': [{'url': URL, 'alt': ''}]},
-                {'q': 'Текст', 'opts': ['1', '2'], 'ans': 1},
-            ],
-            questions_images=False,
-        )
-        for _ in range(5):
-            challenge = engine.create_challenge()
-            assert all(not q.get('images') for q in challenge.safe_questions)
+        write_cache('math', [
+            {'q': 'График?', 'opts': ['1', '2', '3', '4'], 'ans': 0,
+             'images': [{'url': URL, 'alt': ''}]},
+            {'q': 'Текст', 'opts': ['1', '2', '3', '4'], 'ans': 1},
+        ], str(tmp_path))
+
+        without = get_questions(categories=['math'], source='sdamgia',
+                                cache_dir=str(tmp_path), shuffle=False)
+        assert [q['q'] for q in without] == ['Текст']
+
+        with_images = get_questions(categories=['math'], source='sdamgia',
+                                    cache_dir=str(tmp_path), shuffle=False,
+                                    allow_images=True)
+        assert [q['q'] for q in with_images] == ['График?', 'Текст']
 
 
 class TestFlaskRoute:

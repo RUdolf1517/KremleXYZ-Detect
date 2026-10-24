@@ -252,7 +252,9 @@ class TestHeadlessChallenge:
                       question_count=3, max_errors=1, challenge_rate_limit=1)
         client = make_client(app)
         assert client.get('/kremle/challenge').status_code == 200
-        assert client.get('/kremle/challenge').status_code == 429
+        limited = client.get('/kremle/challenge')
+        assert limited.status_code == 429
+        assert limited.headers['retry-after'] == '600'
 
     def test_token_is_single_use(self):
         storage = MemoryStorage()

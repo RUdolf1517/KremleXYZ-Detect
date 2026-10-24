@@ -176,7 +176,9 @@ class TestViews:
         view = self.patterns()['kremle_challenge']
         with override_settings(KREMLE_CHALLENGE_RATE_LIMIT=1):
             assert view(make_request(path='/kremle/challenge/')).status_code == 200
-            assert view(make_request(path='/kremle/challenge/')).status_code == 429
+            limited = view(make_request(path='/kremle/challenge/'))
+            assert limited.status_code == 429
+            assert limited['Retry-After'] == '600'
 
     def test_verify_correct(self):
         engine = django_ext._get_engine(dj_settings)

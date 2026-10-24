@@ -914,7 +914,8 @@ function MyCaptcha() {
 
 Ответы `/kremle/challenge` и JSON-блокировки отдаются с `Cache-Control: no-store` —
 токен не должен попасть в кеш. `429` — если сработал `challenge_rate_limit` или
-`rate_limited`.
+`rate_limited`; в ответе есть `Retry-After` с окном лимита в секундах (по умолчанию
+600), так что клиенту не нужно угадывать паузу.
 
 ## Кастомный шаблон
 

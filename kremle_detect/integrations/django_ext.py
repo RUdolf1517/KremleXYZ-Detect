@@ -274,8 +274,10 @@ def kremle_urls():
 
         ip = _get_client_ip(request, trusted_proxies)
         if engine.check_challenge_limit(ip):
+            # окно лимита известно — говорим клиенту, когда пробовать снова
             return HttpResponse('Слишком много запросов. Попробуйте позже.',
-                                status=429, content_type='text/plain; charset=utf-8')
+                                status=429, content_type='text/plain; charset=utf-8',
+                                headers={'Retry-After': str(engine.rate_window)})
         engine.track_challenge(ip)
 
         ch = engine.create_challenge()

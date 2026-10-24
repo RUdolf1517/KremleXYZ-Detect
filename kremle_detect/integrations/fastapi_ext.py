@@ -267,7 +267,9 @@ class KremleFastAPI:
                 return JSONResponse(
                     {'error': 'too_many_requests'},
                     status_code=429,
-                    headers={'Cache-Control': 'no-store'},
+                    # окно лимита известно — говорим клиенту, когда пробовать снова
+                    headers={'Cache-Control': 'no-store',
+                             'Retry-After': str(engine.rate_window)},
                 )
             await run(engine.track_challenge, ip)
 

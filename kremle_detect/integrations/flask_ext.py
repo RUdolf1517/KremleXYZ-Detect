@@ -294,10 +294,15 @@ class KremleFlask:
         def challenge():
             ip = _get_client_ip(request, trusted_proxies)
             if engine.check_challenge_limit(ip):
+                # окно лимита известно — говорим клиенту, когда пробовать снова
                 return (
                     'Слишком много запросов. Попробуйте позже.',
                     429,
-                    {'Cache-Control': 'no-store', 'Content-Type': 'text/plain; charset=utf-8'},
+                    {
+                        'Cache-Control': 'no-store',
+                        'Content-Type': 'text/plain; charset=utf-8',
+                        'Retry-After': str(engine.rate_window),
+                    },
                 )
             engine.track_challenge(ip)
 

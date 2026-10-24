@@ -167,7 +167,10 @@ class TestChallengeEndpoint:
         app, _ = make_app(challenge_rate_limit=1)
         client = app.test_client()
         assert client.get('/kremle/challenge').status_code == 200
-        assert client.get('/kremle/challenge').status_code == 429
+        limited = client.get('/kremle/challenge')
+        assert limited.status_code == 429
+        # клиенту сказано, когда приходить снова (окно лимита, по умолчанию 600 с)
+        assert limited.headers['Retry-After'] == '600'
 
     def test_custom_template_missing_file(self):
         app, _ = make_app(template='/nonexistent/kremle.html')

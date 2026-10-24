@@ -179,3 +179,101 @@ class TestSyncImages:
                         '--cache-dir', str(tmp_path)], monkeypatch)
         assert code == 1
         assert sdamgia.read_cache('math', str(tmp_path)) is None
+
+
+class TestSyncDownloadImages:
+    """`questions sync --download` — картинки в локальный кеш."""
+
+    def _fake_download(self, monkeypatch, cache_dir):
+        from kremle_detect import images
+
+        calls = []
+
+        def fake(url, **kwargs):
+            calls.append(url)
+            stored = images.store_image(url, b'\x89PNG\r\n\x1a\n' + b'\x00' * 8,
+                                        'image/png', cache_dir=cache_dir)
+            stored['cached'] = False
+            return stored
+
+        monkeypatch.setattr(images, 'download_image', fake)
+        return calls
+
+    def test_download_stores_images(self, monkeypatch, capsys, tmp_path,
+                                    sdamgia_html_with_image):
+        monkeypatch.setattr(sdamgia, 'http_get', lambda url: sdamgia_html_with_image)
+        calls = self._fake_download(monkeypatch, str(tmp_path))
+
+        run_cli_ok(['questions', 'sync', '-c', 'math', '-n', '1', '--ids', '5',
+                    '--download', '--cache-dir', str(tmp_path)], monkeypatch)
+        out = capsys.readouterr().out
+        assert 'скачано: 2' in out
+        assert len(calls) == 2
+        # --download включает --images: задание с рисунком попало в кеш
+        assert sdamgia.read_cache('math', str(tmp_path))['questions'][0]['images']
+
+    def test_download_reports_failures_without_failing(self, monkeypatch, capsys,
+                                                       tmp_path, sdamgia_html_with_image):
+        from kremle_detect import images
+
+        monkeypatch.setattr(sdamgia, 'http_get', lambda url: sdamgia_html_with_image)
+
+        def boom(url, **kwargs):
+            raise images.ImageError('404')
+
+        monkeypatch.setattr(images, 'download_image', boom)
+        run_cli_ok(['questions', 'sync', '-c', 'math', '-n', '1', '--ids', '5',
+                    '--download', '--cache-dir', str(tmp_path)], monkeypatch)
+        captured = capsys.readouterr()
+        assert 'ошибок: 2' in captured.out
+        assert '404' in captured.err
+
+    def test_without_download_mentions_hotlinks(self, monkeypatch, capsys, tmp_path):
+        html = ('<div class="prob_maindiv"><div class="pbody">Сколько будет 2+2?</div>'
+                '<div class="answer">Ответ: 4</div></div>')
+        monkeypatch.setattr(sdamgia, 'http_get', lambda url: html)
+        run_cli_ok(['questions', 'sync', '-c', 'math', '-n', '1', '--ids', '1',
+                    '--cache-dir', str(tmp_path)], monkeypatch)
+        assert '--download' in capsys.readouterr().out
+
+
+class TestCheckDownload:
+    def test_download_prints_local_url(self, monkeypatch, capsys, tmp_path,
+                                       sdamgia_html_with_image):
+        from kremle_detect import images
+
+        monkeypatch.setattr(sdamgia, 'http_get', lambda url: sdamgia_html_with_image)
+        monkeypatch.setenv('KREMLE_CACHE_DIR', str(tmp_path))
+
+        def fake(url, **kwargs):
+            stored = images.store_image(url, b'\x89PNG\r\n\x1a\n' + b'\x00' * 8,
+                                        'image/png', cache_dir=str(tmp_path))
+            stored['cached'] = False
+            return stored
+
+        monkeypatch.setattr(images, 'download_image', fake)
+        run_cli_ok(['questions', 'check', '5', '--download'], monkeypatch)
+        out = capsys.readouterr().out
+        assert '/kremle/img/' in out
+        assert images.stats(str(tmp_path))['count'] == 2
+
+    def test_json_reports_cached_images(self, monkeypatch, capsys, tmp_path,
+                                        sdamgia_html_with_image):
+        import json as jsonlib
+
+        from kremle_detect import images
+
+        monkeypatch.setattr(sdamgia, 'http_get', lambda url: sdamgia_html_with_image)
+        monkeypatch.setenv('KREMLE_CACHE_DIR', str(tmp_path))
+
+        def fake(url, **kwargs):
+            stored = images.store_image(url, b'\x89PNG\r\n\x1a\n' + b'\x00' * 8,
+                                        'image/png', cache_dir=str(tmp_path))
+            stored['cached'] = False
+            return stored
+
+        monkeypatch.setattr(images, 'download_image', fake)
+        run_cli_ok(['questions', 'check', '5', '--download', '--json'], monkeypatch)
+        payload = jsonlib.loads(capsys.readouterr().out)
+        assert payload['usable'] is True
+        assert all(item['ok'] for item in payload['images_cached'])

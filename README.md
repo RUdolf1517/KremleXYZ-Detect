@@ -421,8 +421,60 @@ KREMLE_QUESTIONS_IMAGES = True
 
 Шаблон капчи и React-компонент рисуют их с `referrerPolicy="no-referrer"`; если портал
 не отдаёт картинку, вместо неё появляется «[рисунок не загрузился]» — капча не ломается.
-Если картинки нужны локально (портал закрыл горячие ссылки), положите их в свой CDN
-и подмените `url` при сборке вопросов.
+
+#### Локальный кеш картинок
+
+Горячая ссылка работает, пока портал отдаёт файл посторонним сайтам, и каждый показ
+капчи сообщает порталу IP пользователя. Чтобы этого не было, рисунки можно скачать
+заранее — они лягут в `~/.cache/kremle-detect/images/<sha256>` (тот же каталог, что
+и кеш вопросов; переопределяется `KREMLE_CACHE_DIR`):
+
+```bash
+kremle-detect questions sync -c math -n 30 --images --download
+kremle-detect questions cache        # покажет, сколько рисунков и сколько места
+```
+
+`--download` сам включает `--images`, качает только новые файлы (повторный запуск
+ничего не перекачивает, `--force-images` — перекачать) и не падает, если часть
+картинок недоступна: такие задания просто останутся с горячей ссылкой.
+
+Дальше сервер отдаёт их сам, своим роутом `/kremle/img/<key>`, — в JSON капчи
+`url` уже локальный:
+
+```jsonc
+{"q": "На рисунке изображён график…", "opts": ["3", "4", "5", "6"],
+ "images": [{"url": "/kremle/img/3f2a…", "alt": "", "remote_url": "https://…/1.png"}]}
+```
+
+Что это даёт:
+
+- капча с рисунком работает **без доступа к порталу** — ни IP, ни факт прохождения
+  третьей стороне не уходят;
+- роут отдаёт **только уже скачанное**: ключ — 32 hex-символа, никакого проксирования
+  произвольных URL (никакого SSRF), `Cache-Control: immutable`, `nosniff`;
+- при скачивании разрешены только `http(s)` и только внешние адреса, только `image/*`,
+  не больше 3 МиБ на файл;
+- файла нет в кеше — `url` остаётся горячей ссылкой, всё работает как раньше.
+
+Настройка, если каталог кеша нестандартный или роут нужно повесить на другой путь:
+
+```python
+kremle = KremleFlask(app, questions_images=True,
+                     images_cache_dir='/var/cache/kremle/images',
+                     images_prefix='/media/kremle/')
+```
+
+```python
+# Django
+KREMLE_QUESTIONS_IMAGES = True
+KREMLE_IMAGES_CACHE_DIR = '/var/cache/kremle/images'   # по умолчанию ~/.cache/kremle-detect/images
+KREMLE_IMAGES_PREFIX = '/kremle/img/'
+```
+
+```python
+# FastAPI
+KremleFastAPI(app, questions_images=True, images_cache_dir='/var/cache/kremle/images')
+```
 
 ### Как проверить картинки в браузере (Яндекс не нужен)
 
@@ -846,6 +898,7 @@ function MyCaptcha() {
 | GET | `/kremle/health` | health-check для монитора |
 | GET | `/kremle/stats` | счётчики в JSON |
 | GET | `/kremle/metrics` | счётчики в формате Prometheus |
+| GET | `/kremle/img/<key>` | рисунок задания из локального кеша (`Cache-Control: immutable`) |
 
 Ответы `/kremle/challenge` и JSON-блокировки отдаются с `Cache-Control: no-store` —
 токен не должен попасть в кеш. `429` — если сработал `challenge_rate_limit` или
@@ -883,6 +936,8 @@ kremle-detect questions show -c math -n 5              # из кеша Решу�
 kremle-detect questions show --source builtin         # только встроенный банк
 kremle-detect questions sync -c math -n 100           # обновить кеш
 kremle-detect questions sync --ids 1001,1002 --dry-run
+kremle-detect questions sync --images --download      # рисунки в локальный кеш
+kremle-detect questions check 1001 --download         # один рисунок проверить и скачать
 kremle-detect questions cache                         # состояние кеша
 ```
 
@@ -1056,6 +1111,19 @@ trusted publishers, но убивает возможность опублико�
 `/kremle/stats`, `/kremle/metrics` и `/kremle/health` — публичные роуты, они отдают
 цифры без авторизации. Закройте их на прокси или фаерволом, если это нежелательно.
 
+
+## Что изменилось в 2.8
+
+Полный список — в [CHANGELOG.md](CHANGELOG.md). Кратко:
+
+| Было | Стало |
+|---|---|
+| рисунок задания грузился горячей ссылкой с портала (IP пользователя уходил наружу) | локальный кеш картинок: `questions sync --images --download`, роут `/kremle/img/<key>` |
+| портал закрыл хотлинк → «[рисунок не загрузился]» | капча с рисунком работает без доступа к порталу |
+| свою CDN/прокси приходилось писать самому | `images_cache_dir` / `images_prefix` в Flask, FastAPI, Django |
+
+Ломающих изменений нет: без `--download` поведение прежнее, `url` меняется на
+локальный только когда файл уже в кеше.
 
 ## Что изменилось в 2.7
 

@@ -170,7 +170,24 @@ def main(host: str = '0.0.0.0', port: Optional[int] = None,
     banner = 'shadow (ничего не блокируется)' if policy else 'challenge (Яндекс — капча)'
     print(f'kremle-detect demo → http://localhost:{port}  [{banner}]')
     if engine.questions_images:
-        print(f'   капча с рисунками: http://localhost:{port}/kremle/challenge')
+        from .images import has_image, stats
+        from .questions.sdamgia import read_cache
+
+        cached_images = stats(engine.images_cache_dir)
+        if cached_images['count']:
+            print(f'   капча с рисунками: http://localhost:{port}/kremle/challenge '
+                  f'({cached_images["count"]} рисунков в локальном кеше)')
+        else:
+            hotlinks = 0
+            for cat in engine.categories:
+                data = read_cache(cat)
+                for question in (data or {}).get('questions') or []:
+                    hotlinks += sum(1 for img in question.get('images') or []
+                                    if isinstance(img, dict) and not has_image(img.get('url', '')))
+            print(f'   капча с рисунками: http://localhost:{port}/kremle/challenge')
+            if hotlinks:
+                print(f'   рисунков в локальном кеше нет ({hotlinks} горячих ссылок) — '
+                      'скачать: kremle-detect questions sync --images --download')
     else:
         print('   рисунки выключены: kremle-detect serve --images (или --sample-image)')
     uvicorn.run(app, host=host, port=port, log_level='info')

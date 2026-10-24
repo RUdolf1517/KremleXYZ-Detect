@@ -16,6 +16,7 @@ import random
 import time
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from .images import DEFAULT_PREFIX as DEFAULT_IMAGES_PREFIX, rewrite_questions as _rewrite_images
 from .metrics import Metrics
 from .policy import (
     ALLOW, CHALLENGE, MONITOR, Decision, normalize_policy, reasons_from_hits,
@@ -86,11 +87,16 @@ class Challenge:
             if 'problem_id' in q:
                 safe['problem_id'] = q['problem_id']
             if q.get('images'):
-                safe['images'] = [
-                    {'url': img['url'], 'alt': img.get('alt', '')}
-                    for img in q['images'][:3]
-                    if isinstance(img, dict) and img.get('url')
-                ]
+                safe['images'] = []
+                for img in q['images'][:3]:
+                    if not isinstance(img, dict) or not img.get('url'):
+                        continue
+                    item = {'url': img['url'], 'alt': img.get('alt', '')}
+                    if img.get('remote_url'):
+                        # исходный адрес: рисунок из кеша отдаётся локально,
+                        # но для отладки полезно видеть, откуда он пришёл
+                        item['remote_url'] = img['remote_url']
+                    safe['images'].append(item)
             self.safe_questions.append(safe)
 
     def to_dict(self, verify_url: str = '/kremle/verify') -> dict:
@@ -171,6 +177,8 @@ class CaptchaEngine:
         bind_ua: bool = False,
         questions_source: str = 'auto',
         questions_images: bool = False,
+        images_cache_dir: Optional[str] = None,
+        images_prefix: str = DEFAULT_IMAGES_PREFIX,
     ):
         """
         Args:
@@ -201,6 +209,11 @@ class CaptchaEngine:
             bind_ip: переспрашивать капчу при смене IP.
             bind_ua: переспрашивать капчу при смене User-Agent.
             questions_images: показывать задания с рисунком (по умолчанию нет)
+            images_cache_dir: каталог локального кеша картинок (по умолчанию
+                ``~/.cache/kremle-detect/images``, см. ``kremle_detect.images``).
+                Если картинка уже скачана, клиент получает ссылку на свой роут
+                ``/kremle/img/<key>`` вместо портала; иначе — горячую ссылку.
+            images_prefix: префикс URL для картинок из кеша.
             questions_source: ``auto`` (кеш РешуЕГЭ, если есть, иначе встроенный
                 банк), ``builtin`` (только встроенные), ``sdamgia`` (только кеш).
         """
@@ -258,6 +271,8 @@ class CaptchaEngine:
             )
         self.questions_source = questions_source
         self.questions_images = bool(questions_images)
+        self.images_cache_dir = images_cache_dir
+        self.images_prefix = images_prefix or DEFAULT_IMAGES_PREFIX
 
     # ── Политика сегментов ───────────────────────────────────────────────────
 
@@ -354,6 +369,14 @@ class CaptchaEngine:
 
         self._rng.shuffle(pool)
         questions = pool[:self.question_count]
+
+        # Картинки из кеша отдаём своим роутом: иначе каждый показ капчи
+        # сообщает порталу IP пользователя (и ломается, если портал закрыл
+        # хотлинк). Нет файла в кеше — остаётся исходная ссылка.
+        if self.questions_images and any(q.get('images') for q in questions):
+            questions = _rewrite_images(
+                questions, cache_dir=self.images_cache_dir, prefix=self.images_prefix,
+            )
 
         # Пул может оказаться меньше question_count (мало категорий/своих вопросов).
         # Проверка реального числа вопросов — в verify(): лимит ошибок там

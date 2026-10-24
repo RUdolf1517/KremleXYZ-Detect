@@ -22,6 +22,7 @@ from typing import Callable, List, Optional, Sequence
 from .. import __version__
 from ..captcha import CaptchaEngine
 from ..detector import detect
+from ..images import RESPONSE_HEADERS as IMAGE_RESPONSE_HEADERS, read_image
 from ..ip import client_ip, ip_matches
 from ..metrics import health_payload
 from ..session import (
@@ -38,7 +39,9 @@ from ._common import (
 # that are defined inside init_app() closures.
 try:
     from fastapi import Request
-    from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+    from fastapi.responses import (
+        HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response,
+    )
     from starlette.concurrency import run_in_threadpool
     from starlette.middleware.sessions import SessionMiddleware
 except ImportError:  # pragma: no cover - зависит от окружения
@@ -104,6 +107,8 @@ class KremleFastAPI:
         bind_ua: bool = False,
         questions_source: str = 'auto',
         questions_images: bool = False,
+        images_cache_dir: Optional[str] = None,
+        images_prefix: str = '/kremle/img/',
         json_api: bool = True,
         enable_ops_routes: bool = True,
         async_offload: bool = True,
@@ -132,6 +137,8 @@ class KremleFastAPI:
             bind_ua=bind_ua,
             questions_source=questions_source,
             questions_images=questions_images,
+            images_cache_dir=images_cache_dir,
+            images_prefix=images_prefix,
         )
         self.skip_paths = list(skip_paths or ['/docs', '/openapi.json', '/redoc'])
         self.whitelist = whitelist or []
@@ -344,6 +351,18 @@ class KremleFastAPI:
             request.session.pop(TOKEN_KEY, None)
             request.session.pop(NEXT_KEY, None)
             return JSONResponse({'verified': False})
+
+        @app.get('/kremle/img/{key}')
+        async def kremle_image(key: str):
+            """Картинка задания из локального кеша (см. ``kremle_detect.images``)."""
+            entry = await run(read_image, key, engine.images_cache_dir)
+            if entry is None:
+                return PlainTextResponse('', status_code=404, headers={'Cache-Control': 'no-store'})
+            return Response(
+                entry['bytes'],
+                media_type=entry['content_type'],
+                headers=IMAGE_RESPONSE_HEADERS,
+            )
 
         if enable_ops:
             @app.get('/kremle/health')

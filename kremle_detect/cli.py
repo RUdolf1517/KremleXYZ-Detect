@@ -94,8 +94,9 @@ kremle-detect — управление KremleDetect из командной ст
   kremle-detect check-hints "<Sec-CH-UA>"     Проверить Client Hints заголовок
   kremle-detect questions  [-c <кат>] [-n N]  Показать вопросы из банка
   kremle-detect questions sync [-c <кат>] [-n N] [--ids 1001,1002] [--dry-run]
-                                             Скачать вопросы «Решу ЕГЭ» в кеш
-  kremle-detect questions check <id>         Проверить одно задание и его картинки
+                               [--images] [--download]  Скачать вопросы «Решу ЕГЭ»
+  kremle-detect questions check <id> [--images] [--download]
+                                             Проверить одно задание и его картинки
   kremle-detect questions cache              Состояние кеша вопросов
 
 БЛОКЛИСТ
@@ -303,13 +304,49 @@ def cmd_questions_sync(args):
         return
 
     result = sync(cats, limit=args.limit, cache_dir=args.cache_dir,
-                  problem_ids=ids or None, allow_images=args.images)
+                  problem_ids=ids or None, allow_images=args.images or args.download)
     if not result:
         print('Ничего не скачано. Проверьте сеть и доступность sdamgia.ru.', file=sys.stderr)
         sys.exit(1)
     for cat, count in result.items():
         print(f'  {cat}: {count} вопрос(ов) записано в кеш')
+
+    if args.download:
+        _download_images(cats, args.cache_dir, args)
+
     print('Готово. Вопросы будут использоваться автоматически (questions_source="auto").')
+    if not args.download:
+        print('Рисунки остаются горячими ссылками на портал. '
+              'Локальный кеш: kremle-detect questions sync --images --download')
+
+
+def _download_images(cats, cache_dir, args) -> None:
+    """Скачивает картинки вопросов из кеша в локальный кеш картинок."""
+    from .images import cache_questions, stats
+    from .questions.sdamgia import read_cache
+
+    questions = []
+    for cat in cats:
+        data = read_cache(cat, cache_dir)
+        if data:
+            questions.extend(data.get('questions') or [])
+
+    total = sum(1 for _ in questions)
+    print(f'Скачиваю рисунки ({total} задани(й) в кеше)...')
+    result = cache_questions(questions, cache_dir=cache_dir, force=args.force_images)
+    cached, skipped = result['cached'], result['skipped']
+    print(f'  скачано: {cached}, уже было: {skipped}, ошибок: {len(result["failed"])}')
+    for failure in result['failed'][:10]:
+        print(f'  ! {failure["url"]}: {failure["error"]}', file=sys.stderr)
+    if len(result['failed']) > 10:
+        print(f'  ! … и ещё {len(result["failed"]) - 10} ошибок', file=sys.stderr)
+
+    info = stats(cache_dir)
+    print(f'Кеш рисунков: {info["count"]} файл(ов), {info["bytes"] / 1024:.0f} КиБ '
+          f'({info["dir"]})')
+    if result['failed']:
+        print('Неудачные рисунки останутся горячими ссылками на портал '
+              '— это не ломает капчу.', file=sys.stderr)
 
 
 def cmd_questions_check(args):
@@ -343,8 +380,25 @@ def cmd_questions_check(args):
 
     images = parsed.get('images') or []
     question = build_question(
-        parsed, category, args.problem_id, base_url, allow_images=args.images,
+        parsed, category, args.problem_id, base_url,
+        allow_images=args.images or args.download,
     )
+
+    downloaded = []
+    if args.download and images:
+        from .images import download_image, ImageError, image_key, local_url
+
+        for image in images:
+            try:
+                stored = download_image(image['url'])
+            except ImageError as exc:
+                downloaded.append({'url': image['url'], 'ok': False, 'error': str(exc)})
+                continue
+            downloaded.append({
+                'url': image['url'], 'ok': True, 'key': stored['key'],
+                'size': stored['size'], 'content_type': stored['content_type'],
+                'local': local_url(image_key(image['url'])),
+            })
 
     if args.json:
         print(json.dumps({
@@ -354,6 +408,7 @@ def cmd_questions_check(args):
             'condition': parsed['condition'],
             'answer': parsed['answer'],
             'images': images,
+            'images_cached': downloaded or None,
             'usable': question is not None,
             'question': question,
         }, ensure_ascii=False, indent=2))
@@ -365,6 +420,13 @@ def cmd_questions_check(args):
     print(f'Картинок в условии: {len(images)}')
     for image in images:
         print(f'  - {image["url"]}' + (f'  (alt: {image["alt"]})' if image['alt'] else ''))
+    if downloaded:
+        print('  В локальном кеше:')
+        for item in downloaded:
+            if item['ok']:
+                print(f'    + {item["local"]}  ({item["size"] / 1024:.0f} КиБ)')
+            else:
+                print(f'    ! {item["url"]}: {item["error"]}')
     print()
 
     if question is None:
@@ -408,6 +470,13 @@ def cmd_questions_cache(args):
             f'{age / 86400:.1f} дн.' if age else '?'
         )
         print(f'  {cat:11} {count:4} вопрос(ов), обновлён {age_text}')
+    from .images import stats as image_stats
+
+    info = image_stats(args.cache_dir)
+    if info['count']:
+        print(f'  рисунки     {info["count"]:4} файл(ов), {info["bytes"] / 1024:.0f} КиБ')
+    else:
+        print('  рисунки     — пусто (kremle-detect questions sync --images --download)')
     print('\nОбновить: kremle-detect questions sync')
 
 
@@ -463,6 +532,10 @@ def main():
                         help='Конкретные id заданий вместо поиска по каталогу')
     q_sync.add_argument('--images', action='store_true',
                         help='Сохранять задания с рисунком (картинки грузятся с портала)')
+    q_sync.add_argument('--download', action='store_true',
+                        help='Скачать рисунки заданий в локальный кеш (включает --images)')
+    q_sync.add_argument('--force-images', action='store_true',
+                        help='Перекачать рисунки, даже если они уже в кеше')
     q_sync.add_argument('--dry-run', action='store_true', help='Скачать, но не записывать')
     q_sync.set_defaults(func=cmd_questions_sync)
 
@@ -473,6 +546,8 @@ def main():
                          default='math', help='Предмет (по умолч. math)')
     q_check.add_argument('--images', action='store_true',
                          help='Учитывать задания с картинкой как пригодные')
+    q_check.add_argument('--download', action='store_true',
+                         help='Скачать рисунки задания в локальный кеш (включает --images)')
     q_check.add_argument('--json', action='store_true', help='Вывод в JSON')
     q_check.set_defaults(func=cmd_questions_check)
 

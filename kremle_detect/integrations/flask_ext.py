@@ -20,12 +20,13 @@ import os
 from typing import Callable, List, Optional, Sequence
 
 from flask import (
-    Blueprint, Flask, jsonify, redirect, request, session, url_for,
+    Blueprint, Flask, Response, jsonify, redirect, request, session, url_for,
 )
 
 from .. import __version__
 from ..captcha import CaptchaEngine
 from ..detector import detect_from_request
+from ..images import RESPONSE_HEADERS as IMAGE_RESPONSE_HEADERS, read_image
 from ..ip import client_ip, ip_matches
 from ..metrics import health_payload
 from ..session import (
@@ -107,6 +108,10 @@ class KremleFlask:
         questions_source: ``auto`` (кеш РешуЕГЭ → встроенный банк), ``builtin``,
                           ``sdamgia``
         questions_images: показывать задания с рисунком из «Решу ЕГЭ»
+        images_cache_dir: каталог кеша картинок (по умолчанию
+                          ``~/.cache/kremle-detect/images``); картинки из кеша
+                          отдаются своим роутом ``/kremle/img/<key>``
+        images_prefix: префикс URL картинок из кеша
         json_api: отвечать JSON клиентам, которые просят JSON (fetch/SPA),
                   вместо редиректа на HTML-капчу
         headless: всегда отвечать JSON (весь сайт — API)
@@ -144,6 +149,8 @@ class KremleFlask:
         bind_ua: bool = False,
         questions_source: str = 'auto',
         questions_images: bool = False,
+        images_cache_dir: Optional[str] = None,
+        images_prefix: str = '/kremle/img/',
         json_api: bool = True,
         headless: bool = False,
         enable_ops_routes: bool = True,
@@ -177,6 +184,8 @@ class KremleFlask:
         self.bind_ua = bind_ua
         self.questions_source = questions_source
         self.questions_images = questions_images
+        self.images_cache_dir = images_cache_dir
+        self.images_prefix = images_prefix
         self.json_api = json_api
         self.headless = headless
         self.enable_ops_routes = enable_ops_routes
@@ -215,6 +224,8 @@ class KremleFlask:
             bind_ua=self.bind_ua,
             questions_source=self.questions_source,
             questions_images=self.questions_images,
+            images_cache_dir=self.images_cache_dir,
+            images_prefix=self.images_prefix,
         )
 
         bp = self._create_blueprint()
@@ -360,6 +371,18 @@ class KremleFlask:
             session.pop(TOKEN_KEY, None)
             session.pop(NEXT_KEY, None)
             return jsonify({'verified': False})
+
+        @bp.route('/img/<key>')
+        def image(key):
+            """Картинка задания из локального кеша (см. ``kremle_detect.images``)."""
+            entry = read_image(key, engine.images_cache_dir)
+            if entry is None:
+                return ('', 404, {'Cache-Control': 'no-store'})
+            return Response(
+                entry['bytes'],
+                mimetype=entry['content_type'],
+                headers=IMAGE_RESPONSE_HEADERS,
+            )
 
         if enable_ops:
             @bp.route('/health')

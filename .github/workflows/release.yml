@@ -175,6 +175,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           notes=$(awk '/^## \[/{n++} n==1' CHANGELOG.md | head -n -1)
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "kremle-detect $GITHUB_REF_NAME" \
-            --notes "$notes"
+          # Повторный запуск по тому же тегу не должен падать: релиз уже есть —
+          # перезаливаем артефакты, а не создаём второй.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes "$notes"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "kremle-detect $GITHUB_REF_NAME" \
+              --notes "$notes"
+          fi

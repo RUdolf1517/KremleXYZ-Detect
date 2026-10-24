@@ -78,7 +78,7 @@ jobs:
       - name: Smoke install (wheel ставится и CLI живой)
         run: |
           python -m venv /tmp/smoke
-          /tmp/smoke/bin/pip install --quiet "dist/"*.whl "fastapi" "uvicorn" "httpx"
+          /tmp/smoke/bin/pip install --quiet "$(ls dist/*.whl)[demo]" "httpx"
           /tmp/smoke/bin/kremle-detect --version
           /tmp/smoke/bin/kremle-detect questions --help >/dev/null
           /tmp/smoke/bin/python -c "from kremle_detect.demo import build_app; build_app()"

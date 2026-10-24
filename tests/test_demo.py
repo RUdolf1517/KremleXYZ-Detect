@@ -163,3 +163,15 @@ class TestEntrypoint:
         assert 'fetch(' in demo._INDEX_HTML
         assert '/kremle/stats' in demo._STATS_HTML
         assert 'Яндекс' in demo._INDEX_HTML
+
+
+class TestSessionDependency:
+    """Без itsdangerous Starlette не даёт SessionMiddleware — сообщение должно быть внятным."""
+
+    def test_missing_itsdangerous_gives_clear_error(self, monkeypatch):
+        from kremle_detect.integrations import fastapi_ext
+
+        monkeypatch.setattr(fastapi_ext, 'SessionMiddleware', None)
+        with pytest.raises(RuntimeError) as exc:
+            build_app()
+        assert 'itsdangerous' in str(exc.value)

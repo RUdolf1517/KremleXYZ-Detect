@@ -41,8 +41,10 @@ try:
     from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
     from starlette.concurrency import run_in_threadpool
     from starlette.middleware.sessions import SessionMiddleware
-except ImportError:
-    pass  # will fail loudly at runtime if user calls init_app without fastapi
+except ImportError:  # pragma: no cover - зависит от окружения
+    # SessionMiddleware отсутствует, если не установлен itsdangerous: сам Starlette
+    # импортируется вместе с fastapi, а его SessionMiddleware — нет.
+    SessionMiddleware = None
 
 
 def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
@@ -376,4 +378,9 @@ class KremleFastAPI:
             for m in getattr(app, 'user_middleware', [])
         )
         if not has_session:
+            if SessionMiddleware is None:
+                raise RuntimeError(
+                    'Для сессий капчи нужен itsdangerous: '
+                    'pip install "kremle-detect[fastapi]" (или itsdangerous)'
+                )
             app.add_middleware(SessionMiddleware, secret_key=self.secret)

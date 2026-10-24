@@ -131,6 +131,10 @@
   `set(..., ex=ttl)`; `ttl=0` не создаёт ключ с нулевым сроком.
 - **`blacklist remove` / `whitelist remove` рапортовали «Удалено»** даже когда
   IP не было в списке. Теперь `exit 1` и сообщение в stderr.
+- **FastAPI-интеграция падала с `NameError: SessionMiddleware`**, если не установлен
+  `itsdangerous`: Starlette импортируется вместе с FastAPI, а его `SessionMiddleware`
+  нет. Теперь `itsdangerous` входит в extras `fastapi`/`demo`/`all`, а при его
+  отсутствии — понятная ошибка вместо `NameError`.
 - **`kremle-detect --version` не существовал** — `argparse` без команды завершался
   с кодом 2, из-за чего падала проверка wheel в релизном пайплайне. Теперь есть
   `--version` (он же используется в CI перед публикацией).
@@ -139,7 +143,7 @@
 
 ### Тесты
 
-491 Python-тестов (было 214) и 24 теста React: политика сегментов и `sample_rate`,
+492 Python-тестов (было 214) и 24 теста React: политика сегментов и `sample_rate`,
 метрики/health/`prometheus`, TTL и logout, провайдер «Решу ЕГЭ» на фикстурах HTML
 (включая задания с рисунком), JSON-гард и ops-роуты во всех трёх фреймворках,
 `AsyncRedisStorage` на фейковом клиенте, живой Redis (маркер `redis`), демо-приложение,

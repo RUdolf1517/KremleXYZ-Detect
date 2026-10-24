@@ -11,7 +11,7 @@
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
 [![version](https://img.shields.io/badge/version-2.7.0-111111?style=flat-square)](CHANGELOG.md)
-[![tests](https://img.shields.io/badge/tests-491%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
+[![tests](https://img.shields.io/badge/tests-492%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
 </div>
@@ -982,7 +982,7 @@ Workflow соберёт wheel/sdist, сверит версию с тегом, п
 ## Тесты
 
 ```bash
-python -m pytest tests/ -q      # 491 тестов
+python -m pytest tests/ -q      # 492 тестов
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,

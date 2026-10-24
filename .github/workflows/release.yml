@@ -111,20 +111,7 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Эта версия уже на npm?
-        id: published
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          if npm view "kremle-react@${version}" version >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "kremle-react@${version} уже опубликован — публикацию пропускаю."
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "kremle-react@${version} в реестре нет — публикую."
-          fi
-
       - name: Publish
-        if: steps.published.outputs.exists != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           # Повторный запуск по тому же тегу: файлы уже загружены — это не ошибка
@@ -188,19 +175,26 @@ jobs:
             echo "kremle-react@${version} в реестре нет — публикую."
           fi
 
-      - name: Publish
+      - name: Publish (только OIDC, без токена)
         if: steps.published.outputs.exists != 'true'
-        # npm CLI сам выбирает способ: OIDC (если настроен trusted publisher)
-        # или NODE_AUTH_TOKEN. --provenance при OIDC избыточен, но не мешает.
+        # Токен намеренно не передаём: публикация должна пройти по trusted
+        # publishing. Если OIDC сломается, job упадёт с ENEEDAUTH — это громко
+        # и сразу, а не через 90 дней, когда протухнет очередной токен.
         run: |
-          if [ -n "${NODE_AUTH_TOKEN}" ]; then
-            echo "Публикую по токену (NPM_TOKEN)."
-          else
-            echo "Токена нет — публикую через OIDC trusted publishing."
-          fi
+          unset NODE_AUTH_TOKEN NPM_TOKEN
+          echo "node $(node --version), npm $(npm --version)"
           npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Проверить, что публикация ушла по OIDC
+        run: |
+          set -o pipefail
+          version="${GITHUB_REF_NAME#v}"
+          attest=$(curl -fsS "https://registry.npmjs.org/-/npm/v1/attestations/kremle-react@${version}" || true)
+          if echo "$attest" | grep -q 'slsa.dev/provenance'; then
+            echo "::notice::kremle-react@${version} опубликован с provenance (SLSA)"
+          else
+            echo "::warning title=Provenance::у kremle-react@${version} нет attestation — проверьте trusted publishing"
+          fi
 
       - name: Проверить, что версия реально доступна
         # npm может принять публикацию, но оставить её в staged-режиме

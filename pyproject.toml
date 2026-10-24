@@ -37,6 +37,8 @@ redis = ["redis>=4.0"]
 demo = ["fastapi>=0.68", "uvicorn>=0.20", "itsdangerous>=2.0"]
 all = ["flask>=2.0", "django>=3.2", "fastapi>=0.68", "jinja2>=3.0",
        "redis>=4.0", "uvicorn>=0.20", "itsdangerous>=2.0"]
+# Для запуска тестов: httpx нужен TestClient, fakeredis — тесты Redis без сервера
+test = ["pytest>=7.0", "pytest-cov>=4.0", "httpx>=0.24", "fakeredis[lua]>=2.10"]
 
 [project.scripts]
 kremle-detect = "kremle_detect.cli:main"

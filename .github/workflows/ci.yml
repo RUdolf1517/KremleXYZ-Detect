@@ -41,7 +41,26 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           # Всё сразу: иначе интеграционные тесты молча скипаются через importorskip
-          pip install -e ".[all]" pytest pytest-cov
+          # httpx нужен TestClient (fastapi), иначе его тесты молча скипнутся
+          pip install -e ".[all,test]"
+
+      - name: Зависимости на месте (иначе тесты скипнутся и CI соврёт)
+        run: |
+          python - <<'PY'
+          import django, fastapi, flask, httpx, itsdangerous, redis
+          print('fastapi', fastapi.__version__, '| httpx', httpx.__version__)
+          PY
+
+      - name: Смоук-тесты не должны скипаться
+        run: |
+          set -o pipefail
+          out=$(python -m pytest tests/test_demo.py tests/test_e2e.py -q --no-header \
+                2>&1 | tee /tmp/smoke.log)
+          echo "$out" | tail -3
+          if echo "$out" | grep -q skipped; then
+            echo "::error::Тесты демо скипнулись — нет fastapi/httpx/uvicorn"
+            exit 1
+          fi
 
       - name: Run tests
         run: |
@@ -77,7 +96,7 @@ jobs:
         # а аннотации — всегда. Хвост падения видно прямо в PR.
         if: failure()
         run: |
-          for f in /tmp/pytest.log /tmp/redis.log /tmp/coverage.log; do
+          for f in /tmp/smoke.log /tmp/pytest.log /tmp/redis.log /tmp/coverage.log; do
             if [ -f "$f" ]; then
               echo "::error title=$(basename "$f")::$(tail -30 "$f" | tr '\n' '|' | cut -c1-4000)"
             fi

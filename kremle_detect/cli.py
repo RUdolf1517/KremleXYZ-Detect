@@ -126,9 +126,10 @@ def cmd_blacklist(args):
             for ip in sorted(ips):
                 print(f'  {ip}')
     elif args.bl_action == 'add':
-        ttl = args.ttl if args.ttl else 86400
+        # 0 — осознанный «навсегда», поэтому проверяем именно на None
+        ttl = args.ttl if args.ttl is not None else 86400
         storage.blacklist_add(args.ip, ttl)
-        print(f'Добавлено в блоклист: {args.ip} (TTL {ttl}с)')
+        print(f'Добавлено в блоклист: {args.ip} (TTL {ttl if ttl else "навсегда"})')
     elif args.bl_action == 'remove':
         storage.blacklist_remove(args.ip)
         print(f'Удалено из блоклиста: {args.ip}')
@@ -256,8 +257,8 @@ def main():
 
     bl_add = bl_sub.add_parser('add', help='Добавить IP в блоклист')
     bl_add.add_argument('ip', help='IP-адрес')
-    bl_add.add_argument('--ttl', type=int, default=86400,
-                        help='Время бана в секундах (по умолч. 86400 = 1 день)')
+    bl_add.add_argument('--ttl', type=int, default=None,
+                        help='Время бана в секундах (по умолч. 86400 = 1 день, 0 = навсегда)')
     bl_add.add_argument('--redis', metavar='URL', help=_REDIS_HELP)
     bl_add.set_defaults(func=cmd_blacklist)
 

@@ -318,20 +318,54 @@ function sendAnswers() {
   });
 }
 
+function resultText(data) {
+  if (data.passed) {
+    return {
+      title: 'Человек подтверждён.',
+      desc: 'Все проверки пройдены. Добро пожаловать на сайт.'
+    };
+  }
+  /* Серверные блокировки: errors = -1, счётчика нет — не притворяемся,
+     что «ошибок -1 из 0». */
+  if (data.error === 'rate_limited') {
+    return {
+      title: 'Слишком много попыток.',
+      desc: 'С этого IP исчерпан лимит неудачных проверок. Попробуйте позже.'
+    };
+  }
+  if (data.error === 'blacklisted') {
+    return {
+      title: 'Доступ заблокирован.',
+      desc: 'Этот IP в чёрном списке.'
+    };
+  }
+  if (data.error === 'invalid_token') {
+    return {
+      title: 'Проверка устарела.',
+      desc: 'Время на прохождение истекло или страница была открыта повторно. Начните заново.'
+    };
+  }
+  if (data.error) {
+    return { title: 'Ошибка проверки.', desc: 'Код: ' + data.error + '. Попробуйте ещё раз.' };
+  }
+  var wrong = data.errors > data.total / 2;
+  return {
+    title: wrong ? 'Кремлебот детектед.' : 'Почти.',
+    desc: 'Ошибок: ' + data.errors + ' из ' + data.total + '. ' +
+      (wrong
+        ? 'Слишком много ошибок. Выучите школьную программу и попробуйте снова.'
+        : 'Почти прошли. Повторите попытку.')
+  };
+}
+
 function showResult(data) {
   document.getElementById('quiz').style.display = 'none';
   var res = document.getElementById('result');
   res.style.display = 'block';
 
-  document.getElementById('rtitle').textContent =
-    data.passed ? 'Человек подтверждён.' : (data.errors > 10 ? 'Кремлебот детектед.' : 'Почти.');
-
-  document.getElementById('rdesc').textContent = data.passed
-    ? 'Все проверки пройдены. Добро пожаловать на сайт.'
-    : 'Ошибок: ' + data.errors + ' из ' + data.total + '. ' +
-      (data.errors > 10
-        ? 'Слишком много ошибок. Выучите школьную программу и попробуйте снова.'
-        : 'Почти прошли. Повторите попытку.');
+  var text = resultText(data);
+  document.getElementById('rtitle').textContent = text.title;
+  document.getElementById('rdesc').textContent = text.desc;
 
   var act = document.getElementById('ract');
   act.innerHTML = '';

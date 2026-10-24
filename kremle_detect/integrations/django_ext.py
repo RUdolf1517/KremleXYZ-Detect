@@ -21,6 +21,10 @@ Django-интеграция KremleDetect (middleware).
     KREMLE_STORAGE = None           # BaseStorage instance (RedisStorage и т.д.)
     KREMLE_EXTRA_QUESTIONS = None
     KREMLE_ONLY_EXTRA = False
+    KREMLE_FAIL_THRESHOLD = 0
+    KREMLE_BLACKLIST_TTL = 86400
+    KREMLE_TRUSTED_PROXIES = ['127.0.0.1', '10.0.0.0/8']   # кому доверяем X-Forwarded-For
+    KREMLE_CHALLENGE_RATE_LIMIT = 60                       # выдач челленджа с IP за окно
 
 Также нужно подключить URL-ы в urls.py:
     from kremle_detect.integrations.django_ext import kremle_urls
@@ -32,24 +36,50 @@ Django-интеграция KremleDetect (middleware).
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import os
 from typing import Callable
 
 from ..captcha import CaptchaEngine
 from ..detector import detect_from_request
+from ..ip import client_ip, ip_matches
 from ..storage import BaseStorage
 
 SESSION_KEY = 'kremle_ok'
 NEXT_KEY = 'kremle_next'
 
 _engine_cache = {}
+_ENGINE_CACHE_MAX = 8
+
+# Значения этих настроек влияют на движок — меняются (в тестах, например)
+# значит движок надо пересобрать.
+_ENGINE_SETTINGS = (
+    'KREMLE_CATEGORIES', 'KREMLE_QUESTION_COUNT', 'KREMLE_MAX_ERRORS',
+    'KREMLE_SECRET', 'KREMLE_STORAGE', 'KREMLE_RATE_LIMIT', 'KREMLE_RATE_WINDOW',
+    'KREMLE_CHALLENGE_RATE_LIMIT', 'KREMLE_ON_DETECT', 'KREMLE_ON_PASS',
+    'KREMLE_ON_FAIL', 'KREMLE_EXTRA_QUESTIONS', 'KREMLE_ONLY_EXTRA',
+    'KREMLE_FAIL_THRESHOLD', 'KREMLE_BLACKLIST_TTL',
+)
+
+
+def _engine_cache_key(settings) -> tuple:
+    key = [id(settings)]
+    for name in _ENGINE_SETTINGS:
+        value = getattr(settings, name, None)
+        if isinstance(value, (list, dict, tuple, set)):
+            key.append(repr(value))
+        elif value is None or isinstance(value, (str, int, float, bool)):
+            key.append(value)
+        else:
+            key.append(id(value))  # storage, callbacks
+    return tuple(key)
 
 
 def _get_engine(settings) -> CaptchaEngine:
-    cache_key = id(settings)
+    cache_key = _engine_cache_key(settings)
     if cache_key not in _engine_cache:
+        if len(_engine_cache) >= _ENGINE_CACHE_MAX:
+            _engine_cache.clear()
         _engine_cache[cache_key] = CaptchaEngine(
             categories=getattr(settings, 'KREMLE_CATEGORIES', None),
             question_count=getattr(settings, 'KREMLE_QUESTION_COUNT', 15),
@@ -65,33 +95,25 @@ def _get_engine(settings) -> CaptchaEngine:
             only_extra=getattr(settings, 'KREMLE_ONLY_EXTRA', False),
             fail_threshold=getattr(settings, 'KREMLE_FAIL_THRESHOLD', 0),
             blacklist_ttl=getattr(settings, 'KREMLE_BLACKLIST_TTL', 86400),
+            challenge_rate_limit=getattr(settings, 'KREMLE_CHALLENGE_RATE_LIMIT', 60),
         )
     return _engine_cache[cache_key]
 
 
 def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        return False
-    for entry in whitelist:
-        try:
-            if '/' in entry:
-                if addr in ipaddress.ip_network(entry, strict=False):
-                    return True
-            else:
-                if addr == ipaddress.ip_address(entry):
-                    return True
-        except ValueError:
-            continue
-    return False
+    return ip_matches(ip, whitelist)
 
 
-def _get_client_ip(request) -> str:
-    xff = request.META.get('HTTP_X_FORWARDED_FOR')
-    if xff:
-        return xff.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR', '')
+def _get_client_ip(request, trusted_proxies=()) -> str:
+    """
+    IP клиента; X-Forwarded-For учитывается только если запрос пришёл
+    от доверенного прокси (KREMLE_TRUSTED_PROXIES).
+    """
+    return client_ip(
+        request.META.get('REMOTE_ADDR', ''),
+        request.META.get('HTTP_X_FORWARDED_FOR', ''),
+        trusted_proxies,
+    )
 
 
 class KremleDjangoMiddleware:
@@ -105,6 +127,15 @@ class KremleDjangoMiddleware:
 
         skip_paths = getattr(settings, 'KREMLE_SKIP_PATHS', ['/admin/', '/static/'])
         whitelist = getattr(settings, 'KREMLE_WHITELIST', [])
+        trusted_proxies = getattr(settings, 'KREMLE_TRUSTED_PROXIES', [])
+
+        if not hasattr(request, 'session'):
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(
+                'KremleDjangoMiddleware требует SessionMiddleware. Добавьте '
+                "'django.contrib.sessions.middleware.SessionMiddleware' в MIDDLEWARE "
+                'до kremle_detect.integrations.django_ext.KremleDjangoMiddleware.'
+            )
 
         path = request.path
         if path.startswith('/kremle/') or any(path.startswith(s) for s in skip_paths):
@@ -114,7 +145,7 @@ class KremleDjangoMiddleware:
             return self.get_response(request)
 
         # IP whitelist (static config + persistent storage)
-        ip = _get_client_ip(request)
+        ip = _get_client_ip(request, trusted_proxies)
         if whitelist and _ip_in_whitelist(ip, whitelist):
             return self.get_response(request)
 
@@ -151,6 +182,14 @@ def kremle_urls():
     def challenge(request):
         from django.conf import settings
         engine = _get_engine(settings)
+
+        trusted_proxies = getattr(settings, 'KREMLE_TRUSTED_PROXIES', [])
+        ip = _get_client_ip(request, trusted_proxies)
+        if engine.check_challenge_limit(ip):
+            return HttpResponse('Слишком много запросов. Попробуйте позже.',
+                                status=429, content_type='text/plain; charset=utf-8')
+        engine.track_challenge(ip)
+
         ch = engine.create_challenge()
         request.session['kremle_token'] = ch.token
 
@@ -168,7 +207,10 @@ def kremle_urls():
         from django.urls import reverse
         verify_url = reverse('kremle_verify')
         html = html.replace('{{ questions_json }}', json.dumps(ch.to_dict(verify_url=verify_url), ensure_ascii=False))
-        return HttpResponse(html, content_type='text/html; charset=utf-8')
+        response = HttpResponse(html, content_type='text/html; charset=utf-8')
+        response['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+        response['Pragma'] = 'no-cache'
+        return response
 
     @csrf_exempt
     @require_POST
@@ -180,12 +222,17 @@ def kremle_urls():
             data = json.loads(request.body)
         except (json.JSONDecodeError, ValueError):
             return JsonResponse({'error': 'invalid_json'}, status=400)
+        if not isinstance(data, dict):
+            return JsonResponse({'error': 'invalid_json'}, status=400)
+
         token = data.get('token') or request.session.get('kremle_token', '')
         answers = data.get('answers', {})
         fingerprint = data.get('fingerprint')
-        ip = _get_client_ip(request)
+        trusted_proxies = getattr(settings, 'KREMLE_TRUSTED_PROXIES', [])
+        ip = _get_client_ip(request, trusted_proxies)
 
         result = engine.verify(token, answers, ip=ip, fingerprint=fingerprint)
+        request.session.pop('kremle_token', None)
 
         if result['passed']:
             request.session[SESSION_KEY] = True
@@ -200,8 +247,13 @@ def kremle_urls():
     def status(request):
         return JsonResponse({'verified': bool(request.session.get(SESSION_KEY))})
 
-    return [
+    # include() возвращает тройку (urlconf_module, app_name, namespace) —
+    # именно её path() умеет распаковывать. Просто список паттернов path()
+    # тоже «распакует», но как те же три элемента → URLConf сломан.
+    from django.urls import include
+
+    return include([
         path('challenge/', challenge, name='kremle_challenge'),
         path('verify/', verify, name='kremle_verify'),
         path('status/', status, name='kremle_status'),
-    ]
+    ])

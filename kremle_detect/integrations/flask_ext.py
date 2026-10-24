@@ -15,7 +15,6 @@ Flask-интеграция KremleDetect.
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import os
 from typing import Callable, List, Optional, Sequence
@@ -27,6 +26,7 @@ from flask import (
 
 from ..captcha import CaptchaEngine
 from ..detector import detect_from_request
+from ..ip import client_ip, ip_matches
 from ..storage import BaseStorage
 
 SESSION_KEY = 'kremle_ok'
@@ -41,31 +41,21 @@ _SKIP_ENDPOINTS = frozenset({
 })
 
 
-def _get_client_ip(request) -> str:
-    """Извлекает реальный IP с учётом прокси/nginx (X-Forwarded-For)."""
-    xff = request.headers.get('X-Forwarded-For', '')
-    if xff:
-        return xff.split(',')[0].strip()
-    return request.remote_addr or ''
+def _get_client_ip(request, trusted_proxies=()) -> str:
+    """
+    Реальный IP клиента. X-Forwarded-For учитывается только от доверенных
+    прокси (``trusted_proxies``) — иначе его можно подделать.
+    """
+    return client_ip(
+        request.remote_addr,
+        request.headers.get('X-Forwarded-For', ''),
+        trusted_proxies,
+    )
 
 
 def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
     """Проверяет, входит ли IP в whitelist (поддержка CIDR)."""
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        return False
-    for entry in whitelist:
-        try:
-            if '/' in entry:
-                if addr in ipaddress.ip_network(entry, strict=False):
-                    return True
-            else:
-                if addr == ipaddress.ip_address(entry):
-                    return True
-        except ValueError:
-            continue
-    return False
+    return ip_matches(ip, whitelist)
 
 
 class KremleFlask:
@@ -81,7 +71,7 @@ class KremleFlask:
         skip_endpoints: эндпоинты, которые не защищать
         auto_guard: автоматический before_request guard
         storage: бэкенд хранения (MemoryStorage/RedisStorage)
-        rate_limit: макс. попыток /verify с одного IP (0 — отключить)
+        rate_limit: макс. НЕУДАЧНЫХ проверок с одного IP (0 — отключить)
         rate_window: окно rate limit в секундах
         whitelist: список IP/CIDR, которые не проверяются
         template: путь к кастомному HTML-шаблону капчи
@@ -90,6 +80,8 @@ class KremleFlask:
         on_fail: callback(ip, errors, total) — при провале
         extra_questions: свои вопросы
         only_extra: только свои вопросы
+        trusted_proxies: IP/CIDR прокси, которым доверяем X-Forwarded-For
+        challenge_rate_limit: макс. выдач челленджа с одного IP за rate_window (0 — off)
     """
 
     def __init__(
@@ -113,6 +105,8 @@ class KremleFlask:
         only_extra: bool = False,
         fail_threshold: int = 0,
         blacklist_ttl: int = 86400,
+        trusted_proxies: Optional[Sequence[str]] = None,
+        challenge_rate_limit: int = 60,
     ):
         self.categories = categories
         self.question_count = question_count
@@ -132,6 +126,8 @@ class KremleFlask:
         self.only_extra = only_extra
         self.fail_threshold = fail_threshold
         self.blacklist_ttl = blacklist_ttl
+        self.trusted_proxies = list(trusted_proxies or [])
+        self.challenge_rate_limit = challenge_rate_limit
         self.engine: Optional[CaptchaEngine] = None
 
         if app is not None:
@@ -156,6 +152,7 @@ class KremleFlask:
             only_extra=self.only_extra,
             fail_threshold=self.fail_threshold,
             blacklist_ttl=self.blacklist_ttl,
+            challenge_rate_limit=self.challenge_rate_limit,
         )
 
         bp = self._create_blueprint()
@@ -174,9 +171,19 @@ class KremleFlask:
 
         engine = self.engine
         custom_template = self.custom_template
+        trusted_proxies = self.trusted_proxies
 
         @bp.route('/challenge')
         def challenge():
+            ip = _get_client_ip(request, trusted_proxies)
+            if engine.check_challenge_limit(ip):
+                return (
+                    'Слишком много запросов. Попробуйте позже.',
+                    429,
+                    {'Cache-Control': 'no-store', 'Content-Type': 'text/plain; charset=utf-8'},
+                )
+            engine.track_challenge(ip)
+
             ch = engine.create_challenge()
             session['kremle_token'] = ch.token
 
@@ -194,7 +201,16 @@ class KremleFlask:
                 '{{ questions_json }}',
                 json.dumps(ch.to_dict(verify_url=url_for('kremle.verify')), ensure_ascii=False),
             )
-            return html
+            return (
+                html,
+                200,
+                {
+                    'Content-Type': 'text/html; charset=utf-8',
+                    # Токен лежит в HTML — кешировать страницу нельзя.
+                    'Cache-Control': 'no-store, no-cache, must-revalidate',
+                    'Pragma': 'no-cache',
+                },
+            )
 
         @bp.route('/verify', methods=['POST'])
         def verify():
@@ -202,9 +218,10 @@ class KremleFlask:
             token = data.get('token') or session.get('kremle_token', '')
             answers = data.get('answers', {})
             fingerprint = data.get('fingerprint')
-            ip = _get_client_ip(request)
+            ip = _get_client_ip(request, trusted_proxies)
 
             result = engine.verify(token, answers, ip=ip, fingerprint=fingerprint)
+            session.pop('kremle_token', None)
 
             if result['passed']:
                 session[SESSION_KEY] = True
@@ -229,8 +246,9 @@ class KremleFlask:
         if session.get(SESSION_KEY):
             return None
 
-        # IP whitelist (static config + persistent storage)
-        ip = request.remote_addr
+        # Один и тот же резолвер IP, что и в /kremle/verify: иначе whitelist,
+        # blacklist и rate limit смотрят на разные адреса за прокси.
+        ip = _get_client_ip(request, self.trusted_proxies)
         if self.whitelist and _ip_in_whitelist(ip, self.whitelist):
             return None
         if self.engine.is_whitelisted(ip):
@@ -271,7 +289,7 @@ class KremleFlask:
             if session.get(SESSION_KEY):
                 return f(*args, **kwargs)
 
-            ip = _get_client_ip(request)
+            ip = _get_client_ip(request, self.trusted_proxies)
             if self.whitelist and _ip_in_whitelist(ip, self.whitelist):
                 return f(*args, **kwargs)
             if self.engine.is_whitelisted(ip):

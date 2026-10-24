@@ -26,8 +26,18 @@ DEFAULT_MAX_ERRORS = 3
 TOKEN_TTL = 900   # секунд — время жизни челленджа (15 минут)
 
 # Rate limiting
-DEFAULT_RATE_LIMIT = 10       # попыток
+DEFAULT_RATE_LIMIT = 10       # неудачных попыток
 DEFAULT_RATE_WINDOW = 600     # за 10 минут
+DEFAULT_CHALLENGE_RATE_LIMIT = 60  # выдач челленджа с одного IP за окно
+
+
+def _require_int(name: str, value: Any, minimum: int) -> int:
+    """Валидация числовой настройки на старте — лучше упасть сразу, чем в бою."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f'{name} должен быть целым числом, получено {type(value).__name__}')
+    if value < minimum:
+        raise ValueError(f'{name} должен быть >= {minimum}, получено {value}')
+    return value
 
 
 def _sign(data: str, secret: str) -> str:
@@ -127,6 +137,7 @@ class CaptchaEngine:
         storage: Optional[BaseStorage] = None,
         rate_limit: int = DEFAULT_RATE_LIMIT,
         rate_window: int = DEFAULT_RATE_WINDOW,
+        challenge_rate_limit: int = DEFAULT_CHALLENGE_RATE_LIMIT,
         on_detect: Optional[Callable] = None,
         on_pass: Optional[Callable] = None,
         on_fail: Optional[Callable] = None,
@@ -137,30 +148,42 @@ class CaptchaEngine:
         Args:
             categories: категории встроенных вопросов.
             question_count: сколько вопросов в одном челлендже.
-            max_errors: допустимое число ошибок.
+            max_errors: допустимое число ошибок (строго меньше question_count).
             secret: секрет для HMAC-подписи токенов.
             extra_questions: список своих вопросов.
             only_extra: если True — только extra_questions.
             storage: бэкенд хранения (MemoryStorage/RedisStorage).
                      None → MemoryStorage.
-                rate_limit: макс. попыток верификации с одного IP за rate_window.
-                        0 — отключить.
+            rate_limit: макс. число НЕУДАЧНЫХ проверок с одного IP за rate_window.
+                        Успешное прохождение сбрасывает счётчик. 0 — отключить.
             rate_window: окно rate limit в секундах.
+            challenge_rate_limit: макс. выдач челленджа с одного IP за окно
+                        (защита от забивания хранилища). 0 — отключить.
             on_detect: callback(detect_result, ip) — вызывается при детекции.
             on_pass: callback(ip, errors, total) — вызывается при прохождении капчи.
             on_fail: callback(ip, errors, total) — вызывается при провале капчи.
         """
         self.categories = list(categories) if categories else list(ALL_CATEGORY_NAMES)
-        self.question_count = question_count
-        self.max_errors = max_errors
+        self.question_count = _require_int('question_count', question_count, 1)
+        self.max_errors = _require_int('max_errors', max_errors, 0)
+        if self.max_errors >= self.question_count:
+            raise ValueError(
+                f'max_errors ({self.max_errors}) должен быть меньше question_count '
+                f'({self.question_count}) — иначе капча проходится без единого '
+                f'правильного ответа'
+            )
         self.secret = secret
         self.extra_questions = list(extra_questions) if extra_questions else []
         if self.extra_questions:
             validate_questions(self.extra_questions)
         self.only_extra = only_extra
         self.storage = storage or MemoryStorage()
-        self.rate_limit = rate_limit
-        self.rate_window = rate_window
+        self.rate_limit = _require_int('rate_limit', rate_limit, 0)
+        self.rate_window = _require_int('rate_window', rate_window, 1)
+        self.challenge_rate_limit = _require_int(
+            'challenge_rate_limit', challenge_rate_limit, 0
+        )
+        self._rng = random.SystemRandom()
 
         # Callbacks
         self.on_detect = on_detect
@@ -169,8 +192,8 @@ class CaptchaEngine:
 
         # Blacklist: авто-бан после N провалов подряд
         # fail_threshold=0 — отключить, blacklist_ttl=0 — навсегда
-        self.fail_threshold = fail_threshold
-        self.blacklist_ttl = blacklist_ttl
+        self.fail_threshold = _require_int('fail_threshold', fail_threshold, 0)
+        self.blacklist_ttl = _require_int('blacklist_ttl', blacklist_ttl, 0)
 
     def create_challenge(self) -> Challenge:
         """Создаёт новый набор вопросов."""
@@ -191,15 +214,25 @@ class CaptchaEngine:
                 entry.setdefault('category', 'custom')
                 pool.append(entry)
 
-        random.shuffle(pool)
+        self._rng.shuffle(pool)
         questions = pool[:self.question_count]
 
-        # Shuffle opts server-side per challenge so correct answer index varies each time.
-        # This prevents bots from always submitting index 0 (which was correct before shuffle).
+        # Пул может оказаться меньше question_count (мало категорий/своих вопросов).
+        # Если вопросам можно набрать max_errors ошибок и всё равно пройти — это
+        # дыра, а не настройка.
+        if len(questions) <= self.max_errors:
+            raise ValueError(
+                f'В пуле только {len(questions)} вопрос(ов), а max_errors={self.max_errors} — '
+                f'капча проходится без правильных ответов. Увеличьте question_count, '
+                f'добавьте категории/свои вопросы или уменьшите max_errors'
+            )
+
+        # Перемешиваем варианты ответов на сервере: индекс правильного ответа
+        # меняется от челленджа к челленджу (боты не могут всегда отправлять 0).
         for q in questions:
             correct_text = q['opts'][q['ans']]
             shuffled = q['opts'][:]
-            random.shuffle(shuffled)
+            self._rng.shuffle(shuffled)
             q['opts'] = shuffled
             q['ans'] = shuffled.index(correct_text)
 
@@ -229,14 +262,43 @@ class CaptchaEngine:
         return Challenge._deserialize(data)
 
     def check_rate_limit(self, ip: str) -> bool:
-        """Проверяет rate limit для IP. True если лимит превышен."""
-        if self.rate_limit <= 0:
+        """
+        True если IP уже исчерпал лимит НЕУДАЧНЫХ проверок.
+
+        Метод только читает счётчик: успешные прохождения не расходуют лимит
+        и не могут заблокировать честного пользователя.
+        """
+        if self.rate_limit <= 0 or not ip:
             return False
-        count = self.storage.increment(f'rate:{ip}', self.rate_window)
-        if count > self.rate_limit:
-            logger.warning('Rate limit exceeded: ip=%s count=%d', ip, count)
+        if self.storage.get_counter(f'rate:{ip}') >= self.rate_limit:
+            logger.warning('Rate limit exceeded: ip=%s limit=%d', ip, self.rate_limit)
             return True
         return False
+
+    def _track_rate_attempt(self, ip: str) -> None:
+        """Учесть неудачную проверку в счётчике rate limit."""
+        if self.rate_limit <= 0 or not ip:
+            return
+        self.storage.increment(f'rate:{ip}', self.rate_window)
+
+    def _clear_rate_attempts(self, ip: str) -> None:
+        """Сбросить счётчик после успешного прохождения."""
+        if ip:
+            self.storage.delete(f'rate:{ip}')
+
+    # ── Лимит выдачи челленджей ──────────────────────────────────────────────
+
+    def check_challenge_limit(self, ip: str) -> bool:
+        """True если IP превысил лимит запросов новых челленджей."""
+        if self.challenge_rate_limit <= 0 or not ip:
+            return False
+        return self.storage.get_counter(f'chrate:{ip}') >= self.challenge_rate_limit
+
+    def track_challenge(self, ip: str) -> None:
+        """Учесть выдачу челленджа (для защиты хранилища от забивания)."""
+        if self.challenge_rate_limit <= 0 or not ip:
+            return
+        self.storage.increment(f'chrate:{ip}', self.rate_window)
 
     # ── Whitelist API ────────────────────────────────────────────────────────
 
@@ -283,8 +345,11 @@ class CaptchaEngine:
             return
         # TTL для счётчика провалов — отдельное окно, не rate_window.
         # Используем blacklist_ttl как верхнюю границу: если не набрал threshold
-        # за это время — счётчик сбрасывается сам.
-        count = self.storage.increment(f'fails:{ip}', self.blacklist_ttl)
+        # за это время — счётчик сбрасывается сам. blacklist_ttl=0 («навсегда»)
+        # нельзя передавать в TTL счётчика: он истечёт мгновенно и авто-бан
+        # не сработает никогда.
+        ttl = self.blacklist_ttl if self.blacklist_ttl > 0 else 86400 * 365 * 10
+        count = self.storage.increment(f'fails:{ip}', ttl)
         if count >= self.fail_threshold:
             self.blacklist_add(ip)
             self.storage.delete(f'fails:{ip}')
@@ -313,10 +378,20 @@ class CaptchaEngine:
 
         Returns:
             { 'passed': bool, 'errors': int, 'total': int }
+            при блокировке дополнительно 'error': 'invalid_token' | 'rate_limited'
+            | 'blacklisted' | 'invalid_answers'.
+
+        Токен одноразовый: он удаляется после любой проверки (успешной или нет),
+        поэтому для повтора клиент должен запросить новый челлендж.
         """
         # Fingerprint — ужесточаем порог, но не блокируем наглухо.
         # Яндекс Браузер автозаполняет скрытые поля (honeypot), поэтому
         # honeypot тоже не может быть hard-block — иначе живые люди не пройдут.
+        if not isinstance(answers, dict):
+            return {'passed': False, 'errors': -1, 'total': 0, 'error': 'invalid_answers'}
+        if fingerprint is not None and not isinstance(fingerprint, dict):
+            fingerprint = None
+
         effective_max_errors = self.max_errors
         if fingerprint:
             strong_ya = (
@@ -361,8 +436,11 @@ class CaptchaEngine:
         passed = errors <= effective_max_errors
 
         total = len(challenge.questions)
+        # Токен одноразовый: после любой проверки он сгорает, повтор требует
+        # нового челленджа (иначе один токен = бесконечные попытки угадать).
+        self.storage.delete(f'challenge:{token}')
         if passed:
-            self.storage.delete(f'challenge:{token}')
+            self._clear_rate_attempts(ip)
             self._track_pass(ip)
             logger.info('Captcha PASSED: ip=%s errors=%d/%d', ip, errors, total)
             self.storage.log_event({
@@ -372,6 +450,7 @@ class CaptchaEngine:
             if self.on_pass:
                 self.on_pass(ip, errors, total)
         else:
+            self._track_rate_attempt(ip)
             self._track_fail(ip)
             logger.info('Captcha FAILED: ip=%s errors=%d/%d', ip, errors, total)
             self.storage.log_event({

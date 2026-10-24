@@ -1,27 +1,69 @@
+<div align="center">
+
 # kremle-detect
 
-Защита сайта от пользователей Яндекс Браузера и переходов с поисковика Яндекс.
-При детекции показывает капчу с вопросами из ЕГЭ по математике, физике, русскому языку и литературе.
+**Капча-фильтр по браузеру.**
+Яндекс Браузер, Яндекс-боты и переходы с Яндекса получают капчу с вопросами ЕГЭ.
+Все остальные проходят сразу.
+
+[Установка](#установка) · [Быстрый старт](#быстрый-старт) · [Детекция](#что-считается-яндексом) · [Вопросы](#банк-вопросов) · [CLI](#cli) · [2.6](#что-изменилось-в-26)
+
+[![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
+[![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
+[![version](https://img.shields.io/badge/version-2.6.0-111111?style=flat-square)](CHANGELOG.md)
+[![tests](https://img.shields.io/badge/tests-201%20passed-2ea44f?style=flat-square)](#тесты)
+
+</div>
+
+---
+
+```python
+from flask import Flask
+from kremle_detect.integrations.flask_ext import KremleFlask
+
+app = Flask(__name__)
+app.secret_key = 'change-me'
+
+KremleFlask(app, question_count=15, max_errors=3)
+```
+
+Две строки — и защита работает. Flask, Django, FastAPI или голое ядро.
 
 ## Установка
 
 ```bash
-pip install git+https://github.com/RUdolf1517/KremleXYZ-Detect.git
+pip install "kremle-detect @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
 ```
 
-С зависимостями для конкретного фреймворка:
+С зависимостями конкретного фреймворка:
 
 ```bash
-pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-detect[flask]"
-pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-detect[django]"
-pip install "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git#egg=kremle-detect[fastapi]"
+pip install "kremle-detect[flask]   @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
+pip install "kremle-detect[django]  @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
+pip install "kremle-detect[fastapi] @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
+pip install "kremle-detect[all]     @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
 ```
 
-Обновление до последней версии:
+Обновление:
 
 ```bash
-pip install --force-reinstall git+https://github.com/RUdolf1517/KremleXYZ-Detect.git
+pip install --force-reinstall "kremle-detect @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
 ```
+
+Ядро (`detect`, `CaptchaEngine`, `MemoryStorage`) работает на чистой стандартной библиотеке — без Flask, Django и Redis. Опциональные зависимости: `flask`, `django`, `fastapi` + `jinja2`, `redis`.
+
+<details>
+<summary>Из исходников</summary>
+
+```bash
+git clone https://github.com/RUdolf1517/KremleXYZ-Detect
+cd KremleXYZ-Detect
+python -m venv .venv && . .venv/bin/activate
+pip install -e ".[all]" pytest
+python -m pytest tests/ -q
+```
+
+</details>
 
 ## Быстрый старт
 
@@ -46,12 +88,23 @@ def index():
     return 'Добро пожаловать!'
 ```
 
+`before_request`-гард включён по умолчанию. Точечная защита отдельных роутов:
+
+```python
+kremle = KremleFlask(app, auto_guard=False)
+
+@app.route('/secret')
+@kremle.protect
+def secret():
+    return 'секретная страница'
+```
+
 ### Django
 
 ```python
 # settings.py
 MIDDLEWARE = [
-    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',   # должен идти раньше
     # ...
     'kremle_detect.integrations.django_ext.KremleDjangoMiddleware',
 ]
@@ -59,14 +112,19 @@ MIDDLEWARE = [
 KREMLE_CATEGORIES = ['math', 'physics', 'russian', 'literature']
 KREMLE_QUESTION_COUNT = 15
 KREMLE_MAX_ERRORS = 3
+```
 
+```python
 # urls.py
 from kremle_detect.integrations.django_ext import kremle_urls
+
 urlpatterns = [
     path('kremle/', kremle_urls()),
     # ...
 ]
 ```
+
+Без `SessionMiddleware` middleware упадёт с `ImproperlyConfigured` и подсказкой, что добавить.
 
 ### FastAPI
 
@@ -87,76 +145,128 @@ async def index():
     return {'message': 'Добро пожаловать!'}
 ```
 
-### FastAPI + React (headless-режим)
+`SessionMiddleware` добавляется автоматически, если её ещё нет.
 
-Если фронтенд — SPA на React, используй `headless=True`. В этом режиме middleware **не делает редирект**, а возвращает `403 JSON` — фронт сам показывает капчу:
+### FastAPI + React (headless)
+
+Для SPA капча не редиректит, а возвращает `403 JSON` — фронт сам рисует форму:
 
 ```python
-from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from kremle_detect.integrations.fastapi_ext import KremleFastAPI
 
-app = FastAPI()
-
-# CORS — нужен если фронт на другом порту/домене
-app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*'])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['http://localhost:5173'],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
 
 kremle = KremleFastAPI(app, secret='your-secret', headless=True)
 ```
 
-В headless-режиме:
-- Яндекс-пользователь получает `403 {"error": "captcha_required", "challenge_url": "/kremle/challenge"}`
-- `GET /kremle/challenge` возвращает JSON с вопросами (не HTML)
-- `POST /kremle/verify` — без изменений
+Что получает клиент:
 
-React-компонент для фронтенда: [kremle-react](#react-компонент)
+```jsonc
+// GET /protected  → 403
+{"error": "captcha_required", "reason": "yandex_browser", "challenge_url": "/kremle/challenge"}
 
-### Использование ядра напрямую (любой фреймворк)
+// GET /kremle/challenge → вопросы без ответов
+{"questions": [{"q": "...", "opts": ["...", "..."]}], "token": "...", "created_at": 0}
+
+// POST /kremle/verify → результат
+{"passed": true, "errors": 1, "total": 15, "redirect": "/"}
+```
+
+### Голое ядро (любой фреймворк)
 
 ```python
 from kremle_detect import detect, CaptchaEngine
 
-# Детекция Яндекс-пользователей
 result = detect({
     'User-Agent': request.headers.get('User-Agent', ''),
     'Referer': request.headers.get('Referer', ''),
     'Sec-CH-UA': request.headers.get('Sec-CH-UA', ''),
 })
-
 if result:
-    print(result.reason)  # 'yandex_browser', 'yandex_bot', 'yandex_referrer', 'yandex_client_hints'
+    print(result.reason)   # yandex_browser | yandex_bot | yandex_referrer | yandex_client_hints
 
-# Капча
-engine = CaptchaEngine(
-    categories=['math', 'russian'],
-    question_count=10,
-    max_errors=2,
-    secret='my-secret',
-)
+engine = CaptchaEngine(categories=['math', 'russian'], question_count=10, max_errors=2, secret='my-secret')
 
 challenge = engine.create_challenge()
-data_for_client = challenge.to_dict()  # отдать на фронт
+data_for_client = challenge.to_dict()          # без правильных ответов
 
-# После ответа пользователя
-verification = engine.verify(challenge.token, {'0': 0, '1': 2, ...})
+verification = engine.verify(challenge.token, {'0': 0, '1': 2}, ip=client_ip)
 if verification['passed']:
     print('Человек подтверждён')
 ```
 
-## Свои вопросы
+## Что считается Яндексом
 
-### Шаг 1 — создать файл с вопросами
+| Сигнал | Где ищем | Примеры |
+|---|---|---|
+| Браузер | `User-Agent` | `YaBrowser`, `Yowser`, `YaApp_Android`, `YaApp_iOS`, `YandexSearch`, `YandexStation` |
+| Бот | `User-Agent` | `YandexBot`, `YandexMetrika`, `YandexImages`, `YandexDirect` + 20 других |
+| Реферер | `Referer` | `yandex.ru/com/by/kz/...` и все TLD, `ya.ru`, `dzen.ru`, `zen.`, `market.`, `music.`, `news.`, `mail.`, `translate.` |
+| Client Hints | `Sec-CH-UA`, `Sec-CH-UA-Full-Version-List` | `"YaBrowser";v="24"` |
+| JS-фингерпринт | браузер | `navigator.userAgentData`, `window.yandex`, `window.Ya`, honeypot |
 
-Создай в своём проекте отдельный файл, например `questions.py`:
+Приоритет причины: `yandex_bot` → `yandex_browser` → `yandex_client_hints` → `yandex_referrer`.
 
+```python
+from kremle_detect import is_yandex_browser, is_yandex_bot, is_yandex_referrer
+
+is_yandex_browser('Mozilla/5.0 ... YaBrowser/24.1 ...')   # True
+is_yandex_bot('Mozilla/5.0 (compatible; YandexBot/3.0)')  # True
+is_yandex_referrer('https://yandex.ru/search?q=test')     # True
 ```
-myproject/
-├── app.py          ← основное приложение
-├── questions.py    ← сюда пишешь свои вопросы
-└── ...
+
+## Как работает капча
+
+1. Яндекс-пользователь ловит редирект на `/kremle/challenge` (или `403` в headless).
+2. Сервер выбирает N вопросов, **перемешивает варианты ответов** и кладёт челлендж в хранилище.
+   HTML/JSON содержит только вопросы и токен — правильных ответов там нет.
+3. Клиент отвечает, `POST /kremle/verify` со `token`, `answers` и `fingerprint`.
+4. Сервер считает ошибки: `errors <= max_errors` → проход, сессия помечается проверенной.
+
+Важные детали:
+
+- **Токен одноразовый.** Он удаляется после любой проверки — и успешной, и провальной.
+  Повторная попытка требует нового челленджа (`{"error": "invalid_token"}`).
+- **Челлендж живёт 15 минут**, потом `invalid_token`.
+- **Правильные индексы перемешиваются на сервере** (`secrets.SystemRandom`), поэтому
+  «всегда отправлять 0» бесполезно.
+- **Строгий режим по фингерпринту.** Если JS сообщает `yaBrands`, `yandexApi` или honeypot,
+  `max_errors` принудительно становится `0` — Яндекс Браузер должен сдать идеально.
+  Это задуманное поведение, а не баг.
+- `max_errors` обязан быть **меньше** `question_count`, иначе капча проходится без
+  единого правильного ответа — такой конфиг падает с `ValueError` на старте.
+
+Коды ошибок в ответе `/kremle/verify`:
+
+| `error` | Что значит | `errors` |
+|---|---|---|
+| `invalid_token` | токен истёк, уже использован или отсутствует | `-1` |
+| `rate_limited` | исчерпан лимит неудачных проверок с IP | `-1` |
+| `blacklisted` | IP в блоклисте | `-1` |
+| `invalid_answers` | `answers` — не объект | `-1` |
+| — | обычный результат | `0..total` |
+
+## Банк вопросов
+
+| Категория | Описание | Вопросов |
+|---|---|---|
+| `math` | профильная математика | 15 |
+| `physics` | физика | 15 |
+| `russian` | каверзные вопросы по русскому | 15 |
+| `literature` | русская литература | 15 |
+
+```bash
+kremle-detect questions --category math --count 5
 ```
 
-В файле `questions.py` объяви список:
+### Свои вопросы
 
 ```python
 MY_QUESTIONS = [
@@ -166,181 +276,106 @@ MY_QUESTIONS = [
         "ans": 0,
         "category": "geo",
     },
-    {
-        "q": "Сколько планет в Солнечной системе?",
-        "opts": ["7", "8", "9", "10"],
-        "ans": 1,
-    },
-    # ... сколько угодно вопросов
 ]
 ```
 
-### Шаг 2 — подключить в приложении
-
-**Flask** — в `app.py`:
-
-```python
-from kremle_detect.integrations.flask_ext import KremleFlask
-from questions import MY_QUESTIONS
-
-kremle = KremleFlask(
-    app,
-    extra_questions=MY_QUESTIONS,   # свои вопросы добавятся к встроенным
-)
-```
-
-Если нужны **только** свои вопросы (без встроенных ЕГЭ):
+| Поле | Тип | Требование |
+|---|---|---|
+| `q` | `str` | непустая строка |
+| `opts` | `list` | минимум 2 варианта |
+| `ans` | `int` | индекс правильного варианта, 0-based |
+| `category` | `str` | необязательно — подпись на карточке |
 
 ```python
-kremle = KremleFlask(
-    app,
-    extra_questions=MY_QUESTIONS,
-    only_extra=True,
-)
+kremle = KremleFlask(app, extra_questions=MY_QUESTIONS)              # в дополнение к ЕГЭ
+kremle = KremleFlask(app, extra_questions=MY_QUESTIONS, only_extra=True)  # только свои
 ```
 
-**Django** — в `settings.py`:
+Проверить список руками:
 
 ```python
-from questions import MY_QUESTIONS
-
-KREMLE_EXTRA_QUESTIONS = MY_QUESTIONS
-KREMLE_ONLY_EXTRA = False   # True — только свои вопросы
+from kremle_detect import validate_questions
+validate_questions(MY_QUESTIONS)   # ValueError с номером и причиной
 ```
 
-**FastAPI** — в `main.py`:
+Все ошибки формата выбрасываются при старте, а не во время запроса.
 
-```python
-from kremle_detect.integrations.fastapi_ext import KremleFastAPI
-from questions import MY_QUESTIONS
+## Хранение
 
-kremle = KremleFastAPI(
-    app,
-    extra_questions=MY_QUESTIONS,
-)
-```
-
-### Формат вопроса
-
-Каждый вопрос — словарь. Три обязательных поля:
-
-| Поле   | Тип    | Требование                                             |
-|--------|--------|--------------------------------------------------------|
-| `q`    | `str`  | Непустая строка — текст вопроса                        |
-| `opts` | `list` | Список строк, **минимум 2** варианта ответа            |
-| `ans`  | `int`  | Индекс правильного варианта в `opts`, начиная с **0** |
-
-Одно необязательное поле:
-
-| Поле       | Тип   | Описание                                          |
-|------------|-------|---------------------------------------------------|
-| `category` | `str` | Подпись категории на карточке вопроса (любая строка) |
-
-Как работает `ans` — индекс в списке `opts`:
-
-```python
-"opts": ["Неверно", "Верно", "Не знаю"],
-#             0         1        2
-"ans": 1   # правильный ответ — "Верно"
-```
-
-### Что нельзя
-
-```python
-# ❌ ans выходит за пределы списка opts (здесь допустимо только 0 или 1)
-{"q": "Вопрос?", "opts": ["А", "Б"], "ans": 2}
-
-# ❌ менее двух вариантов ответа
-{"q": "Вопрос?", "opts": ["Единственный"], "ans": 0}
-
-# ❌ пустой текст вопроса
-{"q": "", "opts": ["А", "Б"], "ans": 0}
-
-# ❌ ans — не целое число
-{"q": "Вопрос?", "opts": ["А", "Б"], "ans": "0"}
-```
-
-Все ошибки выбрасываются при старте приложения (`ValueError`), а не во время запроса — неправильный вопрос не дойдёт до пользователя.
-
-### Проверить список вручную перед запуском
-
-```python
-from kremle_detect.questions import validate_questions
-from questions import MY_QUESTIONS
-
-validate_questions(MY_QUESTIONS)  # бросает ValueError с описанием ошибки
-print("Все вопросы корректны")
-```
-
-## Категории вопросов
-
-| Категория    | Описание                                      |
-|-------------|-----------------------------------------------|
-| `math`       | Задания из ЕГЭ по профильной математике       |
-| `physics`    | Задания из ЕГЭ по физике                      |
-| `russian`    | Каверзные вопросы по русскому языку            |
-| `literature` | Сложные вопросы по русской литературе          |
-
-По 15 вопросов в каждой категории, итого 60 вопросов в банке.
-
-## Детекция
-
-Модуль определяет пользователей Яндекса по нескольким сигналам:
-
-- **User-Agent** — YaBrowser, YaApp, YandexSearch, YandexStation
-- **Яндекс-боты** — YandexBot, YandexMetrika, YandexImages и 20+ ботов
-- **Referer** — переходы с yandex.ru/com/by/kz и всех TLD, ya.ru, dzen.ru, zen.yandex, market.yandex и др.
-- **Client Hints** — заголовки Sec-CH-UA с маркером YaBrowser/Yandex
-- **JS fingerprint** — клиентская проверка через `navigator.userAgentData`, `window.yandex`, `window.Ya`
-
-## Redis (production)
-
-По умолчанию челленджи хранятся в памяти (подходит для одного процесса).
-Для production с несколькими воркерами — используй Redis:
+По умолчанию — `MemoryStorage` (один процесс). Для нескольких воркеров — Redis:
 
 ```python
 from kremle_detect import RedisStorage
 
-kremle = KremleFlask(
-    app,
-    storage=RedisStorage(url='redis://localhost:6379/0'),
-)
+kremle = KremleFlask(app, storage=RedisStorage(url='redis://localhost:6379/0'))
 ```
 
-## Rate limiting
+`RedisStorage` умеет `redis_client=...` (готовый клиент) и `prefix='kremle:'`.
+Инкремент счётчиков атомарный (Lua), TTL ставится один раз — fixed window.
 
-Защита от брутфорса — ограничение попыток `/kremle/verify` с одного IP:
+Также в хранилище живут блоклист, вайтлист и кольцевой лог событий (последние 1000).
+
+## Rate limiting
 
 ```python
 kremle = KremleFlask(
     app,
-    rate_limit=10,     # макс. 10 попыток
+    rate_limit=10,     # 10 НЕУДАЧНЫХ проверок
     rate_window=600,   # за 10 минут
 )
 ```
 
-`rate_limit=0` — отключить.
+- Считаются только неудачные проверки. Успешное прохождение сбрасывает счётчик —
+  честный пользователь не блокирует себя сам.
+- `rate_limit=0` — отключить.
+- Отдельный лимит на выдачу челленджей (защита хранилища от забивания):
 
-## IP whitelist
+```python
+kremle = KremleFlask(app, challenge_rate_limit=60)   # 60 челленджей за rate_window с IP
+```
 
-Пропускать определённые IP/подсети без проверки:
+Превышение → `429` на `/kremle/challenge`.
+
+## IP, прокси, whitelist, blacklist
+
+`X-Forwarded-For` по умолчанию **не** используется: подделать его может кто угодно.
+За nginx/CDN укажи, каким прокси доверять:
 
 ```python
 kremle = KremleFlask(
     app,
-    whitelist=['127.0.0.1', '10.0.0.0/8', '192.168.0.0/16'],
+    trusted_proxies=['127.0.0.1', '10.0.0.0/8'],
 )
 ```
 
-## Кастомный шаблон капчи
-
 ```python
-kremle = KremleFlask(app, template='/path/to/my_captcha.html')
+# Django settings.py
+KREMLE_TRUSTED_PROXIES = ['127.0.0.1', '10.0.0.0/8']
 ```
 
-В шаблоне используй `{{ questions_json }}` — туда подставятся данные.
+Цепочка читается справа налево, доверенные хопы пропускаются. Один и тот же резолвер
+используется в гарде, в `/kremle/verify` и в статистике — IP везде совпадает.
 
-## Callbacks (webhooks)
+```python
+# статический вайтлист (IP и CIDR)
+kremle = KremleFlask(app, whitelist=['127.0.0.1', '10.0.0.0/8', '192.168.0.0/16'])
+
+# авто-бан после N провалов (0 — выключено)
+kremle = KremleFlask(app, fail_threshold=5, blacklist_ttl=86400)
+```
+
+Управление списками из кода:
+
+```python
+engine.blacklist_add('1.2.3.4', ttl=3600)   # ttl=0 → навсегда
+engine.blacklist_remove('1.2.3.4')
+engine.is_blacklisted('1.2.3.4')
+
+engine.whitelist_add('10.0.0.1')
+engine.is_whitelisted('10.0.0.1')
+```
+
+## Callbacks и логи
 
 ```python
 def on_detect(result, ip):
@@ -352,17 +387,10 @@ def on_pass(ip, errors, total):
 def on_fail(ip, errors, total):
     print(f'{ip} завалил капчу ({errors}/{total} ошибок)')
 
-kremle = KremleFlask(
-    app,
-    on_detect=on_detect,
-    on_pass=on_pass,
-    on_fail=on_fail,
-)
+kremle = KremleFlask(app, on_detect=on_detect, on_pass=on_pass, on_fail=on_fail)
 ```
 
-## Логирование
-
-Все события пишутся в логгер `kremle`:
+Логи — в логгер `kremle`:
 
 ```python
 import logging
@@ -371,15 +399,9 @@ logging.getLogger('kremle').setLevel(logging.INFO)
 
 ## React-компонент
 
-Для SPA на React установи `kremle-react` из папки `kremle-react/` в репозитории:
-
 ```bash
 npm install /path/to/KremleXYZ-Detect/kremle-react
-# или после публикации на npm:
-# npm install kremle-react
 ```
-
-**Готовый компонент:**
 
 ```tsx
 import { KremleChallenge } from 'kremle-react'
@@ -396,13 +418,13 @@ function App() {
 }
 ```
 
-**Хук для кастомного UI:**
+Хук для своего UI:
 
 ```tsx
 import { useKremle } from 'kremle-react'
 
 function MyCaptcha() {
-  const { questions, answers, setAnswer, submit, loading, result } = useKremle()
+  const { questions, answers, setAnswer, submit, reload, loading, submitting, result, error } = useKremle()
 
   if (loading) return <div>Загрузка...</div>
 
@@ -413,83 +435,130 @@ function MyCaptcha() {
           <p>{q.q}</p>
           {q.opts.map((opt, oi) => (
             <label key={oi}>
-              <input type="radio" onChange={() => setAnswer(qi, oi)} />
+              <input type="radio" name={`q${qi}`} onChange={() => setAnswer(qi, oi)} />
               {opt}
             </label>
           ))}
         </div>
       ))}
-      <button type="submit">Отправить</button>
+      <button type="submit" disabled={submitting}>Отправить</button>
+      {result && !result.passed && <button type="button" onClick={reload}>Ещё раз</button>}
+      {error && <p>{error}</p>}
     </form>
   )
 }
 ```
 
-Экспорты пакета: `KremleChallenge`, `useKremle`, типы `KremleResult`, `KremleQuestion`.
+Экспорты: `KremleChallenge`, `useKremle`, типы `KremleChallengeProps`, `KremleQuestion`,
+`KremleResult`, `UseKremleOptions`, `UseKremleReturn`. Требует React ≥ 17 и FastAPI
+с `headless=True`. Запросы идут с `credentials: 'include'` — сессия общая с бэкендом.
 
-Требует: React ≥ 17, FastAPI с `headless=True`.
+## API-роуты
 
-## API роуты
+| Метод | Путь | Описание |
+|---|---|---|
+| GET | `/kremle/challenge` | HTML-капча или JSON в headless-режиме |
+| POST | `/kremle/verify` | проверка ответов (JSON) |
+| GET | `/kremle/status` | `{"verified": bool}` для текущей сессии |
 
-| Метод | Путь                | Описание                                            |
-|-------|--------------------|----------------------------------------------------|
-| GET   | `/kremle/challenge` | HTML-страница капчи (или JSON в headless-режиме)  |
-| POST  | `/kremle/verify`    | Проверка ответов (JSON)                            |
-| GET   | `/kremle/status`    | Статус верификации сессии (JSON)                  |
+Ответы `/kremle/challenge` отдаются с `Cache-Control: no-store` — токен в HTML
+не должен попасть в кеш. `429` — если сработал `challenge_rate_limit`.
+
+## Кастомный шаблон
+
+```python
+kremle = KremleFlask(app, template='/path/to/my_captcha.html')
+```
+
+В шаблоне обязательна подстановка `{{ questions_json }}` — туда приходит JSON
+`{questions, token, created_at, verify_url}`. Шаблон читается как текст (не Jinja2),
+поэтому одинаково работает во всех трёх фреймворках.
 
 ## CLI
 
-После установки доступна команда `kremle-detect`. Для работы с блоклистом, вайтлистом и логами нужен Redis.
-
 ```bash
-# Полный список команд
 kremle-detect help
 ```
 
 ### Диагностика
 
 ```bash
-kremle-detect check-ua "Mozilla/5.0 YaBrowser/24.1"
-kremle-detect check-ref "https://yandex.ru/search?q=test"
+kremle-detect check-ua "Mozilla/5.0 YaBrowser/24.1"      # exit 1, если детект
+kremle-detect check-ref "https://yandex.ru/search?q=x"
 kremle-detect check-hints '"YaBrowser";v="24"'
 kremle-detect questions --category math --count 5
 ```
 
-### Блоклист
+### Блоклист и вайтлист
 
 ```bash
 kremle-detect blacklist list   --redis redis://localhost:6379/0
-kremle-detect blacklist add    1.2.3.4 --redis redis://localhost:6379/0
-kremle-detect blacklist add    1.2.3.4 --ttl 3600   # заблокировать на 1 час
-kremle-detect blacklist remove 1.2.3.4 --redis redis://localhost:6379/0
-```
+kremle-detect blacklist add    1.2.3.4 --ttl 3600
+kremle-detect blacklist add    1.2.3.4 --ttl 0          # навсегда
+kremle-detect blacklist remove 1.2.3.4
 
-### Вайтлист
-
-```bash
-kremle-detect whitelist list   --redis redis://localhost:6379/0
-kremle-detect whitelist add    1.2.3.4 --redis redis://localhost:6379/0
-kremle-detect whitelist remove 1.2.3.4 --redis redis://localhost:6379/0
+kremle-detect whitelist list
+kremle-detect whitelist add    10.0.0.1
+kremle-detect whitelist remove 10.0.0.1
 ```
 
 ### Логи событий
 
 ```bash
-kremle-detect logs              --redis redis://localhost:6379/0
-kremle-detect logs -n 200       # последние 200 событий
-kremle-detect logs --no-color   # без цвета (для grep/pipe)
+kremle-detect logs -n 200
+kremle-detect logs --no-color
 ```
 
-Типы событий: `ПРОШЁЛ` (капча пройдена), `ПРОВАЛ` (не прошёл), `ДЕТЕКТ` (Яндекс-пользователь пойман), `ЗАБЛОК` (IP заблокирован или rate limit).
+События: `ПРОШЁЛ`, `ПРОВАЛ`, `ДЕТЕКТ`, `ЗАБЛОК`. URL Redis — флагом `--redis` или
+переменной окружения `KREMLE_REDIS_URL`.
 
-Redis URL можно задать через переменную окружения вместо флага `--redis`:
+## Безопасность: что честно
+
+Это фильтр от **живых людей**, а не антибот. Полезно знать заранее:
+
+- `User-Agent` и `Sec-CH-UA` подделываются в два клика — детекция обходится.
+- `fingerprint` приходит от клиента: бот может отправить пустой объект и снять строгий режим.
+- 15 вопросов ЕГЭ — серьёзный барьер для человека, но LLM/поиск отвечает на них быстро.
+- Блокировка по браузеру — это отказ в доступе живым людям; в ЕС/РФ это как минимум
+  спорно с точки зрения антимонопольного/пользовательского законодательства.
+- Переходы из поиска — самый ценный трафик, капча на них снижает и позиции, и конверсию.
+
+Что реально защищено в 2.6: подделка `X-Forwarded-For` больше не обходит rate limit и не
+подставляет чужой IP в блоклист; неудачные попытки не блокируют честных пользователей;
+один челлендж = одна попытка; битый JSON не валит сервер; инкремент счётчиков в Redis атомарный.
+
+## Что изменилось в 2.6
+
+Полный список — в [CHANGELOG.md](CHANGELOG.md). Кратко:
+
+| Было | Стало |
+|---|---|
+| `X-Forwarded-For` принимался от всех | только от `trusted_proxies` |
+| rate limit считал все попытки | только неудачные, успех сбрасывает счётчик |
+| токен сгорал только после успеха | одноразовый: сгорает после любой проверки |
+| `max_errors >= question_count` проходился всегда | `ValueError` на старте |
+| Flask-гард брал `remote_addr`, verify — XFF | один резолвер IP везде |
+| FastAPI: битый JSON → 500 | `400 {"error": "invalid_json"}` |
+| `path('kremle/', kremle_urls())` в Django падал | возвращается `include(...)`, роуты резолвятся |
+| `errors: -1` показывался как «ошибок -1 из 0» | понятные сообщения о блокировке/истечении |
+| `blacklist add --ttl 0` → сутки | `0` = навсегда |
+| `random` для перемешивания | `secrets.SystemRandom` |
+
+Совместимость: если у тебя маленький `question_count` (например 3) и `max_errors=3`,
+конфиг теперь не запустится — это была дыра. За прокси добавь `trusted_proxies`,
+иначе все клиенты будут выглядеть одним IP.
+
+## Тесты
 
 ```bash
-export KREMLE_REDIS_URL=redis://localhost:6379/0
-kremle-detect logs
-kremle-detect blacklist list
+python -m pytest tests/ -q      # 201 тест
 ```
+
+Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,
+резолвинг IP, Flask-интеграция, Django-интеграция, FastAPI headless, RedisStorage
+на фейковом клиенте. CI гоняет Python 3.9–3.13, собирает wheel и проверяет, что
+шаблон попал в пакет, плюс билд React-пакета.
 
 ## Лицензия
 
-MIT
+MIT — см. [LICENSE](LICENSE).

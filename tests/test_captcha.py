@@ -103,7 +103,7 @@ class TestCaptchaEngine:
         engine = CaptchaEngine(
             categories=['math'],
             question_count=2,
-            max_errors=2,
+            max_errors=1,
             secret='test',
         )
         ch = engine.create_challenge()
@@ -122,6 +122,7 @@ class TestCaptchaEngine:
             extra_questions=my_q,
             only_extra=True,
             question_count=2,
+            max_errors=1,
             secret='test',
         )
         ch = engine.create_challenge()
@@ -200,7 +201,7 @@ class TestRateLimit:
         engine = CaptchaEngine(
             categories=['math'],
             question_count=2,
-            max_errors=10,
+            max_errors=1,
             secret='test',
             rate_limit=0,
         )
@@ -221,7 +222,7 @@ class TestCallbacks:
         engine = CaptchaEngine(
             categories=['math'],
             question_count=2,
-            max_errors=2,
+            max_errors=1,
             secret='test',
             on_pass=on_pass,
         )

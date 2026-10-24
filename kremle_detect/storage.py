@@ -34,6 +34,14 @@ class BaseStorage(ABC):
     def increment(self, key: str, ttl: int) -> int:
         """Инкремент счётчика. Возвращает новое значение. TTL ставится при создании."""
 
+    def get_counter(self, key: str) -> int:
+        """
+        Текущее значение счётчика без инкремента (0, если счётчика нет).
+
+        Нужен для проверки лимитов без «расхода» попытки.
+        """
+        return 0
+
     def blacklist_add(self, ip: str, ttl: int) -> None:
         """Добавить IP в чёрный список на ttl секунд (0 = навсегда)."""
         self.set(f'blacklist:{ip}', {'ip': ip}, ttl if ttl > 0 else 86400 * 365 * 10)
@@ -85,6 +93,12 @@ class BaseStorage(ABC):
 
 _CLEANUP_INTERVAL = 60  # секунд между принудительными очистками
 
+# Атомарный инкремент с установкой TTL только при создании ключа.
+_INCR_WITH_TTL_LUA = """
+local v = redis.call('INCR', KEYS[1])
+if v == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return v
+"""
 
 class MemoryStorage(BaseStorage):
     """In-memory хранение (один процесс). По умолчанию."""
@@ -119,6 +133,16 @@ class MemoryStorage(BaseStorage):
         val = entry[0]
         val['count'] = val.get('count', 0) + 1
         return val['count']
+
+    def get_counter(self, key: str) -> int:
+        entry = self._data.get(key)
+        if entry is None:
+            return 0
+        value, expires_at = entry
+        if time.time() > expires_at:
+            del self._data[key]
+            return 0
+        return int(value.get('count', 0))
 
     def blacklist_list(self) -> list:
         now = time.time()
@@ -202,16 +226,32 @@ class RedisStorage(BaseStorage):
 
     def increment(self, key: str, ttl: int) -> int:
         rk = self._key(key)
+        # Атомарно INCR + EXPIRE одним Lua-скриптом: если процесс упадёт
+        # между двумя командами, ключ останется без TTL навсегда и клиент
+        # будет вечно упираться в rate limit / бан.
+        eval_fn = getattr(self._redis, 'eval', None)
+        if callable(eval_fn):
+            try:
+                return int(eval_fn(_INCR_WITH_TTL_LUA, 1, rk, int(ttl)))
+            except Exception:  # клиент без поддержки Lua — откатываемся на pipeline
+                pass
         pipe = self._redis.pipeline()
         pipe.incr(rk)
         result = pipe.execute()
         count = result[0]
-        # Set TTL only when the key is newly created (count == 1).
-        # Calling expire() on every increment would extend the window on each request
-        # (sliding window bug). Fixed window: TTL is set once at creation.
+        # TTL ставится только при создании ключа (fixed window, не sliding).
         if count == 1:
             self._redis.expire(rk, ttl)
         return count
+
+    def get_counter(self, key: str) -> int:
+        raw = self._redis.get(self._key(key))
+        if raw is None:
+            return 0
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
 
     def _scan_suffix(self, ns: str) -> list:
         """Вернуть всё что идёт после kremle:{ns}: для найденных ключей."""

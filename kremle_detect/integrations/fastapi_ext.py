@@ -17,13 +17,13 @@ FastAPI / Starlette интеграция KremleDetect.
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import os
 from typing import Callable, List, Optional, Sequence
 
 from ..captcha import CaptchaEngine
 from ..detector import detect
+from ..ip import client_ip, ip_matches
 from ..storage import BaseStorage
 
 # FastAPI/Starlette are optional dependencies but this file is only imported
@@ -42,21 +42,13 @@ NEXT_KEY = 'kremle_next'
 
 
 def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
-    try:
-        addr = ipaddress.ip_address(ip)
-    except ValueError:
-        return False
-    for entry in whitelist:
-        try:
-            if '/' in entry:
-                if addr in ipaddress.ip_network(entry, strict=False):
-                    return True
-            else:
-                if addr == ipaddress.ip_address(entry):
-                    return True
-        except ValueError:
-            continue
-    return False
+    return ip_matches(ip, whitelist)
+
+
+def _client_ip(request, trusted_proxies=()) -> str:
+    """IP клиента; X-Forwarded-For учитывается только от доверенных прокси."""
+    peer = request.client.host if request.client else ''
+    return client_ip(peer, request.headers.get('x-forwarded-for', ''), trusted_proxies)
 
 
 class KremleFastAPI:
@@ -87,6 +79,8 @@ class KremleFastAPI:
         fail_threshold: int = 0,
         blacklist_ttl: int = 86400,
         headless: bool = False,
+        trusted_proxies: Optional[Sequence[str]] = None,
+        challenge_rate_limit: int = 60,
     ):
         self.engine = CaptchaEngine(
             categories=categories,
@@ -103,12 +97,14 @@ class KremleFastAPI:
             only_extra=only_extra,
             fail_threshold=fail_threshold,
             blacklist_ttl=blacklist_ttl,
+            challenge_rate_limit=challenge_rate_limit,
         )
         self.skip_paths = list(skip_paths or ['/docs', '/openapi.json', '/redoc'])
         self.whitelist = whitelist or []
         self.custom_template = template
         self.secret = secret
         self.headless = headless
+        self.trusted_proxies = list(trusted_proxies or [])
 
         if app is not None:
             self.init_app(app)
@@ -119,6 +115,7 @@ class KremleFastAPI:
         whitelist = self.whitelist
         custom_template = self.custom_template
         headless = self.headless
+        trusted_proxies = self.trusted_proxies
         template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
 
         @app.middleware('http')
@@ -131,9 +128,8 @@ class KremleFastAPI:
             if request.session.get(SESSION_KEY):
                 return await call_next(request)
 
-            # IP whitelist / blacklist
-            xff = request.headers.get('x-forwarded-for', '')
-            ip = xff.split(',')[0].strip() if xff else (request.client.host if request.client else '')
+            # IP whitelist / blacklist (тот же резолвер, что и в /kremle/verify)
+            ip = _client_ip(request, trusted_proxies)
             if whitelist and _ip_in_whitelist(ip, whitelist):
                 return await call_next(request)
             if engine.is_whitelisted(ip):
@@ -170,13 +166,23 @@ class KremleFastAPI:
 
         @app.get('/kremle/challenge', response_class=HTMLResponse)
         async def kremle_challenge(request: Request):
+            ip = _client_ip(request, trusted_proxies)
+            if engine.check_challenge_limit(ip):
+                return JSONResponse(
+                    {'error': 'too_many_requests'},
+                    status_code=429,
+                    headers={'Cache-Control': 'no-store'},
+                )
+            engine.track_challenge(ip)
+
             ch = engine.create_challenge()
             request.session['kremle_token'] = ch.token
 
             verify_url = str(request.url_for('kremle_verify'))
+            no_store = {'Cache-Control': 'no-store, no-cache, must-revalidate', 'Pragma': 'no-cache'}
 
             if headless:
-                return JSONResponse(ch.to_dict(verify_url=verify_url))
+                return JSONResponse(ch.to_dict(verify_url=verify_url), headers=no_store)
 
             tpl_path = custom_template or os.path.join(template_dir, 'kremle_captcha.html')
             try:
@@ -191,18 +197,24 @@ class KremleFastAPI:
                 '{{ questions_json }}',
                 json.dumps(ch.to_dict(verify_url=verify_url), ensure_ascii=False),
             )
-            return HTMLResponse(html)
+            return HTMLResponse(html, headers=no_store)
 
         @app.post('/kremle/verify')
         async def kremle_verify(request: Request):
-            data = await request.json()
+            try:
+                data = await request.json()
+            except (ValueError, TypeError):
+                return JSONResponse({'error': 'invalid_json'}, status_code=400)
+            if not isinstance(data, dict):
+                return JSONResponse({'error': 'invalid_json'}, status_code=400)
+
             token = data.get('token') or request.session.get('kremle_token', '')
             answers = data.get('answers', {})
             fingerprint = data.get('fingerprint')
-            xff = request.headers.get('x-forwarded-for', '')
-            ip = xff.split(',')[0].strip() if xff else (request.client.host if request.client else '')
+            ip = _client_ip(request, trusted_proxies)
 
             result = engine.verify(token, answers, ip=ip, fingerprint=fingerprint)
+            request.session.pop('kremle_token', None)
 
             if result['passed']:
                 request.session[SESSION_KEY] = True

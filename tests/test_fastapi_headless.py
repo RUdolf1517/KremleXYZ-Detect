@@ -46,6 +46,14 @@ def make_app(headless: bool = True) -> FastAPI:
     return app
 
 
+def make_client(app, peer: str = '127.0.0.1', **kwargs) -> TestClient:
+    """TestClient с управляемым адресом peer (для проверок IP-логики)."""
+    try:
+        return TestClient(app, client=(peer, 50000), **kwargs)
+    except TypeError:  # старый Starlette без параметра client
+        pytest.skip('Starlette без параметра client')
+
+
 # ── Headless=True ─────────────────────────────────────────────────────────────
 
 class TestHeadlessMiddleware:
@@ -89,21 +97,50 @@ class TestHeadlessMiddleware:
         storage.blacklist_add('10.0.0.99', ttl=3600)
 
         app = FastAPI()
-        KremleFastAPI(app, secret='test-secret', storage=storage, headless=True, question_count=3)
+        KremleFastAPI(app, secret='test-secret', storage=storage, headless=True, question_count=3, max_errors=1)
 
         @app.get('/protected')
         async def protected():
             return {'ok': True}
 
-        client = TestClient(app)
-        r = client.get(
-            '/protected',
-            headers={'User-Agent': NORMAL_UA, 'X-Forwarded-For': '10.0.0.99'},
-        )
+        client = make_client(app, peer='10.0.0.99')
+        r = client.get('/protected', headers={'User-Agent': NORMAL_UA})
         assert r.status_code == 403
         body = r.json()
         assert body['error'] == 'captcha_required'
         assert body['reason'] == 'blacklisted'
+
+    def test_spoofed_xff_does_not_bypass_detection(self):
+        """X-Forwarded-For от недоверенного peer игнорируется."""
+        storage = MemoryStorage()
+        storage.blacklist_add('10.0.0.99', ttl=3600)
+        app = FastAPI()
+        KremleFastAPI(app, secret='test-secret', storage=storage, headless=True,
+                      question_count=3, max_errors=1)
+
+        @app.get('/protected')
+        async def protected():
+            return {'ok': True}
+
+        client = make_client(app, peer='203.0.113.5')
+        r = client.get('/protected', headers={'User-Agent': NORMAL_UA, 'X-Forwarded-For': '10.0.0.99'})
+        assert r.status_code == 200
+
+    def test_xff_honored_from_trusted_proxy(self):
+        storage = MemoryStorage()
+        storage.blacklist_add('10.0.0.99', ttl=3600)
+        app = FastAPI()
+        KremleFastAPI(app, secret='test-secret', storage=storage, headless=True,
+                      question_count=3, max_errors=1, trusted_proxies=['127.0.0.1'])
+
+        @app.get('/protected')
+        async def protected():
+            return {'ok': True}
+
+        client = make_client(app, peer='127.0.0.1')
+        r = client.get('/protected', headers={'User-Agent': NORMAL_UA, 'X-Forwarded-For': '10.0.0.99'})
+        assert r.status_code == 403
+        assert r.json()['reason'] == 'blacklisted'
 
 
 class TestHeadlessChallenge:
@@ -185,6 +222,43 @@ class TestHeadlessChallenge:
         body = r.json()
         assert 'verified' in body
         assert body['verified'] is False
+
+    def test_challenge_not_cacheable(self):
+        r = self.client.get('/kremle/challenge')
+        assert 'no-store' in r.headers.get('cache-control', '')
+
+    def test_challenge_rate_limit(self):
+        storage = MemoryStorage()
+        app = FastAPI()
+        KremleFastAPI(app, secret='test-secret', storage=storage, headless=True,
+                      question_count=3, max_errors=1, challenge_rate_limit=1)
+        client = make_client(app)
+        assert client.get('/kremle/challenge').status_code == 200
+        assert client.get('/kremle/challenge').status_code == 429
+
+    def test_token_is_single_use(self):
+        storage = MemoryStorage()
+        app = FastAPI()
+        KremleFastAPI(app, secret='test-secret', storage=storage, headless=True,
+                      question_count=3, max_errors=0)
+        client = make_client(app)
+        token = client.get('/kremle/challenge').json()['token']
+        answers = {str(i): q['ans'] for i, q in enumerate(storage.get(f'challenge:{token}')['questions'])}
+
+        assert client.post('/kremle/verify', json={'token': token, 'answers': answers}).json()['passed']
+        second = client.post('/kremle/verify', json={'token': token, 'answers': answers}).json()
+        assert second['passed'] is False
+        assert second['error'] == 'invalid_token'
+
+    def test_broken_json_returns_400(self):
+        r = self.client.post('/kremle/verify', content=b'not json',
+                             headers={'Content-Type': 'application/json'})
+        assert r.status_code == 400
+        assert r.json()['error'] == 'invalid_json'
+
+    def test_json_array_returns_400(self):
+        r = self.client.post('/kremle/verify', json=[1, 2, 3])
+        assert r.status_code == 400
 
 
 # ── Headless=False (режим по умолчанию) ──────────────────────────────────────

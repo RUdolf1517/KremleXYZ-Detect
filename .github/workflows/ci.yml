@@ -79,7 +79,7 @@ jobs:
         run: |
           for f in /tmp/pytest.log /tmp/redis.log /tmp/coverage.log; do
             if [ -f "$f" ]; then
-              echo "::error title=$(basename "$f")::$(tail -40 "$f" | tr '\n' '|' | cut -c1-900)"
+              echo "::error title=$(basename "$f")::$(tail -30 "$f" | tr '\n' '|' | cut -c1-4000)"
             fi
           done
 

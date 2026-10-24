@@ -140,66 +140,93 @@ class TestRedisStorageLive:
         assert storage.whitelist_list() == ['10.2.2.2']
 
 
-@pytest.fixture(scope='module')
-def live_async_redis():
-    """Асинхронный клиент: настоящий ``redis.asyncio`` или его in-memory двойник."""
+async def make_async_client():
+    """
+    Асинхронный клиент: настоящий ``redis.asyncio`` или его in-memory двойник.
+
+    Создаётся **внутри** того же event loop, в котором будет использоваться.
+    `redis.asyncio` привязывает соединение к циклу при первом запросе: клиент,
+    «прогретый» в другом (или уже закрытом) цикле, падает с
+    ``RuntimeError: another coroutine is already waiting for incoming data``.
+    """
     from redis import asyncio as aioredis
 
     client = aioredis.from_url(REDIS_URL, decode_responses=True)
     try:
-        import asyncio
-        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(client.ping())
-    except Exception:  # noqa: BLE001
+        await client.ping()
+        return client
+    except Exception as exc:  # noqa: BLE001
+        await close_async(client)
         if os.environ.get('KREMLE_TEST_REDIS_FAKE') != '1':
-            pytest.skip(f'Redis недоступен ({REDIS_URL})')
+            pytest.skip(f'Redis недоступен ({REDIS_URL}): {exc}')
         import fakeredis.aioredis
-        client = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    return client
+        return fakeredis.aioredis.FakeRedis(decode_responses=True)
+
+
+async def close_async(client):
+    """Закрывает клиент в том же цикле (redis-py 5+ — ``aclose``)."""
+    closer = getattr(client, 'aclose', None) or getattr(client, 'close', None)
+    if closer is None:
+        return
+    try:
+        result = closer()
+        if hasattr(result, '__await__'):
+            await result
+    except Exception:  # noqa: BLE001 — закрытие не должно ронять тест
+        pass
 
 
 class TestAsyncRedisLive:
-    def test_async_roundtrip(self, live_async_redis, prefix):
+    def test_async_roundtrip(self, prefix):
         import asyncio
 
         from kremle_detect.storage_async import AsyncRedisStorage
 
-        storage = AsyncRedisStorage(redis_client=live_async_redis, prefix=prefix)
-
         async def scenario():
-            await storage.set('k', {'a': 1}, 60)
-            assert await storage.get('k') == {'a': 1}
-            assert await storage.increment('c', 60) == 1
-            assert await storage.increment('c', 60) == 2
-            await storage.log_event({'event': 'shadow', 'ip': '1.2.3.4'})
-            assert await storage.blacklist_check('1.2.3.4') is False
-            await storage.blacklist_add('1.2.3.4', 60)
-            assert await storage.blacklist_check('1.2.3.4') is True
+            client = await make_async_client()
+            try:
+                storage = AsyncRedisStorage(redis_client=client, prefix=prefix)
+
+                await storage.set('k', {'a': 1}, 60)
+                assert await storage.get('k') == {'a': 1}
+                assert await storage.increment('c', 60) == 1
+                assert await storage.increment('c', 60) == 2
+                await storage.log_event({'event': 'shadow', 'ip': '1.2.3.4'})
+                assert await storage.blacklist_check('1.2.3.4') is False
+                await storage.blacklist_add('1.2.3.4', 60)
+                assert await storage.blacklist_check('1.2.3.4') is True
+            finally:
+                await close_async(client)
 
         asyncio.run(scenario())
 
-    def test_async_increment_ttl(self, live_async_redis, prefix):
+    def test_async_increment_ttl(self, prefix):
         import asyncio
 
         from kremle_detect.storage_async import AsyncRedisStorage
 
-        storage = AsyncRedisStorage(redis_client=live_async_redis, prefix=prefix)
-
         async def scenario():
-            # TTL читаем тем же (асинхронным) клиентом: с in-memory двойником
-            # синхронный и асинхронный клиенты — разные «серверы»
-            await storage.increment('rate:x', 30)
-            assert 0 < await live_async_redis.ttl(f'{prefix}rate:x') <= 30
+            client = await make_async_client()
+            try:
+                storage = AsyncRedisStorage(redis_client=client, prefix=prefix)
 
-            await storage.increment('forever')
-            assert await live_async_redis.ttl(f'{prefix}forever') == -1
+                # TTL читаем тем же (асинхронным) клиентом: с in-memory двойником
+                # синхронный и асинхронный клиенты — разные «серверы»
+                await storage.increment('rate:x', 30)
+                assert 0 < await client.ttl(f'{prefix}rate:x') <= 30
 
-            await storage.set('k', {'a': 1}, 60)
-            assert await live_async_redis.ttl(f'{prefix}k') > 0
+                await storage.increment('forever')
+                assert await client.ttl(f'{prefix}forever') == -1
 
-            # Lua: TTL ставится только на первом инкременте (fixed window)
-            ttl_first = await live_async_redis.ttl(f'{prefix}rate:x')
-            await storage.increment('rate:x', 30)
-            assert await live_async_redis.ttl(f'{prefix}rate:x') <= ttl_first
+                await storage.set('k', {'a': 1}, 60)
+                assert await client.ttl(f'{prefix}k') > 0
+
+                # Lua: TTL ставится только на первом инкременте (fixed window)
+                ttl_first = await client.ttl(f'{prefix}rate:x')
+                await storage.increment('rate:x', 30)
+                assert await client.ttl(f'{prefix}rate:x') <= ttl_first
+            finally:
+                await close_async(client)
 
         asyncio.run(scenario())
 

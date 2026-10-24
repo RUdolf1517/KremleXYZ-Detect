@@ -55,10 +55,13 @@ class FakeRedis:
         self.data[key] = value
         self.ttl[key] = ttl
 
-    def set(self, key, value):
-        """Без TTL: бессрочный ключ (blacklist/whitelist «навсегда»)."""
+    def set(self, key, value, ex=None):
+        """ex=None — бессрочный ключ (blacklist/whitelist «навсегда»)."""
         self.data[key] = value
-        self.ttl.pop(key, None)
+        if ex is None:
+            self.ttl.pop(key, None)
+        else:
+            self.ttl[key] = ex
 
     def ttl_of(self, key):  # имя не ttl, чтобы не затенять словарь self.ttl
         return self.ttl.get(key)

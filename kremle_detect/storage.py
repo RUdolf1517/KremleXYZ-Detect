@@ -253,7 +253,8 @@ class RedisStorage(BaseStorage):
         if ttl is None:
             self._redis.set(self._key(key), payload)
         else:
-            self._redis.setex(self._key(key), ttl, payload)
+            # setex объявлен deprecated в redis-py 6 — set(..., ex=) делает то же
+            self._redis.set(self._key(key), payload, ex=ttl)
 
     def get(self, key: str) -> Optional[dict]:
         raw = self._redis.get(self._key(key))

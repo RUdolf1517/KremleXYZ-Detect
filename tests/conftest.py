@@ -75,7 +75,6 @@ def write_sdamgia_cache(tmp_path):
             }
             for i in range(count)
         ]
-        data = {'category': category, 'fetched_at': fetched_at, 'questions': questions}
         sdamgia.write_cache(category, questions, cache_dir=str(tmp_path))
         if fetched_at is not None:
             import json

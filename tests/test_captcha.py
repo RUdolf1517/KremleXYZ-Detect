@@ -275,7 +275,6 @@ class TestStorage:
         s = MemoryStorage()
         s.set('k2', {'a': 1}, ttl=0)
         # TTL=0 → уже истёк
-        import time
         time.sleep(0.01)
         assert s.get('k2') is None
 

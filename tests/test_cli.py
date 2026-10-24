@@ -6,7 +6,6 @@ CLI — то, чем реально пользуются в проде (блок
 поэтому покрываем и коды возврата, и цветной/бесцветный вывод.
 """
 
-import json
 import sys
 
 import pytest
@@ -65,7 +64,8 @@ class TestCheckCommands:
 
     def test_long_value_truncated(self, monkeypatch, capsys):
         run_ok(['check-ua', 'x' * 200], monkeypatch)
-        line = [l for l in capsys.readouterr().out.splitlines() if l.startswith('User-Agent')][0]
+        line = [row for row in capsys.readouterr().out.splitlines()
+                if row.startswith('User-Agent')][0]
         assert len(line) < 120
 
     def test_help(self, monkeypatch, capsys):

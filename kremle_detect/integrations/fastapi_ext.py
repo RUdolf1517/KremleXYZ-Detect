@@ -400,7 +400,7 @@ class KremleFastAPI:
         # registration — last registered = outermost = runs first on incoming requests).
         has_session = any(
             getattr(m, 'cls', None) is not None and
-            getattr(m, 'cls').__name__ == 'SessionMiddleware'
+            m.cls.__name__ == 'SessionMiddleware'
             for m in getattr(app, 'user_middleware', [])
         )
         if not has_session:

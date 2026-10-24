@@ -59,7 +59,7 @@ class TestCategories:
         assert set(ALL_CATEGORY_NAMES) == {'math', 'physics', 'russian', 'literature'}
 
     def test_categories_dict(self):
-        for name, qs in CATEGORIES.items():
+        for _name, qs in CATEGORIES.items():
             assert len(qs) == 15
             for q in qs:
                 assert 'q' in q

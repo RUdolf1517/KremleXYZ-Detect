@@ -67,10 +67,14 @@ def _print_result(result, field, value):
     if result.detected:
         print(f'Reason:  {result.reason}')
         signals = []
-        if result.browser:       signals.append('browser')
-        if result.bot:           signals.append('bot')
-        if result.referrer:      signals.append('referrer')
-        if result.client_hints:  signals.append('client_hints')
+        if result.browser:
+            signals.append('browser')
+        if result.bot:
+            signals.append('bot')
+        if result.referrer:
+            signals.append('referrer')
+        if result.client_hints:
+            signals.append('client_hints')
         print(f'Signals: {", ".join(signals)}')
         sys.exit(1)
 
@@ -434,8 +438,8 @@ def cmd_questions_check(args):
     if question is None:
         if images and not args.images:
             print('В капчу НЕ пойдёт: есть картинка, а --images не указан.')
-            print('Проверить как пригодное: kremle-detect questions check %s --images'
-                  % args.problem_id)
+            print('Проверить как пригодное: '
+                  f'kremle-detect questions check {args.problem_id} --images')
         elif not str(parsed['answer']).strip():
             print('В капчу НЕ пойдёт: нет ответа.')
         else:
@@ -498,7 +502,7 @@ def cmd_questions_cache(args):
                      cache_path(cat, args.cache_dir)))
 
     print(f'Кеш вопросов «Решу ЕГЭ» ({rows[0][3].rsplit("/", 1)[0] if rows else "-"}):')
-    for cat, count, age, path in rows:
+    for cat, count, age, _path in rows:
         if not count:
             print(f'  {cat:11} — пусто')
             continue

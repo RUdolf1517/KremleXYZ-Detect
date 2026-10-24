@@ -38,7 +38,8 @@ demo = ["fastapi>=0.68", "uvicorn>=0.20", "itsdangerous>=2.0"]
 all = ["flask>=2.0", "django>=3.2", "fastapi>=0.68", "jinja2>=3.0",
        "redis>=4.0", "uvicorn>=0.20", "itsdangerous>=2.0"]
 # Для запуска тестов: httpx нужен TestClient, fakeredis — тесты Redis без сервера
-test = ["pytest>=7.0", "pytest-cov>=4.0", "httpx>=0.24", "fakeredis[lua]>=2.10"]
+test = ["pytest>=7.0", "pytest-cov>=4.0", "httpx>=0.24", "fakeredis[lua]>=2.10",
+         "ruff>=0.6"]
 
 [project.scripts]
 kremle-detect = "kremle_detect.cli:main"
@@ -47,7 +48,27 @@ kremle-detect = "kremle_detect.cli:main"
 include = ["kremle_detect*"]
 
 [tool.setuptools.package-data]
-kremle_detect = ["templates/*.html"]
+kremle_detect = ["templates/*.html", "py.typed"]
+
+[tool.ruff]
+# Лёгкий набор: ошибки и неиспользуемый код, без вкусовщины про форматирование.
+target-version = "py39"
+line-length = 100
+exclude = [".git", "build", "dist", "kremle-react", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP"]
+ignore = [
+    "E501",   # длину строк держим глазами: в docstring таблицы и команды
+    "B008",   # Depends()/Query() в дефолтах — нормальная практика FastAPI
+    # проект держит Python 3.9: `X | None` и `list[int]` в аннотациях, которые
+    # вычисляются в рантайме (FastAPI, get_type_hints), там падают
+    "UP006", "UP035", "UP045",
+    "UP009",  # `# -*- coding: utf-8 -*-` — сознательный стиль файлов
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011", "B017"]   # assert False / pytest.raises(Exception) в тестах
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -120,7 +120,7 @@ class Challenge:
         }
 
     @classmethod
-    def _deserialize(cls, data: dict) -> 'Challenge':
+    def _deserialize(cls, data: dict) -> Challenge:
         """Восстановление из storage."""
         obj = object.__new__(cls)
         obj.questions = data['questions']

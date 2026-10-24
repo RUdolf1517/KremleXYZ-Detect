@@ -4,7 +4,6 @@
 JSON-гард, health/stats/metrics, TTL «пройдено», logout, monitor-режим.
 """
 
-import json
 
 import pytest
 
@@ -46,11 +45,9 @@ def make_app(**kwargs):
 def solve(client, headers=None):
     """Проходит капчу за клиента и возвращает ответ verify."""
     challenge = client.get('/kremle/challenge', headers=headers or {}).get_json()
-    # правильные ответы знает только сервер: берём из сессии через движок
-    app = client.application
-    engine = app.extensions['kremle'].engine
+    # правильные ответы знает только сервер, клиенту они не приходят —
+    # поэтому сверяем через opts: вариант с answer и есть верный
     token = challenge['token']
-    data = engine._memory_get(token) if hasattr(engine, '_memory_get') else None
     answers = {}
     for i, q in enumerate(challenge['questions']):
         match = [o for o in q['opts'] if o == q.get('answer')]

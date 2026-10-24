@@ -204,7 +204,6 @@ class TestHeadlessChallenge:
         token = data['token']
 
         # Правильные ответы — берём из storage (engine создал challenge с ответами)
-        from kremle_detect.captcha import CaptchaEngine
         # challenge хранится в storage под ключом challenge:{token}
         ch_data = storage.get(f'challenge:{token}')
         assert ch_data is not None

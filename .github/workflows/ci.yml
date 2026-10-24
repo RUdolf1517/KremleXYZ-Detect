@@ -102,6 +102,23 @@ jobs:
             fi
           done
 
+  lint:
+    name: Линтер (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install "ruff>=0.6"
+
+      # Только ошибки и явные баги (E/F/W/B/UP), без вкусовщины про форматирование
+      - name: ruff check
+        run: ruff check .
+
   package:
     # Проверяем, что пакет собирается и данные попадают в wheel
     runs-on: ubuntu-latest
@@ -125,8 +142,10 @@ jobs:
           names = zipfile.ZipFile(wheel).namelist()
           assert any(n.endswith('templates/kremle_captcha.html') for n in names), names
           for module in ('policy.py', 'metrics.py', 'session.py', 'demo.py',
-                         'storage_async.py', 'questions/sdamgia.py'):
+                         'storage_async.py', 'questions/sdamgia.py', 'images.py'):
               assert any(n.endswith(module) for n in names), module
+          # маркер типов: без него mypy/pyright считают пакет untyped
+          assert any(n.endswith('kremle_detect/py.typed') for n in names), names
           print('ok:', wheel)
           PY
 

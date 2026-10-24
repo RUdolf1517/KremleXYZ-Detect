@@ -1196,6 +1196,7 @@ python -m pytest tests/ -q      # 502 тестов
 
 ```bash
 cd kremle-react && npm test && npm run typecheck && npm run build   # 24 теста + сборка
+ruff check .                                                          # линтер (CI: джоб lint)
 ```
 
 Что ещё есть в тестах:

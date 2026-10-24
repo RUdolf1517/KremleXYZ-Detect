@@ -950,9 +950,34 @@ Workflow соберёт wheel/sdist, сверит версию с тегом, п
 - **PyPI**: Account → Publishing → pending publisher
   (`kremle-detect`, owner `RUdolf1517`, repo `KremleXYZ-Detect`, workflow `release.yml`,
   environment `pypi`).
-- **npm**: repository secret `NPM_TOKEN` (granular token с правом publish).
-- Если OIDC недоступен — секрет `PYPI_API_TOKEN` и раскомментировать `password`
-  в шаге публикации.
+- **npm**: два варианта, подробности ниже.
+- Если OIDC на PyPI недоступен — секрет `PYPI_API_TOKEN` и раскомментировать
+  `password` в шаге публикации.
+
+### npm: токен или trusted publishing
+
+**Первый релиз нового пакета — только токеном.** npm не умеет публиковать самую
+первую версию через OIDC: trusted publisher настраивается на странице пакета,
+а страницы ещё нет ([npm/cli#8544](https://github.com/npm/cli/issues/8544)).
+
+1. npmjs.com → Access Tokens → Generate New Token → **Granular**:
+   - Packages and scopes: только `kremle-react`, **Read and write**;
+   - **Bypass 2FA** — включить (иначе CI не сможет публиковать);
+   - Expiration — **минимум, хватит и 7 дней**: токен нужен на один запуск.
+     Максимум для write-токенов — **90 дней**, больше npm не даёт.
+2. GitHub → Secrets → `NPM_TOKEN`.
+3. После успешной публикации: npmjs.com → `kremle-react` → Settings →
+   **Trusted publishing** → GitHub Actions:
+   `RUdolf1517` / `KremleXYZ-Detect` / `release.yml`, и **обязательно** отметить
+   `npm publish` (конфигурации, созданные после 3 сентября 2026, по умолчанию
+   разрешают только `npm stage publish`).
+4. Удалить секрет `NPM_TOKEN` и сам токен — дальше публикация идёт по OIDC,
+   с автоматическим provenance и без срока истечения.
+
+У trusted publishing есть два ограничения по времени: конфигурацию нужно
+«подтвердить» первым успешным релизом **в течение 2 суток** (иначе она
+истекает и её надо создать заново), и нужен npm CLI ≥ 11.5.1 / Node ≥ 22.14 —
+поэтому в workflow стоит Node 22 и `npm install -g npm@latest`.
 
 ## Безопасность: что честно
 

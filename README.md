@@ -6,12 +6,12 @@
 Яндекс Браузер, Яндекс-боты и переходы с Яндекса получают капчу с вопросами ЕГЭ.
 Все остальные проходят сразу.
 
-[Установка](#установка) · [Быстрый старт](#быстрый-старт) · [Детекция](#что-считается-яндексом) · [Вопросы](#банк-вопросов) · [CLI](#cli) · [2.6](#что-изменилось-в-26)
+[Установка](#установка) · [Быстрый старт](#быстрый-старт) · [Детекция](#что-считается-яндексом) · [Вопросы](#вопросы-банк-и-решу-егэ) · [Monitor](#monitor-режим-и-сегменты) · [Эксплуатация](#эксплуатация-health-stats-metrics) · [CLI](#cli) · [2.7](#что-изменилось-в-27)
 
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
-[![version](https://img.shields.io/badge/version-2.6.0-111111?style=flat-square)](CHANGELOG.md)
-[![tests](https://img.shields.io/badge/tests-214%20passed-2ea44f?style=flat-square)](#тесты)
+[![version](https://img.shields.io/badge/version-2.7.0-111111?style=flat-square)](CHANGELOG.md)
+[![tests](https://img.shields.io/badge/tests-396%20passed%20%2B%2022%20react-2ea44f?style=flat-square)](#тесты)
 
 </div>
 
@@ -28,6 +28,7 @@ KremleFlask(app, question_count=15, max_errors=3)
 ```
 
 Две строки — и защита работает. Flask, Django, FastAPI или голое ядро.
+Можно сначала посмотреть, а не блокировать: `policy={'yandex_browser': 'monitor'}`.
 
 ## Установка
 
@@ -147,7 +148,16 @@ async def index():
 
 `SessionMiddleware` добавляется автоматически, если её ещё нет.
 
-### FastAPI + React (headless)
+### JSON-API для SPA (Flask, Django, FastAPI)
+
+Блокирующая HTML-капча бессмысленна для `fetch`/XHR: клиент ждёт JSON, а получает
+страницу. Поэтому все три интеграции отвечают `403 JSON` любому запросу, который
+просит JSON (`Accept: application/json` или `X-Requested-With: XMLHttpRequest`),
+и редиректят только обычную навигацию. Отключается через `json_api=False`
+(Flask/FastAPI) или `KREMLE_JSON_API = False` (Django).
+
+`headless=True` (Flask/FastAPI) и `KREMLE_HEADLESS = True` (Django) — режим «весь
+сайт API»: JSON отдаётся всегда, даже на `Accept: text/html`.
 
 Для SPA капча не редиректит, а возвращает `403 JSON` — фронт сам рисует форму:
 
@@ -173,11 +183,23 @@ kremle = KremleFastAPI(app, secret='your-secret', headless=True)
 {"error": "captcha_required", "reason": "yandex_browser", "challenge_url": "/kremle/challenge"}
 
 // GET /kremle/challenge → вопросы без ответов
-{"questions": [{"q": "...", "opts": ["...", "..."]}], "token": "...", "created_at": 0}
+{"questions": [{"q": "...", "opts": ["...", "..."], "category": "math"}],
+ "token": "...", "verify_url": "/kremle/verify",
+ "sources": [{"name": "РешуЕГЭ", "url": "https://...", "author": "..."}],
+ "attribution": "Задания: РешуЕГЭ"}
 
 // POST /kremle/verify → результат
 {"passed": true, "errors": 1, "total": 15, "redirect": "/"}
 ```
+
+Клиенты, которые просят JSON, получают и блокировку в JSON — без редиректов,
+которые ломают SPA-навигацию:
+
+```jsonc
+{"error": "blocked", "action": "block", "challenge_url": null}   // 403, политика block
+```
+
+Все ответы `/kremle/challenge` и JSON-блокировки идут с `Cache-Control: no-store`.
 
 ### Голое ядро (любой фреймворк)
 
@@ -245,6 +267,25 @@ is_yandex_referrer('https://yandex.ru/search?q=test')     # True
   без единого правильного ответа. Если пул вопросов оказался короче
   `question_count`, лимит подрезается под фактическое число вопросов.
 
+### Сколько живёт «капча пройдена»
+
+Отметка о прохождении хранится в сессии как `{"ok": true, "ts": ..., "exp": ..., "ip": ..., "ua": ...}`
+и живёт `verified_ttl` секунд (по умолчанию сутки; `0` — бессрочно):
+
+```python
+kremle = KremleFlask(app, verified_ttl=3600, bind_ua=True, bind_ip=False)
+```
+
+- `bind_ua=True` — смена User-Agent сбрасывает прохождение. По умолчанию **выключено**:
+  UA меняется при обновлении браузера, и честный пользователь не должен переспрашивать
+  капчу из-за минорной версии (в Django — `KREMLE_BIND_UA = True`);
+- `bind_ip=True` — привязка к IP, тоже выключена по умолчанию: мобильные сети меняют адрес;
+- старый флаг `True`, записанный версией ≤ 2.6, считается **просроченным** — один раз
+  перепройти, зато вечного прохода с одной сессии больше нет;
+- `POST /kremle/logout` сбрасывает отметку: пользователь может перепройти капчу
+  (кнопка «Попробовать снова» в шаблоне делает именно это);
+- `GET /kremle/status` → `{"verified": bool, "expires_in": int|null}`.
+
 Коды ошибок в ответе `/kremle/verify`:
 
 | `error` | Что значит | `errors` |
@@ -255,17 +296,77 @@ is_yandex_referrer('https://yandex.ru/search?q=test')     # True
 | `invalid_answers` | `answers` — не объект | `-1` |
 | — | обычный результат | `0..total` |
 
-## Банк вопросов
+## Вопросы: банк и «Решу ЕГЭ»
 
-| Категория | Описание | Вопросов |
+Источник по умолчанию (`questions_source='auto'`): **кеш вопросов «Решу ЕГЭ»**, если он
+есть, иначе встроенный банк. Так капча работает и без сети, и с настоящими заданиями.
+
+```bash
+kremle-detect questions sync                    # скачать задания в кеш (все категории)
+kremle-detect questions sync -c math -n 100     # только математика, до 100 заданий
+kremle-detect questions sync --ids 1001,1002    # конкретные задания портала
+kremle-detect questions sync --dry-run          # скачать, но не записывать
+kremle-detect questions cache                   # сколько в кеше и когда обновляли
+```
+
+Кеш лежит в `$KREMLE_CACHE_DIR` или `~/.cache/kremle-detect/sdamgia-<категория>.json`.
+Свежесть — 30 дней; устаревший кеш всё равно используется (лучше старые задания, чем
+пустой банк), а неудачный `sync` не затирает то, что уже скачано.
+
+```python
+kremle = KremleFlask(app, questions_source='auto')       # auto | builtin | sdamgia
+```
+
+- `auto` — кеш РешуЕГЭ → встроенный банк (молча, в лог `kremle`);
+- `sdamgia` — только портал: пустой кеш = пустой банк и `WARNING` (честно, без подмены);
+- `builtin` — только встроенные вопросы.
+
+### Атрибуция обязательна
+
+Задания принадлежат порталу «Решу ЕГЭ» (СДАМ ГИА, автор — Д. Д. Гущин и авторы портала).
+Каждый вопрос несёт поле `source`, а страница капчи показывает ссылку на источник:
+
+```jsonc
+{
+  "q": "На экзамен вынесено 60 вопросов...",
+  "opts": ["0,95", "0,05", "0,9", "1,05"],
+  "category": "math",
+  "problem_id": "1001",
+  "source": {
+    "name": "РешуЕГЭ",
+    "url": "https://math-ege.sdamgia.ru/problem?id=1001",
+    "author": "Д. Д. Гущин и авторы портала"
+  }
+}
+```
+
+В JSON-ответе `/kremle/challenge` рядом с вопросами приходят `sources` и готовая строка
+`attribution` («Задания: РешуЕГЭ»). Отключить подпись в React-компоненте можно
+`showAttribution={false}`, но условия использования материалов портала — на стороне
+оператора: см. [NOTICE.md](NOTICE.md).
+
+### Как задания превращаются в варианты ответа
+
+Провайдер запрашивает `newapi/general`, открывает страницы вариантов и собирает ссылки
+на задания, затем читает `/problem?id=<id>` и разбирает условие и ответ. Числовой ответ
+становится правильным вариантом, три остальных — правдоподобные искажения (сдвиг,
+масштаб, смена знака). Задания с текстовым ответом и слишком длинным условием
+отбрасываются: для капчи они не годятся. Сеть, разбор HTML и кеш покрыты тестами на
+фикстурах, а `get=` подменяется — можно гонять провайдер без интернета.
+
+| Категория | Описание | Встроенный банк |
 |---|---|---|
 | `math` | профильная математика | 15 |
 | `physics` | физика | 15 |
 | `russian` | каверзные вопросы по русскому | 15 |
 | `literature` | русская литература | 15 |
 
+Встроенный банк — 60 вопросов (по 15 на категорию, 4 варианта ответа). Это fallback,
+а не основной источник.
+
 ```bash
 kremle-detect questions --category math --count 5
+kremle-detect questions -c math -n 3 --source builtin
 ```
 
 ### Свои вопросы
@@ -316,6 +417,30 @@ kremle = KremleFlask(app, storage=RedisStorage(url='redis://localhost:6379/0'))
 Инкремент счётчиков атомарный (Lua), TTL ставится один раз — fixed window.
 
 Также в хранилище живут блоклист, вайтлист и кольцевой лог событий (последние 1000).
+
+### Асинхронность
+
+FastAPI вызывает движок из `async def`, а синхронный Redis-клиент блокировал бы event loop.
+Два варианта:
+
+```python
+from kremle_detect.storage import RedisStorage
+from kremle_detect.storage_async import AsyncRedisStorage, AsyncStorageAdapter
+
+kremle = KremleFastAPI(app, storage=RedisStorage(url='redis://localhost:6379/0'))  # уходит в threadpool
+
+# или нативный asyncio-клиент для собственного кода:
+storage = AsyncRedisStorage(url='redis://localhost:6379/0', prefix='kremle:')
+await storage.increment('rate:ip', ttl=60)
+await storage.aclose()
+
+# или обёртка над своим синхронным бэкендом:
+adapter = AsyncStorageAdapter(MyStorage())
+```
+
+`KremleFastAPI(..., async_offload=False)` выполняет движок прямо в event loop —
+быстрее на MemoryStorage, но опасно с медленным Redis. Инкремент в `AsyncRedisStorage`
+атомарный (Lua `INCR` + `EXPIRE`), как и в синхронном.
 
 ## Rate limiting
 
@@ -389,6 +514,70 @@ engine.whitelist_add('10.0.0.1')
 engine.is_whitelisted('10.0.0.1')
 ```
 
+## Monitor-режим и сегменты
+
+Раньше выбор был «всё или ничего»: любой Яндекс-сигнал — капча. Теперь у каждого
+сигнала своё действие (`policy`), а `sample_rate` позволяет сначала посмотреть, сколько
+трафика задевает фильтр, ничего не блокируя.
+
+```python
+kremle = KremleFlask(
+    app,
+    policy={
+        'yandex_bot':    'block',     # боты — сразу 403, капча им не поможет
+        'yandex_browser': 'monitor',  # считать, но пропускать (shadow)
+        'yandex_referrer': 'challenge',
+    },
+    sample_rate=1.0,                  # доля challenge-трафика, реально получающая капчу
+)
+```
+
+| Действие | Что делает |
+|---|---|
+| `challenge` | показать капчу (по умолчанию для **всех** сигналов) |
+| `block` | `403` без капчи: блэклист и боты |
+| `monitor` | пропустить, но посчитать и записать событие `shadow` в лог |
+| `allow` | игнорировать сигнал |
+
+- Дефолт не изменился: без `policy` все сигналы требуют капчу.
+- `sample_rate=0.3` — 30 % обнаруженного трафика получает капчу, остальные 70 %
+  проходят и учитываются как `monitor`. Так можно измерить долю живых людей, которых
+  задевает фильтр, на реальном трафике.
+- `block` и `blacklist` от `sample_rate` не зависят — вероятностная блокировка не нужна.
+- В `kremle-detect logs` такие события помечены `ТЕНЬ`.
+
+```python
+engine.decide(detect(headers))   # → Decision(action='monitor', reason='yandex_browser', sampled=False)
+```
+
+## Эксплуатация: health, stats, metrics
+
+Все три фреймворка отдают одинаковый набор роутов (`enable_ops_routes=False` /
+`KREMLE_ENABLE_OPS_ROUTES = False` — выключить):
+
+| Метод | Путь | Ответ |
+|---|---|---|
+| GET | `/kremle/health` | `200` со `{"status": "ok", "version", "storage", "storage_ok", ...}`, `503` при недоступном хранилище |
+| GET | `/kremle/stats` | JSON-снапшот счётчиков |
+| GET | `/kremle/metrics` | Prometheus text (`kremle_requests_total`, `kremle_detected_total{reason=...}`, `kremle_action_total{action=...}`…) |
+
+```jsonc
+// GET /kremle/stats
+{
+  "requests_total": 1024, "detected_total": 310, "allowed_total": 690,
+  "detected_by_reason": {"yandex_bot": 4, "yandex_browser": 290, ...},
+  "actions": {"challenge": 250, "block": 4, "monitor": 56, "allow": 0},
+  "challenges_issued": 250, "verify_total": 231, "pass_total": 190, "fail_total": 41,
+  "blocked_by_reason": {"blacklisted": 0, "rate_limited": 23},
+  "shadow_total": 56, "pass_rate": 0.82
+}
+```
+
+Счётчики живут в том же хранилище, что и челленджи, и не истекают — их можно
+скрейпить Prometheus и строить графики «сколько живых людей мы задели».
+`/kremle/health` годится для `livenessProbe`/`readinessProbe` и внешнего монитора:
+`503` означает, что Redis недоступен и капча не сможет сохранить челлендж.
+
 ## Callbacks и логи
 
 ```python
@@ -413,8 +602,11 @@ logging.getLogger('kremle').setLevel(logging.INFO)
 
 ## React-компонент
 
+`kremle-react@1.1.0` — ESM + CJS + типы, 22 теста, ставится из репозитория или из npm.
+
 ```bash
-npm install /path/to/KremleXYZ-Detect/kremle-react
+npm install kremle-react
+npm install /path/to/KremleXYZ-Detect/kremle-react   # из исходников
 ```
 
 ```tsx
@@ -463,20 +655,35 @@ function MyCaptcha() {
 }
 ```
 
-Экспорты: `KremleChallenge`, `useKremle`, типы `KremleChallengeProps`, `KremleQuestion`,
-`KremleResult`, `UseKremleOptions`, `UseKremleReturn`. Требует React ≥ 17 и FastAPI
-с `headless=True`. Запросы идут с `credentials: 'include'` — сессия общая с бэкендом.
+Экспорты: `KremleChallenge`, `useKremle`, `collectFingerprint`, типы `KremleChallengeProps`,
+`KremleQuestion`, `KremleResult`, `UseKremleOptions`, `UseKremleReturn`. Требует React ≥ 17
+и JSON-режим на бэкенде. Запросы идут с `credentials: 'include'` — сессия общая с бэкендом.
+
+- `sources`/`attribution` из `/kremle/challenge` рисуются под формой со ссылкой на
+  первоисточник (`showAttribution={false}` — отключить);
+- `invalid_token` — компонент сам запрашивает новый челлендж;
+- `rate_limited`/`blacklisted`/`blocked` показываются человеческим текстом, а не
+  «ошибок -1 из 0»;
+- кнопка «Попробовать снова» делает `POST /kremle/logout` и перезагружает капчу;
+- SSR-safe: `window`/`navigator` читаются только в браузере.
+
+Подробности — [kremle-react/README.md](kremle-react/README.md).
 
 ## API-роуты
 
 | Метод | Путь | Описание |
 |---|---|---|
-| GET | `/kremle/challenge` | HTML-капча или JSON в headless-режиме |
+| GET | `/kremle/challenge` | HTML-капча; JSON при `Accept: application/json` или `headless` |
 | POST | `/kremle/verify` | проверка ответов (JSON) |
-| GET | `/kremle/status` | `{"verified": bool}` для текущей сессии |
+| GET | `/kremle/status` | `{"verified": bool, "expires_in": int\|null}` |
+| POST | `/kremle/logout` | сбросить «капча пройдена» (можно перепройти) |
+| GET | `/kremle/health` | health-check для монитора |
+| GET | `/kremle/stats` | счётчики в JSON |
+| GET | `/kremle/metrics` | счётчики в формате Prometheus |
 
-Ответы `/kremle/challenge` отдаются с `Cache-Control: no-store` — токен в HTML
-не должен попасть в кеш. `429` — если сработал `challenge_rate_limit`.
+Ответы `/kremle/challenge` и JSON-блокировки отдаются с `Cache-Control: no-store` —
+токен не должен попасть в кеш. `429` — если сработал `challenge_rate_limit` или
+`rate_limited`.
 
 ## Кастомный шаблон
 
@@ -503,6 +710,16 @@ kremle-detect check-hints '"YaBrowser";v="24"'
 kremle-detect questions --category math --count 5
 ```
 
+### Вопросы
+
+```bash
+kremle-detect questions show -c math -n 5              # из кеша РешуЕГЭ или банка
+kremle-detect questions show --source builtin         # только встроенный банк
+kremle-detect questions sync -c math -n 100           # обновить кеш
+kremle-detect questions sync --ids 1001,1002 --dry-run
+kremle-detect questions cache                         # состояние кеша
+```
+
 ### Блоклист и вайтлист
 
 ```bash
@@ -523,8 +740,8 @@ kremle-detect logs -n 200
 kremle-detect logs --no-color
 ```
 
-События: `ПРОШЁЛ`, `ПРОВАЛ`, `ДЕТЕКТ`, `ЗАБЛОК`. URL Redis — флагом `--redis` или
-переменной окружения `KREMLE_REDIS_URL`.
+События: `ПРОШЁЛ`, `ПРОВАЛ`, `ДЕТЕКТ`, `ТЕНЬ` (monitor), `ЗАБЛОК`. URL Redis — флагом
+`--redis` или переменной окружения `KREMLE_REDIS_URL`.
 
 ## Безопасность: что честно
 
@@ -537,13 +754,36 @@ kremle-detect logs --no-color
   спорно с точки зрения антимонопольного/пользовательского законодательства.
 - Переходы из поиска — самый ценный трафик, капча на них снижает и позиции, и конверсию.
 
-Что реально защищено в 2.6: подделка `X-Forwarded-For` больше не обходит rate limit и не
+Что реально защищено в 2.7: подделка `X-Forwarded-For` больше не обходит rate limit и не
 подставляет чужой IP в блоклист; неудачные попытки не блокируют честных пользователей;
-один челлендж = одна попытка; битый JSON не валит сервер; инкремент счётчиков в Redis атомарный.
+один челлендж = одна попытка; «пройдено» истекает; битый JSON не валит сервер; инкремент
+счётчиков в Redis атомарный. Плюс появился способ измерить цену фильтра: `monitor`
+и `sample_rate` считают задетых людей, не отказывая им в доступе.
 
-## Что изменилось в 2.6
+Блокировка по браузеру остаётся целью проекта, а не дефектом. Но прежде чем включать
+её на весь трафик, посмотрите `/kremle/stats` в monitor-режиме: цифра «столько-то
+процентов посетителей — живые люди на Яндекс Браузере» обычно и есть ответ на вопрос,
+стоит ли оно того.
+
+## Что изменилось в 2.7
 
 Полный список — в [CHANGELOG.md](CHANGELOG.md). Кратко:
+
+| Было | Стало |
+|---|---|
+| капча блокировала и обычный `fetch`/SPA (HTML вместо JSON) | `403 JSON` с `captcha_required` + `challenge_url`, редирект только для навигации |
+| «капча пройдена» = `True` в сессии навсегда | TTL `verified_ttl`, привязка к IP/UA, `POST /kremle/logout` |
+| встроенный банк из 60 вопросов | по умолчанию кеш настоящих заданий «Решу ЕГЭ» с атрибуцией |
+| всё или ничего: любой сигнал → капча | `policy` на сигнал (`challenge`/`block`/`monitor`/`allow`) + `sample_rate` |
+| мониторинг только по логам | `/kremle/health`, `/kremle/stats`, `/kremle/metrics` |
+| синхронный Redis в async-приложении | `AsyncRedisStorage`, `AsyncStorageAdapter`, `async_offload` в FastAPI |
+| Django: без headless-режима и ops-роутов | паритет с Flask/FastAPI (`KREMLE_HEADLESS`, `KREMLE_ENABLE_OPS_ROUTES`) |
+| React-пакет не собирался и не тестировался | `kremle-react@1.1.0`: сборка, типы, 22 теста, атрибуция, retry |
+
+Ломающих изменений нет: без явной настройки политика остаётся `challenge` для всех
+сигналов, а старый флаг «пройдено» просто истекает один раз.
+
+## Что изменилось в 2.6
 
 | Было | Стало |
 |---|---|
@@ -567,13 +807,21 @@ kremle-detect logs --no-color
 ## Тесты
 
 ```bash
-python -m pytest tests/ -q      # 214 тестов
+python -m pytest tests/ -q      # 396 тестов
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,
-резолвинг IP, Flask-интеграция, Django-интеграция, FastAPI headless, RedisStorage
-на фейковом клиенте. CI гоняет Python 3.9–3.13, собирает wheel и проверяет, что
-шаблон попал в пакет, плюс билд React-пакета.
+резолвинг IP, политика сегментов и `sample_rate`, метрики и health, TTL «пройдено»,
+провайдер «Решу ЕГЭ» (разбор HTML, дистракторы, кеш, fallback), Flask/Django/FastAPI
+(JSON-гард, monitor, ops-роуты, logout), `AsyncRedisStorage`/`AsyncStorageAdapter`
+на фейковом клиенте и CLI вопросов.
+
+```bash
+cd kremle-react && npm test && npm run typecheck && npm run build   # 22 теста + сборка
+```
+
+CI гоняет Python 3.9–3.13, собирает wheel, проверяет, что шаблон попал в пакет,
+и собирает React-пакет.
 
 ## Лицензия
 

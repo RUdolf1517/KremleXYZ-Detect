@@ -129,7 +129,8 @@ class TestMiddleware:
             )
         assert not called
 
-    def test_blacklisted_redirected(self):
+    def test_blacklisted_blocked(self):
+        """Забаненный IP получает 403 сразу — капча ему не помогает."""
         storage = MemoryStorage()
         storage.blacklist_add('203.0.113.5', ttl=3600)
         with override_settings(KREMLE_STORAGE=storage):
@@ -137,7 +138,7 @@ class TestMiddleware:
                 make_request(ua=NORMAL_UA, remote='203.0.113.5')
             )
         assert not called
-        assert result.status_code == 302
+        assert result.status_code == 403
 
     def test_missing_session_middleware_raises_clear_error(self):
         request = make_request(ua=NORMAL_UA)
@@ -203,7 +204,9 @@ class TestViews:
 
     def test_status(self):
         response = self.patterns()['kremle_status'](make_request(path='/kremle/status/'))
-        assert json.loads(response.content) == {'verified': False}
+        body = json.loads(response.content)
+        assert body['verified'] is False
+        assert body['expires_in'] is None
 
 
 class TestEngineCache:

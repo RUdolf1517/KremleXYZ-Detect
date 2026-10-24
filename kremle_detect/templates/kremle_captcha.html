@@ -33,6 +33,8 @@ body {
   line-height: 1.45;
 }
 .header p { font-size: 0.76rem; opacity: 0.4; letter-spacing: 0.04em; }
+.sources a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.sources { margin-top: 0.35rem; }
 .category-badge {
   display: inline-block;
   font-size: 0.6rem;
@@ -121,6 +123,7 @@ body {
   <div class="header">
     <h1>Возможно вы кремлебот.<br>Пройдите капчу чтобы доказать что это не так.</h1>
     <p id="subtitle"></p>
+    <p id="sources" class="sources"></p>
   </div>
 
   <!-- Honeypot: скрыто от людей, видно ботам -->
@@ -202,6 +205,7 @@ try {
 var DATA = {{ questions_json }};
 var QUESTIONS = DATA.questions;
 var TOKEN = DATA.token;
+var LOGOUT_URL = (DATA.verify_url || '/kremle/verify').replace(/verify\/?$/, 'logout');
 
 var CAT_LABELS = {
   math: 'математика',
@@ -218,6 +222,28 @@ QUESTIONS.forEach(function(q) {
 });
 document.getElementById('subtitle').textContent =
   QUESTIONS.length + ' вопросов' + (catList.length ? ' · ' + catList.join(', ') : '');
+
+/* Атрибуция источников: «Задания: РешуЕГЭ» со ссылкой на первоисточник */
+(function renderSources() {
+  var el = document.getElementById('sources');
+  var sources = DATA.sources || [];
+  if (!sources.length) return;
+  el.appendChild(document.createTextNode('Задания: '));
+  sources.forEach(function(src, i) {
+    if (i > 0) el.appendChild(document.createTextNode(', '));
+    if (!src.url) {
+      el.appendChild(document.createTextNode(src.name || '—'));
+      return;
+    }
+    var a = document.createElement('a');
+    a.href = src.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = src.name || src.url;
+    if (src.author) a.title = src.author;
+    el.appendChild(a);
+  });
+})();
 
 function shuffle(a) {
   var arr = a.slice();
@@ -333,10 +359,16 @@ function resultText(data) {
       desc: 'С этого IP исчерпан лимит неудачных проверок. Попробуйте позже.'
     };
   }
-  if (data.error === 'blacklisted') {
+  if (data.error === 'blacklisted' || data.error === 'blocked') {
     return {
       title: 'Доступ заблокирован.',
-      desc: 'Этот IP в чёрном списке.'
+      desc: 'Этот IP в чёрном списке. Капча не поможет — обратитесь к администратору сайта.'
+    };
+  }
+  if (data.error === 'invalid_answers') {
+    return {
+      title: 'Некорректный ответ.',
+      desc: 'Сервер не смог прочитать отправленные ответы. Начните заново.'
     };
   }
   if (data.error === 'invalid_token') {
@@ -379,7 +411,12 @@ function showResult(data) {
     var btn = document.createElement('button');
     btn.className = 'btn-retry';
     btn.textContent = 'Попробовать снова';
-    btn.onclick = function() { location.reload(); };
+    btn.onclick = function() {
+      /* Сбрасываем сессию и берём новый челлендж: старый токен уже сгорел */
+      fetch(LOGOUT_URL, { method: 'POST' }).catch(function() {}).then(function() {
+        location.reload();
+      });
+    };
     act.appendChild(btn);
   }
 }

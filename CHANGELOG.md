@@ -3,6 +3,84 @@
 Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/).
 Версионирование: [SemVer](https://semver.org/lang/ru/).
 
+## [2.7.0] — 2026-10-24
+
+Релиз про эксплуатацию: видеть, что происходит, не блокировать вслепую и не
+ломать SPA. Ломающих изменений нет — политика по умолчанию остаётся `challenge`
+для всех сигналов.
+
+### Добавлено
+
+- **Monitor-режим (shadow).** `policy={'yandex_browser': 'monitor'}` пропускает
+  трафик, но считает его и пишет событие `shadow` в лог (в `kremle-detect logs`
+  помечено `ТЕНЬ`). Ничего не блокируется — видно, сколько живых людей задевает фильтр.
+- **Сегменты вместо «всё или ничего».** `policy` задаёт действие на сигнал:
+  `challenge` / `block` / `monitor` / `allow`. По умолчанию — `challenge` для всех.
+  `block` отдаёт `403` без капчи (боты, блэклист).
+- **`sample_rate`** — доля обнаруженного трафика, которой реально показывается капча;
+  остальные проходят как `monitor`. `0` — полный shadow-режим, `1` — как раньше.
+  `block` и блэклист от сэмплирования не зависят.
+- **JSON-ответ для API.** Запросы с `Accept: application/json` или
+  `X-Requested-With: XMLHttpRequest` получают `403 {"error": "captcha_required",
+  "action": "challenge", "challenge_url": "/kremle/challenge", "reason": ...}`
+  вместо HTML-редиректа. Для `block` — `{"error": "blocked", "challenge_url": null}`.
+  Отключается `json_api=False` / `KREMLE_JSON_API = False`. `headless=True`
+  (Flask/FastAPI) и `KREMLE_HEADLESS = True` (Django) — весь сайт как API.
+  JSON-блокировки отдаются с `Cache-Control: no-store`.
+- **TTL у «капча пройдена».** В сессии лежит `{"ok", "ts", "exp", "ip", "ua"}`,
+  срок — `verified_ttl` (по умолчанию сутки, `0` — бессрочно). Опциональная привязка
+  к IP (`bind_ip`) и User-Agent (`bind_ua`, по умолчанию выключена). Старый флаг
+  `True` из версий ≤ 2.6 считается просроченным.
+- **`POST /kremle/logout`** — сбросить прохождение и перепройти. `GET /kremle/status`
+  теперь отдаёт `{"verified": bool, "expires_in": int|null}`.
+- **Вопросы «Решу ЕГЭ» по умолчанию** (`questions_source='auto'`): клиент
+  `newapi/general` → страницы вариантов → `/problem?id=<id>`, разбор условия и ответа,
+  кеш в `$KREMLE_CACHE_DIR`/`~/.cache/kremle-detect` на 30 дней, устаревший кеш
+  используется, неудачный `sync` не затирает скачанное. Атрибуция обязательна:
+  каждый вопрос несёт `source` (`name`/`url`/`author`), в `/kremle/challenge` приходят
+  `sources` и `attribution` («Задания: РешуЕГЭ»), в HTML-капче — блок `#sources`.
+  Числовые ответы превращаются в 4 варианта (правильный + 3 искажения), текстовые
+  и длинные задания отбрасываются.
+- **Health-check и метрики.** `/kremle/health` (`200`/`503` по доступности хранилища,
+  версия, тип хранилища, политика), `/kremle/stats` (JSON-снапшот: запросы, детекции
+  по причинам, действия, выдачи, verify, pass/fail, блокировки, `pass_rate`,
+  `shadow_total`), `/kremle/metrics` (Prometheus). Счётчики не истекают.
+  Выключаются `enable_ops_routes=False` / `KREMLE_ENABLE_OPS_ROUTES = False`.
+- **Асинхронность.** `AsyncRedisStorage` (redis.asyncio, атомарный `INCR`+`EXPIRE`
+  через Lua, `aclose()`) и `AsyncStorageAdapter` (threadpool через anyio).
+  `KremleFastAPI` вызывает движок через threadpool (`async_offload`, включено).
+- **CLI.** `kremle-detect questions show|sync|cache`, `--source auto|builtin|sdamgia`,
+  `--ids 1001,1002`, `--dry-run`; старые флаги `questions -c math -n 5` работают.
+- **Django — паритет с Flask/FastAPI:** JSON-гард, `KREMLE_HEADLESS`,
+  `KREMLE_ENABLE_OPS_ROUTES`, health/stats/metrics, logout, TTL «пройдено».
+- **React-пакет `kremle-react@1.1.0`:** собирается (ESM+CJS+`.d.ts`), 22 теста
+  (vitest + jsdom), `useKremle`, `collectFingerprint`, атрибуция источника,
+  авто-перезапрос при `invalid_token`, человеческие тексты для `rate_limited`/
+  `blacklisted`/`blocked`, кнопка «Попробовать снова» через `POST /kremle/logout`.
+
+### Исправлено
+
+- **`bind_ua` был `True` в ядре и Flask, но `False` в FastAPI/Django.** Единый дефолт —
+  `False`: обновление браузера меняет UA и не должно требовать перепройти капчу.
+- **Страница варианта «Решу ЕГЭ» — источник id заданий, а не `larinVariants[].id`.**
+  `id` в `newapi/general` — идентификатор варианта; качать по нему `/problem?id=`
+  нельзя. Добавлены `parse_problem_ids()`, `variant_hrefs()` и `discover_problem_ids()`
+  с fallback на ближайшие id банка, если портал сменит вёрстку.
+- **Парсер задания терял условие.** Вложенные `div` в `pbody` сбивали счётчик
+  вложенности — теперь условие берётся из первого `pbody`, ответ из `div.answer`.
+- **`get=` в провайдере фиксировался на этапе импорта** — подменить HTTP в тестах
+  и в CLI было нельзя. Теперь `get=None` → `http_get` в момент вызова.
+- **`actions.allow` в `/kremle/stats` всегда был 0**, хотя `allowed_total` рос.
+- **Flask/FastAPI/Django не ставили `no-store` на JSON-блокировки** — 403 мог
+  закешироваться прокси.
+
+### Тесты
+
+396 Python-тестов (было 214) и 22 теста React: политика сегментов и `sample_rate`,
+метрики/health/`prometheus`, TTL и logout, провайдер «Решу ЕГЭ» на фикстурах HTML,
+JSON-гард и ops-роуты во всех трёх фреймворках, `AsyncRedisStorage` на фейковом
+клиенте, CLI вопросов.
+
 ## [2.6.0] — 2026-10-24
 
 Релиз про безопасность и доверие к входным данным. Ломающих изменений нет:

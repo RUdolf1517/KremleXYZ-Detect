@@ -70,13 +70,14 @@ class TestGuard:
         r = app.test_client().get('/', headers={'User-Agent': YANDEX_UA})
         assert r.status_code == 200
 
-    def test_blacklist_redirects_to_challenge(self):
+    def test_blacklist_blocks_without_captcha(self):
+        """Забаненный IP получает 403 сразу — капча ему не помогает."""
         storage = MemoryStorage()
         storage.blacklist_add('127.0.0.1', ttl=3600)
         app, _ = make_app(storage=storage)
         r = app.test_client().get('/', headers={'User-Agent': NORMAL_UA})
-        assert r.status_code == 302
-        assert '/kremle/challenge' in r.headers['Location']
+        assert r.status_code == 403
+        assert r.data.decode() == 'Доступ заблокирован.'
 
     def test_persistent_whitelist_allows_yandex(self):
         storage = MemoryStorage()
@@ -181,7 +182,11 @@ class TestVerifyFlow:
         ch = kremle.engine.create_challenge()
         answers = {str(i): q['ans'] for i, q in enumerate(ch.questions)}
 
-        r = client.post('/kremle/verify', json={'token': ch.token, 'answers': answers})
+        r = client.post(
+            '/kremle/verify',
+            json={'token': ch.token, 'answers': answers},
+            headers={'User-Agent': YANDEX_UA},
+        )
         assert r.get_json()['passed'] is True
         assert r.get_json()['redirect']
 

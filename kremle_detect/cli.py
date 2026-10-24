@@ -18,7 +18,11 @@ CLI для kremle-detect.
     kremle-detect whitelist add    1.2.3.4
     kremle-detect whitelist remove 1.2.3.4
 
-    # Логи событий (detect / pass / fail / blocked)
+    # Вопросы из «Решу ЕГЭ»
+    kremle-detect questions sync  --limit 60
+    kremle-detect questions cache          # состояние кеша
+
+    # Логи событий (detect / shadow / pass / fail / blocked)
     kremle-detect logs --redis redis://localhost:6379/0
     kremle-detect logs -n 100
 
@@ -79,6 +83,9 @@ kremle-detect — управление KremleDetect из командной ст
   kremle-detect check-ref  "<URL>"            Проверить Referer URL
   kremle-detect check-hints "<Sec-CH-UA>"     Проверить Client Hints заголовок
   kremle-detect questions  [-c <кат>] [-n N]  Показать вопросы из банка
+  kremle-detect questions sync [-c <кат>] [-n N] [--ids 1001,1002] [--dry-run]
+                                             Скачать вопросы «Решу ЕГЭ» в кеш
+  kremle-detect questions cache              Состояние кеша вопросов
 
 БЛОКЛИСТ
   kremle-detect blacklist list    [--redis URL]           Все заблокированные IP
@@ -92,7 +99,7 @@ kremle-detect — управление KremleDetect из командной ст
 
 ЛОГИ
   kremle-detect logs  [-n N] [--no-color]     Последние N событий (по умолч. 50)
-    Типы событий: ПРОШЁЛ | ПРОВАЛ | ДЕТЕКТ | ЗАБЛОК
+    Типы событий: ПРОШЁЛ | ПРОВАЛ | ДЕТЕКТ | ТЕНЬ (monitor) | ЗАБЛОК
 
 Redis URL указывается через флаг или переменную окружения:
   --redis redis://localhost:6379/0
@@ -157,6 +164,7 @@ _EVENT_LABELS = {
     'pass':     'ПРОШЁЛ  ',
     'fail':     'ПРОВАЛ  ',
     'detect':   'ДЕТЕКТ  ',
+    'shadow':   'ТЕНЬ    ',
     'blocked':  'ЗАБЛОК  ',
 }
 
@@ -164,6 +172,7 @@ _EVENT_COLORS = {
     'pass':    '\033[32m',   # зелёный
     'fail':    '\033[31m',   # красный
     'detect':  '\033[33m',   # жёлтый
+    'shadow':  '\033[36m',   # голубой — monitor-режим
     'blocked': '\033[35m',   # пурпурный
 }
 _RESET = '\033[0m'
@@ -192,8 +201,10 @@ def cmd_logs(args):
         extra = ''
         if event in ('pass', 'fail'):
             extra = f"  ошибок: {ev.get('errors', '?')}/{ev.get('total', '?')}"
-        elif event == 'detect':
+        elif event in ('detect', 'shadow'):
             extra = f"  причина: {ev.get('reason', '?')}"
+            if ev.get('action'):
+                extra += f"  действие: {ev['action']}"
         elif event == 'blocked':
             extra = f"  причина: {ev.get('reason', '?')}"
 
@@ -203,15 +214,79 @@ def cmd_logs(args):
 def cmd_questions(args):
     from .questions import get_questions
 
-    cats = [args.category] if args.category else None
-    qs = get_questions(categories=cats, count=args.count, shuffle=not args.no_shuffle)
+    # Подкоманда `questions show` и старый `questions --count 5` одновременно
+    category = getattr(args, 'category', None) or getattr(args, 'legacy_category', None)
+    count = getattr(args, 'count', None)
+    if count is None:
+        count = getattr(args, 'legacy_count', None) or 5
+    no_shuffle = getattr(args, 'no_shuffle', False) or getattr(args, 'legacy_no_shuffle', False)
+    source = getattr(args, 'source', None) or getattr(args, 'legacy_source', None) or 'auto'
+
+    cats = [category] if category else None
+    qs = get_questions(categories=cats, count=count, shuffle=not no_shuffle, source=source)
+    if not qs:
+        print('Вопросов нет. Для загрузки из «Решу ЕГЭ»: kremle-detect questions sync',
+              file=sys.stderr)
+        sys.exit(1)
 
     for i, q in enumerate(qs):
         cat = q.get('category', '')
-        print(f'\n[{i+1}] [{cat}] {q["q"]}')
+        src = (q.get('source') or {}).get('name')
+        suffix = f' · {src}' if src else ''
+        print(f'\n[{i+1}] [{cat}{suffix}] {q["q"]}')
         for j, opt in enumerate(q['opts']):
             marker = '✓' if j == q['ans'] else ' '
             print(f'  {marker} {j}. {opt}')
+
+
+def cmd_questions_sync(args):
+    from .questions.sdamgia import SUBJECTS, sync
+
+    cats = [args.category] if args.category else list(SUBJECTS.keys())
+    ids = [i.strip() for i in (getattr(args, 'ids', None) or '').split(',') if i.strip()]
+
+    print(f'Скачиваю вопросы: {", ".join(cats)} (до {args.limit} на категорию)...')
+    if ids:
+        print(f'  задания: {", ".join(ids)}')
+    if args.dry_run:
+        from .questions.sdamgia import fetch_questions
+        for cat in cats:
+            questions = fetch_questions(cat, limit=args.limit, problem_ids=ids or None)
+            print(f'  {cat}: {len(questions)} вопрос(ов) — кеш не записан (--dry-run)')
+        return
+
+    result = sync(cats, limit=args.limit, cache_dir=args.cache_dir,
+                  problem_ids=ids or None)
+    if not result:
+        print('Ничего не скачано. Проверьте сеть и доступность sdamgia.ru.', file=sys.stderr)
+        sys.exit(1)
+    for cat, count in result.items():
+        print(f'  {cat}: {count} вопрос(ов) записано в кеш')
+    print('Готово. Вопросы будут использоваться автоматически (questions_source="auto").')
+
+
+def cmd_questions_cache(args):
+    from .questions.sdamgia import SUBJECTS, cache_age, cache_path, read_cache
+
+    rows = []
+    for cat in SUBJECTS:
+        data = read_cache(cat, args.cache_dir)
+        if not data:
+            rows.append((cat, 0, None, cache_path(cat, args.cache_dir)))
+            continue
+        rows.append((cat, len(data['questions']), cache_age(cat, args.cache_dir),
+                     cache_path(cat, args.cache_dir)))
+
+    print(f'Кеш вопросов «Решу ЕГЭ» ({rows[0][3].rsplit("/", 1)[0] if rows else "-"}):')
+    for cat, count, age, path in rows:
+        if not count:
+            print(f'  {cat:11} — пусто')
+            continue
+        age_text = 'только что' if age is not None and age < 60 else (
+            f'{age / 86400:.1f} дн.' if age else '?'
+        )
+        print(f'  {cat:11} {count:4} вопрос(ов), обновлён {age_text}')
+    print('\nОбновить: kremle-detect questions sync')
 
 
 def main():
@@ -238,11 +313,45 @@ def main():
 
     # questions
     p_q = sub.add_parser('questions', help='Показать вопросы из банка')
-    p_q.add_argument('--category', '-c',
+    q_sub = p_q.add_subparsers(dest='q_action')
+
+    q_show = q_sub.add_parser('show', help='Показать вопросы (по умолчанию)')
+    q_show.add_argument('--category', '-c',
+                        choices=['math', 'physics', 'russian', 'literature'],
+                        help='Категория вопросов')
+    q_show.add_argument('--count', '-n', type=int, default=5,
+                        help='Количество вопросов (по умолч. 5)')
+    q_show.add_argument('--no-shuffle', action='store_true', help='Не перемешивать')
+    q_show.add_argument('--source', choices=['auto', 'builtin', 'sdamgia'], default='auto',
+                        help='Источник вопросов (по умолч. auto)')
+    q_show.set_defaults(func=cmd_questions)
+
+    q_sync = q_sub.add_parser('sync', help='Скачать вопросы «Решу ЕГЭ» в кеш')
+    q_sync.add_argument('--category', '-c',
+                        choices=['math', 'physics', 'russian', 'literature'],
+                        help='Только одна категория (по умолч. все)')
+    q_sync.add_argument('--limit', '-n', type=int, default=60,
+                        help='Сколько вопросов на категорию (по умолч. 60)')
+    q_sync.add_argument('--cache-dir', metavar='PATH', help='Каталог кеша')
+    q_sync.add_argument('--ids', metavar='ID[,ID...]',
+                        help='Конкретные id заданий вместо поиска по каталогу')
+    q_sync.add_argument('--dry-run', action='store_true', help='Скачать, но не записывать')
+    q_sync.set_defaults(func=cmd_questions_sync)
+
+    q_cache = q_sub.add_parser('cache', help='Состояние кеша вопросов')
+    q_cache.add_argument('--cache-dir', metavar='PATH', help='Каталог кеша')
+    q_cache.set_defaults(func=cmd_questions_cache)
+
+    # обратная совместимость: kremle-detect questions --count 5
+    p_q.add_argument('--category', '-c', dest='legacy_category',
                      choices=['math', 'physics', 'russian', 'literature'],
-                     help='Категория вопросов')
-    p_q.add_argument('--count', '-n', type=int, default=5, help='Количество вопросов (по умолч. 5)')
-    p_q.add_argument('--no-shuffle', action='store_true', help='Не перемешивать')
+                     help=argparse.SUPPRESS)
+    p_q.add_argument('--count', '-n', type=int, dest='legacy_count',
+                     help=argparse.SUPPRESS)
+    p_q.add_argument('--no-shuffle', action='store_true', dest='legacy_no_shuffle',
+                     help=argparse.SUPPRESS)
+    p_q.add_argument('--source', dest='legacy_source', choices=['auto', 'builtin', 'sdamgia'],
+                     help=argparse.SUPPRESS)
     p_q.set_defaults(func=cmd_questions)
 
     _REDIS_HELP = 'Redis URL (или env KREMLE_REDIS_URL)'

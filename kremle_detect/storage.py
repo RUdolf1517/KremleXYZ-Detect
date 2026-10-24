@@ -31,8 +31,14 @@ class BaseStorage(ABC):
         """Удалить по ключу."""
 
     @abstractmethod
-    def increment(self, key: str, ttl: int) -> int:
-        """Инкремент счётчика. Возвращает новое значение. TTL ставится при создании."""
+    def increment(self, key: str, ttl: Optional[int] = None) -> int:
+        """
+        Инкремент счётчика. Возвращает новое значение.
+
+        Args:
+            ttl: срок жизни ключа в секундах; ``None`` — не истекает
+                 (для метрик), TTL ставится только при создании ключа.
+        """
 
     def get_counter(self, key: str) -> int:
         """
@@ -104,7 +110,7 @@ class MemoryStorage(BaseStorage):
     """In-memory хранение (один процесс). По умолчанию."""
 
     def __init__(self):
-        self._data: Dict[str, tuple] = {}  # key → (value, expires_at)
+        self._data: Dict[str, tuple] = {}  # key → (value, expires_at | None)
         self._last_cleanup: float = time.time()
         self._events: collections.deque = collections.deque(maxlen=self._LOG_MAX)
 
@@ -117,7 +123,7 @@ class MemoryStorage(BaseStorage):
         if entry is None:
             return None
         value, expires_at = entry
-        if time.time() > expires_at:
+        if expires_at is not None and time.time() > expires_at:
             del self._data[key]
             return None
         return value
@@ -125,10 +131,12 @@ class MemoryStorage(BaseStorage):
     def delete(self, key: str) -> None:
         self._data.pop(key, None)
 
-    def increment(self, key: str, ttl: int) -> int:
+    def increment(self, key: str, ttl: Optional[int] = None) -> int:
+        expires_at = None if ttl is None else time.time() + ttl
         entry = self._data.get(key)
-        if entry is None or time.time() > entry[1]:
-            self._data[key] = ({'count': 1}, time.time() + ttl)
+        alive = entry is not None and (entry[1] is None or time.time() <= entry[1])
+        if not alive:
+            self._data[key] = ({'count': 1}, expires_at)
             return 1
         val = entry[0]
         val['count'] = val.get('count', 0) + 1
@@ -139,7 +147,7 @@ class MemoryStorage(BaseStorage):
         if entry is None:
             return 0
         value, expires_at = entry
-        if time.time() > expires_at:
+        if expires_at is not None and time.time() > expires_at:
             del self._data[key]
             return 0
         return int(value.get('count', 0))
@@ -150,7 +158,7 @@ class MemoryStorage(BaseStorage):
         return [
             k[len(prefix):]
             for k, (_, exp) in list(self._data.items())
-            if k.startswith(prefix) and now <= exp
+            if k.startswith(prefix) and (exp is None or now <= exp)
         ]
 
     def whitelist_list(self) -> list:
@@ -159,7 +167,7 @@ class MemoryStorage(BaseStorage):
         return [
             k[len(prefix):]
             for k, (_, exp) in list(self._data.items())
-            if k.startswith(prefix) and now <= exp
+            if k.startswith(prefix) and (exp is None or now <= exp)
         ]
 
     def log_event(self, event: dict) -> None:
@@ -174,7 +182,10 @@ class MemoryStorage(BaseStorage):
         if now - self._last_cleanup < _CLEANUP_INTERVAL:
             return
         self._last_cleanup = now
-        expired = [k for k, (_, exp) in self._data.items() if now > exp]
+        expired = [
+            k for k, (_, exp) in self._data.items()
+            if exp is not None and now > exp
+        ]
         for k in expired:
             del self._data[k]
 
@@ -224,8 +235,10 @@ class RedisStorage(BaseStorage):
     def delete(self, key: str) -> None:
         self._redis.delete(self._key(key))
 
-    def increment(self, key: str, ttl: int) -> int:
+    def increment(self, key: str, ttl: Optional[int] = None) -> int:
         rk = self._key(key)
+        if ttl is None:
+            return int(self._redis.incr(rk))
         # Атомарно INCR + EXPIRE одним Lua-скриптом: если процесс упадёт
         # между двумя командами, ключ останется без TTL навсегда и клиент
         # будет вечно упираться в rate limit / бан.

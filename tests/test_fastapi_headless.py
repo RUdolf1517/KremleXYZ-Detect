@@ -107,7 +107,8 @@ class TestHeadlessMiddleware:
         r = client.get('/protected', headers={'User-Agent': NORMAL_UA})
         assert r.status_code == 403
         body = r.json()
-        assert body['error'] == 'captcha_required'
+        # забаненный IP получает отказ сразу, капча ему не предлагается
+        assert body['error'] == 'blocked'
         assert body['reason'] == 'blacklisted'
 
     def test_spoofed_xff_does_not_bypass_detection(self):

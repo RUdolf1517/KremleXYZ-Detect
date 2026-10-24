@@ -1,4 +1,4 @@
-# kremle-detect v2.6.0
+# kremle-detect v2.7.0
 
 Python-библиотека, которая показывает капчу с вопросами ЕГЭ пользователям Яндекс Браузера,
 Яндекс-ботам и переходам с Яндекса. Flask, Django, FastAPI + голое ядро для любого фреймворка.
@@ -10,18 +10,24 @@ Python-библиотека, которая показывает капчу с �
 ```
 KremleXYZ-Detect/
 ├── kremle_detect/                   Python-пакет
-│   ├── __init__.py                  Публичный API, __version__ = '2.6.0'
+│   ├── __init__.py                  Публичный API, __version__ = '2.7.0'
 │   ├── detector.py                  Детекция (UA, боты, referer, Client Hints)
 │   ├── captcha.py                   Ядро: CaptchaEngine, Challenge, лимиты, callbacks
+│   ├── policy.py                    Действия сегментов (challenge/block/monitor/allow), сэмплирование
+│   ├── metrics.py                   Счётчики, snapshot(), prometheus(), health_payload()
+│   ├── session.py                   TTL «капча пройдена», привязка к IP/UA
 │   ├── storage.py                   MemoryStorage, RedisStorage, EventLog
+│   ├── storage_async.py             AsyncRedisStorage, AsyncStorageAdapter (threadpool)
 │   ├── ip.py                        Резолвинг IP, авто/явные trusted proxies, IP/CIDR
-│   ├── questions/                   Банк вопросов (60 шт.)
-│   │   ├── __init__.py              get_questions(), validate_questions()
+│   ├── questions/                   Банк вопросов
+│   │   ├── __init__.py              get_questions(source=...), attribution_text()
+│   │   ├── sdamgia.py               Клиент «Решу ЕГЭ»: API, HTML-парсер, кеш, sync
 │   │   ├── math.py                  15 заданий — ЕГЭ математика
 │   │   ├── physics.py               15 заданий — ЕГЭ физика
 │   │   ├── russian.py               15 вопросов — русский язык
 │   │   └── literature.py            15 вопросов — литература
 │   ├── integrations/
+│   │   ├── _common.py               JSON-гард: wants_json, challenge_payload, no-store
 │   │   ├── flask_ext.py             KremleFlask (before_request, protect, blueprint)
 │   │   ├── django_ext.py            KremleDjangoMiddleware + kremle_urls()
 │   │   └── fastapi_ext.py           KremleFastAPI (middleware + роуты, headless)
@@ -29,7 +35,7 @@ KremleXYZ-Detect/
 │   └── templates/
 │       └── kremle_captcha.html      HTML капчи + JS-фингерпринт
 ├── kremle-react/                    React-компонент и хук (tsup, TypeScript)
-├── tests/                           214 тестов
+├── tests/                           396 тестов
 │   ├── test_detector.py             Детекция UA/referer/hints
 │   ├── test_captcha.py              Challenge, engine, storage, callbacks
 │   ├── test_engine_security.py      Валидация настроек, одноразовые токены, лимиты
@@ -38,7 +44,17 @@ KremleXYZ-Detect/
 │   ├── test_django_integration.py   Middleware, views, кеш движка
 │   ├── test_fastapi_headless.py     Headless-режим, 403/400/429
 │   ├── test_redis_storage.py        RedisStorage на фейковом клиенте
-│   └── test_questions.py            Категории, валидация, формат
+│   ├── test_questions.py            Категории, валидация, формат
+│   ├── test_policy.py               Сегменты, monitor, sample_rate
+│   ├── test_metrics.py              Счётчики, Prometheus, health
+│   ├── test_session.py              TTL «пройдено», привязка к IP/UA
+│   ├── test_sdamgia.py              Парсер заданий, дистракторы, кеш, sources
+│   ├── test_flask_ops.py            JSON-гард, ops-роуты, logout (Flask)
+│   ├── test_fastapi_ops.py          То же для FastAPI
+│   ├── test_django_ops.py           Паритет Django
+│   ├── test_storage_async.py        AsyncRedisStorage на фейковом клиенте
+│   └── test_cli_questions.py        show / sync / cache
+├── NOTICE.md                        Атрибуция заданий «Решу ЕГЭ»
 ├── .github/workflows/ci.yml         Тесты 3.9–3.13, сборка wheel, билд React
 ├── pyproject.toml
 ├── CHANGELOG.md
@@ -63,8 +79,13 @@ KremleXYZ-Detect/
 │                  ├─ лимит выдачи челленджей                   │
 │                  ├─ callbacks (on_detect/on_pass/on_fail)     │
 │                  └─ logging ('kremle')                        │
+│  policy.py   ──► decide(hits) → challenge|block|monitor|allow │
+│  session.py  ──► «пройдено» с TTL, привязкой к IP/UA          │
+│  metrics.py  ──► счётчики → /stats, /metrics, /health         │
 │  storage.py  ──► MemoryStorage | RedisStorage                │
-│  questions/  ──► get_questions(categories, count)            │
+│  storage_async.py ──► AsyncRedisStorage | AsyncStorageAdapter│
+│  questions/  ──► get_questions(source=auto|builtin|sdamgia)   │
+│                  └─ sdamgia.py: кеш «Решу ЕГЭ» + атрибуция    │
 └──────┬──────────────────┬──────────────────┬─────────────────┘
        │                  │                  │
   flask_ext          django_ext         fastapi_ext
@@ -97,25 +118,28 @@ KremleXYZ-Detect/
       │
       ▼
  POST /kremle/verify ──► blacklist? rate_limit? token жив?
-      │                    ├─ errors <= max_errors → pass, session["kremle_ok"]
+      │                    ├─ errors <= max_errors → pass, session["kremle_ok"]={ok,exp,ip,ua}
       │                    └─ иначе → fail, счётчик, токен удалён
       ▼
  redirect / 403 JSON / {"passed": ...}
+      │
+      ▼
+ GET /kremle/status → {verified, expires_in}   POST /kremle/logout → перепройти
 ```
 
 ---
 
-## Ключевое в 2.6
+## Ключевое в 2.7
 
-- **Доверие к IP**: XFF читается только от loopback/приватных сетей или явного
-  `trusted_proxies`; один резолвер на гард и на verify.
-- **Лимиты, которые не бьют по людям**: считаются только неудачные проверки,
-  успех сбрасывает счётчик; отдельный лимит на выдачу челленджей.
-- **Одноразовые токены**: повтор требует нового челленджа.
-- **Мягкая валидация конфига**: числа проверяются на старте, `max_errors` подрезается
-  под `question_count` и фактический пул вопросов (с предупреждением в лог).
-- **Атомарный Redis**: `INCR` + `EXPIRE` одним Lua-скриптом.
-- **Одинаковое поведение интеграций**: 400 на битый JSON, `no-store` на капче,
-  429 при флуде челленджами.
-- **214 тестов** и CI, который ставит все extras (раньше fastapi-тесты молча скипались),
-  собирает wheel и билдит React-пакет.
+- **Monitor-режим и сегменты**: у каждого сигнала своё действие
+  (`challenge`/`block`/`monitor`/`allow`), `sample_rate` переводит часть капчи
+  в shadow. По умолчанию — `challenge` для всех, как раньше.
+- **JSON-гард**: `fetch`/XHR/SPA получают `403 {"error": "captcha_required"}`,
+  а не HTML-страницу. `headless` — весь сайт как API.
+- **«Пройдено» с TTL**: `verified_ttl`, опциональная привязка к IP/UA, `/kremle/logout`,
+  старый флаг `True` считается просроченным.
+- **Живые вопросы**: `questions_source='auto'` — кеш заданий «Решу ЕГЭ» с атрибуцией,
+  fallback на встроенный банк; `kremle-detect questions sync` обновляет кеш.
+- **Эксплуатация**: `/kremle/health`, `/kremle/stats`, `/kremle/metrics` (Prometheus).
+- **Async**: `AsyncRedisStorage`, `AsyncStorageAdapter`, threadpool в FastAPI.
+- **396 Python-тестов + 22 React** и CI, который собирает wheel и React-пакет.

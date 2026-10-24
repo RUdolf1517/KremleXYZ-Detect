@@ -44,7 +44,16 @@ jobs:
           pip install -e ".[all]" pytest pytest-cov
 
       - name: Run tests
-        run: python -m pytest tests/ -v
+        run: |
+          set -o pipefail
+          python -m pytest tests/ -v 2>&1 | tee /tmp/pytest.log
+
+      - name: Surface failure in annotations
+        # Логи Actions иногда недоступны (артефакты на отдельном хосте),
+        # а аннотации — всегда. Последние строки падения видны прямо в PR.
+        if: failure()
+        run: |
+          echo "::error title=pytest tail::$(tail -30 /tmp/pytest.log | tr '\n' '|' | cut -c1-900)"
 
       - name: Redis tests must actually run (не скипнуться)
         # Если сервис не поднялся, тесты молча скипнутся и «зелёный» CI соврёт

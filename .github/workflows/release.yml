@@ -50,8 +50,14 @@ jobs:
 
       - name: Build
         run: |
+          set -o pipefail
           pip install build
-          python -m build
+          python -m build 2>&1 | tee /tmp/build.log
+
+      - name: Surface build failure in annotations
+        if: failure()
+        run: |
+          echo "::error title=build tail::$(tail -30 /tmp/build.log 2>/dev/null | tr '\n' '|' | cut -c1-900)"
 
       - name: Check package data
         run: |

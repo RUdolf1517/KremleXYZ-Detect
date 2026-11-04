@@ -1,4 +1,4 @@
-import React, { CSSProperties, useEffect, useRef } from 'react'
+import React, { CSSProperties, useEffect, useRef, useState } from 'react'
 import { useKremle } from './useKremle'
 import type { KremleChallengeProps, KremleResult } from './types'
 
@@ -100,6 +100,9 @@ const base: Record<string, CSSProperties> = {
     opacity: 0,
     pointerEvents: 'none',
   },
+  timerWarn: {
+    color: '#ff9c9c',
+  },
   attribution: {
     marginTop: '1.25rem',
     paddingTop: '0.75rem',
@@ -118,7 +121,35 @@ function resultMessage(result: KremleResult): string {
   if (result.error === 'blacklisted' || result.error === 'blocked') return 'доступ заблокирован'
   if (result.error === 'invalid_token') return 'проверка устарела — начните заново'
   if (result.error) return `ошибка: ${result.error}`
+  // Порог приходит с сервера — не угадываем его как total / 2
+  if (typeof result.max_errors === 'number') {
+    return `провал — ошибок: ${result.errors} из ${result.max_errors} допустимых`
+  }
   return `провал — ошибок: ${result.errors}/${result.total}`
+}
+
+/** Сколько секунд осталось до истечения токена (null — сервер не сообщил). */
+function useSecondsLeft(expiresAt: number | null): number | null {
+  const [left, setLeft] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (expiresAt === null) {
+      setLeft(null)
+      return
+    }
+    const tick = () => setLeft(Math.max(0, Math.round((expiresAt - Date.now()) / 1000)))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [expiresAt])
+
+  return left
+}
+
+function formatLeft(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}:${s < 10 ? '0' : ''}${s}`
 }
 
 /**
@@ -156,6 +187,7 @@ export function KremleChallenge({
     result,
     error,
     allAnswered,
+    expiresAt,
   } = useKremle({
     challengeUrl,
     verifyUrl,
@@ -164,6 +196,7 @@ export function KremleChallenge({
     fingerprint,
   })
 
+  const secondsLeft = useSecondsLeft(expiresAt)
   const honeypotName = useRef<HTMLInputElement>(null)
   const honeypotEmail = useRef<HTMLInputElement>(null)
   const notified = useRef<KremleResult | null>(null)
@@ -199,6 +232,16 @@ export function KremleChallenge({
     <div style={containerStyle} className={className}>
       <div style={base.title}>{title}</div>
       {description && <div style={base.description}>{description}</div>}
+
+      {secondsLeft !== null && !result && (
+        <div
+          style={{ ...base.description, ...(secondsLeft <= 60 ? base.timerWarn : {}) }}
+          role="status"
+          aria-live="off"
+        >
+          {secondsLeft > 0 ? `осталось ${formatLeft(secondsLeft)}` : 'время истекло'}
+        </div>
+      )}
 
       {error && (
         <div style={base.error} role="alert">

@@ -293,3 +293,159 @@ class TestStorage:
     def test_memory_storage_get_missing(self):
         s = MemoryStorage()
         assert s.get('nonexistent') is None
+
+
+def _extra(n_questions, prefix='q', category=None):
+    return [
+        {'q': f'{prefix}{i}', 'opts': ['1', '2', '3', '4'], 'ans': 0,
+         **({'category': category} if category else {})}
+        for i in range(n_questions)
+    ]
+
+
+class TestQuestionPool:
+    """Качество набора: без повторов и с ротацией."""
+
+    def test_duplicates_are_removed(self):
+        question = {'q': 'Один и тот же вопрос', 'opts': ['1', '2', '3', '4'], 'ans': 0}
+        engine = CaptchaEngine(
+            question_count=4, max_errors=0, secret='test', only_extra=True,
+            extra_questions=[question, dict(question), dict(question), dict(question)],
+        )
+        ch = engine.create_challenge()
+        assert len(ch.questions) == 1
+        assert [q['q'] for q in ch.safe_questions] == ['Один и тот же вопрос']
+
+    def test_normalised_duplicates_are_removed(self):
+        """Повтор с другими пробелами/регистром — тот же вопрос."""
+        engine = CaptchaEngine(
+            question_count=3, max_errors=0, secret='test', only_extra=True,
+            extra_questions=[
+                {'q': 'Найдите  ответ', 'opts': ['1', '2', '3', '4'], 'ans': 0},
+                {'q': 'найдите ОТВЕТ ', 'opts': ['1', '2', '3', '4'], 'ans': 0},
+                {'q': 'Другой вопрос', 'opts': ['1', '2', '3', '4'], 'ans': 0},
+            ],
+        )
+        assert len(engine.create_challenge().questions) == 2
+
+    def test_rotation_does_not_repeat_questions(self):
+        """Пока в пуле есть непоказанные вопросы, они идут первыми."""
+        engine = CaptchaEngine(
+            question_count=5, max_errors=0, secret='test', only_extra=True,
+            extra_questions=_extra(30),
+        )
+        seen = []
+        for _ in range(3):
+            seen.extend(q['q'] for q in engine.create_challenge().questions)
+        assert len(seen) == 15
+        assert len(set(seen)) == 15, 'вопросы повторились, хотя в пуле было 30'
+
+    def test_rotation_resets_when_pool_exhausted(self):
+        engine = CaptchaEngine(
+            question_count=5, max_errors=0, secret='test', only_extra=True,
+            extra_questions=_extra(10),
+        )
+        for _ in range(2):   # первые два челленджа покрывают пул
+            engine.create_challenge()
+        # третий снова может повторять — важно, что он вообще создаётся
+        assert len(engine.create_challenge().questions) == 5
+
+    def test_small_pool_warns_once(self, caplog):
+        import logging
+
+        engine = CaptchaEngine(
+            question_count=10, max_errors=2, secret='test', only_extra=True,
+            extra_questions=_extra(10),
+        )
+        with caplog.at_level(logging.WARNING, logger='kremle'):
+            engine.create_challenge()
+            engine.create_challenge()
+        warnings = [r for r in caplog.records if 'ротация невозможна' in r.getMessage()]
+        assert len(warnings) == 1, 'предупреждение должно быть одно, а не на каждый челлендж'
+
+    def test_rotation_survives_broken_storage(self):
+        """Падение storage не должно ломать выдачу капчи."""
+        engine = CaptchaEngine(
+            question_count=3, max_errors=0, secret='test', only_extra=True,
+            extra_questions=_extra(10),
+        )
+
+        real_get, real_set = engine.storage.get, engine.storage.set
+
+        def broken_get(key, *args, **kwargs):
+            if str(key).startswith('recentq:'):
+                raise RuntimeError('storage down')
+            return real_get(key, *args, **kwargs)
+
+        def broken_set(key, *args, **kwargs):
+            if str(key).startswith('recentq:'):
+                raise RuntimeError('storage down')
+            return real_set(key, *args, **kwargs)
+
+        engine.storage.get = broken_get
+        engine.storage.set = broken_set
+        assert len(engine.create_challenge().questions) == 3
+
+
+class TestVerifyPayload:
+    """Сервер сам говорит порог и срок жизни — клиент не угадывает."""
+
+    def test_max_errors_in_verify_result(self):
+        engine = CaptchaEngine(
+            question_count=5, max_errors=2, secret='test', only_extra=True,
+            extra_questions=_extra(5),
+        )
+        ch = engine.create_challenge()
+        answers = {str(i): q['ans'] for i, q in enumerate(ch.questions)}
+        for i in range(3):
+            answers[str(i)] = (ch.questions[i]['ans'] + 1) % 4
+
+        result = engine.verify(ch.token, answers, ip='1.2.3.4')
+        assert result['passed'] is False
+        assert result['errors'] == 3
+        assert result['max_errors'] == 2
+
+    def test_max_errors_capped_by_question_count(self):
+        engine = CaptchaEngine(
+            question_count=2, max_errors=5, secret='test', only_extra=True,
+            extra_questions=_extra(2),
+        )
+        ch = engine.create_challenge()
+        answers = {str(i): q['ans'] for i, q in enumerate(ch.questions)}
+        result = engine.verify(ch.token, answers)
+        assert result['max_errors'] == 1   # нельзя ошибиться во всех вопросах
+
+    def test_strict_mode_does_not_leak_threshold(self):
+        """Строгий режим судит жёстче, но клиенту отдаём настроенный порог."""
+        engine = CaptchaEngine(
+            question_count=5, max_errors=2, secret='test', only_extra=True,
+            extra_questions=_extra(5),
+        )
+        ch = engine.create_challenge()
+        answers = {str(i): q['ans'] for i, q in enumerate(ch.questions)}
+        answers['0'] = (ch.questions[0]['ans'] + 1) % 4
+
+        result = engine.verify(ch.token, answers, ip='1.2.3.4',
+                               fingerprint={'yaBrands': True})
+        assert result['passed'] is False
+        assert result['max_errors'] == 2
+
+    def test_to_dict_has_ttl_and_threshold(self):
+        engine = CaptchaEngine(
+            question_count=3, max_errors=1, secret='test', only_extra=True,
+            extra_questions=_extra(3),
+        )
+        ch = engine.create_challenge()
+        data = ch.to_dict(max_errors=engine.max_errors)
+        assert data['max_errors'] == 1
+        assert 0 < data['expires_in'] <= 900
+        assert 'token' in data and 'questions' in data
+
+    def test_to_dict_without_max_errors_keeps_compatibility(self):
+        engine = CaptchaEngine(
+            question_count=1, max_errors=0, secret='test', only_extra=True,
+            extra_questions=_extra(1),
+        )
+        data = engine.create_challenge().to_dict()
+        assert 'max_errors' not in data
+        assert 'expires_in' in data

@@ -373,6 +373,24 @@ def _format_like(value: float, sample: str) -> str:
     return text
 
 
+def _plausible_candidate(candidate: float, number: float, decimals: int) -> bool:
+    """
+    Похоже ли число на возможный ответ, а не на явную чушь.
+
+    Для ответа-вероятности (``0,95``) вариант ``1,90`` отбрасывается сразу
+    любым, включая бота, — и капча выглядит сломанной. Отрицательные ответы
+    не фильтруем: они встречаются в заданиях по-настоящему.
+    """
+    if number < 0:
+        return True
+    if candidate < 0:
+        return False
+    # вероятность/доля: ответ в [0, 1] с дробной частью — варианты тоже в [0, 1]
+    if decimals > 0 and number <= 1:
+        return candidate <= 1
+    return True
+
+
 def build_distractors(answer: str, count: int = 3, rng=None) -> Optional[List[str]]:
     """
     Строит ``count`` неверных вариантов для числового ответа.
@@ -408,16 +426,26 @@ def build_distractors(answer: str, count: int = 3, rng=None) -> Optional[List[st
 
     result: List[str] = []
     seen = {_format_like(number, answer)}
-    for cand in candidates:
-        if len(result) >= count:
-            break
-        if abs(cand - number) < eps:
-            continue
-        formatted = _format_like(cand, answer)
-        if formatted in seen:
-            continue
-        seen.add(formatted)
-        result.append(formatted)
+
+    def take(plausible_only: bool) -> None:
+        for cand in candidates:
+            if len(result) >= count:
+                return
+            if abs(cand - number) < eps:
+                continue
+            if plausible_only and not _plausible_candidate(cand, number, decimals):
+                continue
+            formatted = _format_like(cand, answer)
+            if formatted in seen:
+                continue
+            seen.add(formatted)
+            result.append(formatted)
+
+    # Сначала только правдоподобные варианты; если их не хватило (маленький
+    # диапазон), добираем остальными — вопрос важнее идеальности дистракторов.
+    take(plausible_only=True)
+    if len(result) < count:
+        take(plausible_only=False)
 
     while len(result) < count:
         # запасной вариант: сдвиг на случайные шаги

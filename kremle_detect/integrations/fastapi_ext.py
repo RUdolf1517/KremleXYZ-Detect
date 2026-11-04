@@ -284,7 +284,7 @@ class KremleFastAPI:
             verify_url = root_path + str(request.app.url_path_for('kremle_verify'))
 
             # to_dict — чистая сериализация без I/O, threadpool не нужен
-            data = ch.to_dict(verify_url=verify_url)
+            data = ch.to_dict(verify_url=verify_url, max_errors=engine.max_errors)
             no_store = no_store_headers()
 
             if headless or accepts_json(request.headers.get('accept', '')):

@@ -8,11 +8,24 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        # `ubuntu-latest` переехал на Ubuntu 26.04, а сборок Python 3.9 для неё
+        # в actions/python-versions нет (3.9.25 собран только под 22.04/24.04).
+        # Держим 3.9 на 24.04, остальные версии — на актуальном образе.
+        include:
+          - python-version: "3.9"
+            os: ubuntu-24.04
+          - python-version: "3.10"
+            os: ubuntu-latest
+          - python-version: "3.11"
+            os: ubuntu-latest
+          - python-version: "3.12"
+            os: ubuntu-latest
+          - python-version: "3.13"
+            os: ubuntu-latest
 
     services:
       # Живой Redis: фейковый клиент не проверяет Lua, TTL и гонки

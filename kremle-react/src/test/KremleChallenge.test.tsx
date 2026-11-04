@@ -122,6 +122,30 @@ describe('KremleChallenge', () => {
     expect(screen.getByText(/провал — ошибок: 2\/2/)).toBeTruthy()
   })
 
+  it('показывает порог ошибок с сервера, а не угаданный total / 2', async () => {
+    mockFetch({
+      verify: () => jsonResponse({ passed: false, errors: 4, total: 15, max_errors: 3 }),
+    })
+
+    render(<KremleChallenge />)
+    await screen.findByText(/2\+2/)
+    answerAll()
+    fireEvent.click(screen.getByRole('button', { name: '[ отправить ]' }))
+
+    expect(await screen.findByText(/ошибок: 4 из 3 допустимых/)).toBeTruthy()
+  })
+
+  it('показывает обратный отсчёт, если сервер прислал expires_in', async () => {
+    mockFetch({
+      challenge: () => jsonResponse({ ...CHALLENGE, expires_in: 65 }),
+    })
+
+    render(<KremleChallenge />)
+    await screen.findByText(/2\+2/)
+
+    expect(await screen.findByText(/осталось 1:0[0-9]/)).toBeTruthy()
+  })
+
   it('для rate_limited показывает понятный текст, а не «ошибок -1 из 0»', async () => {
     mockFetch({
       verify: () => jsonResponse({ passed: false, errors: -1, total: 0, error: 'rate_limited' }),

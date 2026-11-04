@@ -615,3 +615,41 @@ class TestFetchFallback:
         assert fetch_questions('math', limit=2, get=get) == []
         problems = [u for u in requested if 'problem?id=' in u]
         assert len(problems) <= PROBE_WINDOW + 5
+
+
+class TestDistractorPlausibility:
+    """Варианты ответа не должны быть заведомо невозможными."""
+
+    def _numbers(self, options, like):
+        return [float(o.replace('−', '-').replace(',', '.')) for o in options]
+
+    def test_probability_stays_within_unit_interval(self):
+        options = build_distractors('0,95')
+        assert options is not None and len(options) == 3
+        assert all(0 <= v <= 1 for v in self._numbers(options, '0,95'))
+
+    def test_small_probability(self):
+        options = build_distractors('0,05')
+        assert all(0 <= v <= 1 for v in self._numbers(options, '0,05'))
+
+    def test_integer_answers_are_not_negative(self):
+        options = build_distractors('100')
+        assert all(v >= 0 for v in self._numbers(options, '100'))
+
+    def test_negative_answer_keeps_negative_options(self):
+        options = build_distractors('-3')
+        assert options is not None and len(options) == 3
+        assert any(v < 0 for v in self._numbers(options, '-3'))
+
+    def test_still_returns_three_distinct_options(self):
+        for answer in ('0,95', '2', '100', '0,05', '0,5', '1', '0,999', '-3'):
+            options = build_distractors(answer)
+            assert options is not None, answer
+            assert len(options) == 3, answer
+            assert len(set(options)) == 3, answer
+            assert answer not in options, answer
+
+    def test_falls_back_when_domain_is_narrow(self):
+        """Если правдоподобных вариантов не хватает, лучше отдать остальные."""
+        options = build_distractors('1')
+        assert options is not None and len(options) == 3

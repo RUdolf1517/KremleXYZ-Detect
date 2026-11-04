@@ -28,6 +28,11 @@ export interface KremleResult {
   passed: boolean
   errors: number
   total: number
+  /**
+   * Сколько ошибок допускал сервер. Приходит с сервера начиная с 2.9.0;
+   * без него компонент показывает только счётчик ошибок.
+   */
+  max_errors?: number
   redirect?: string | null
   /** `invalid_token` | `rate_limited` | `blacklisted` | `invalid_answers` | `blocked` */
   error?: string
@@ -40,6 +45,10 @@ export interface KremleChallengeData {
   questions: KremleQuestion[]
   token: string
   created_at?: number
+  /** Срок жизни челленджа в секундах (для обратного отсчёта) */
+  expires_in?: number
+  /** Допустимое число ошибок — чтобы не угадывать порог на клиенте */
+  max_errors?: number
   verify_url?: string
   sources?: KremleSource[]
   attribution?: string
@@ -78,6 +87,10 @@ export interface UseKremleReturn {
   error: string | null
   /** Все вопросы отвечены */
   allAnswered: boolean
+  /** Допустимое число ошибок из challenge (undefined у старых серверов) */
+  maxErrors?: number
+  /** Момент истечения токена (Date.now()-совместимый), если сервер прислал expires_in */
+  expiresAt: number | null
 }
 
 export interface KremleChallengeProps extends UseKremleOptions {

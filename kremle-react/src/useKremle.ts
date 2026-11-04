@@ -31,6 +31,8 @@ export function useKremle({
   const [sources, setSources] = useState<KremleSource[]>([])
   const [attribution, setAttribution] = useState<string>('')
   const [token, setToken] = useState<string>('')
+  const [maxErrors, setMaxErrors] = useState<number | undefined>(undefined)
+  const [expiresAt, setExpiresAt] = useState<number | null>(null)
   const [answers, setAnswers] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState<boolean>(false)
   const [submitting, setSubmitting] = useState<boolean>(false)
@@ -61,6 +63,10 @@ export function useKremle({
       setSources(data.sources ?? [])
       setAttribution(data.attribution ?? '')
       setToken(data.token ?? '')
+      setMaxErrors(typeof data.max_errors === 'number' ? data.max_errors : undefined)
+      setExpiresAt(
+        typeof data.expires_in === 'number' ? Date.now() + data.expires_in * 1000 : null,
+      )
       setAnswers({})
     } catch (e: unknown) {
       if (!mounted.current) return
@@ -138,5 +144,7 @@ export function useKremle({
     result,
     error,
     allAnswered,
+    maxErrors,
+    expiresAt,
   }
 }

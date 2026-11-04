@@ -39,6 +39,35 @@ DEFAULT_RATE_LIMIT = 10       # неудачных попыток
 DEFAULT_RATE_WINDOW = 600     # за 10 минут
 DEFAULT_CHALLENGE_RATE_LIMIT = 60  # выдач челленджа с одного IP за окно
 
+#: Ротация: сколько последних показанных вопросов помнить, чтобы не повторять
+#: их в следующих челленджах (вопросов в банке может быть всего 15).
+RECENT_QUESTIONS_LIMIT = 400
+RECENT_QUESTIONS_TTL = 6 * 3600
+
+
+def _question_key(question: dict) -> str:
+    """
+    Ключ вопроса для дедупликации и ротации — нормализованный текст.
+
+    Варианты ответа не годятся: один и тот же вопрос может прийти с другим
+    порядком ``opts`` (и приходит — их перемешивает сервер).
+    """
+    text = question.get('q') or ''
+    return ' '.join(str(text).split()).lower()
+
+
+def _dedupe_questions(questions: List[dict]) -> List[dict]:
+    """Убрать повторы по тексту: отвечать одно и то же дважды бессмысленно."""
+    seen = set()
+    result: List[dict] = []
+    for question in questions:
+        key = _question_key(question)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(question)
+    return result
+
 
 def _require_int(name: str, value: Any, minimum: int) -> int:
     """Валидация числовой настройки на старте — лучше упасть сразу, чем в бою."""
@@ -99,16 +128,35 @@ class Challenge:
                     safe['images'].append(item)
             self.safe_questions.append(safe)
 
-    def to_dict(self, verify_url: str = '/kremle/verify') -> dict:
-        """Данные для отправки клиенту (+ атрибуция источников вопросов)."""
-        return {
+    def to_dict(
+        self,
+        verify_url: str = '/kremle/verify',
+        max_errors: Optional[int] = None,
+        ttl: int = TOKEN_TTL,
+    ) -> dict:
+        """
+        Данные для отправки клиенту (+ атрибуция источников вопросов).
+
+        Args:
+            verify_url: адрес проверки ответов.
+            max_errors: сколько ошибок допустимо — клиент должен показывать
+                правду, а не угадывать порог (``errors > total / 2``).
+            ttl: срок жизни челленджа в секундах; клиент получает
+                ``expires_in`` и может показать таймер.
+        """
+        remaining = max(0, int(ttl - (time.time() - self.created_at)))
+        data = {
             'questions': self.safe_questions,
             'token': self.token,
             'created_at': self.created_at,
             'verify_url': verify_url,
+            'expires_in': remaining,
             'sources': question_sources(self.questions),
             'attribution': attribution_text(self.questions),
         }
+        if max_errors is not None:
+            data['max_errors'] = max_errors
+        return data
 
     def _serialize(self) -> dict:
         """Сериализация для хранения в storage."""
@@ -146,7 +194,7 @@ class CaptchaEngine:
         challenge = engine.create_challenge()
 
         # Отдать клиенту
-        data = challenge.to_dict()
+        data = challenge.to_dict(max_errors=engine.max_errors)
 
         # Проверить ответы
         result = engine.verify(challenge.token, user_answers={'0': 0, '1': 2, ...})
@@ -271,6 +319,7 @@ class CaptchaEngine:
             )
         self.questions_source = questions_source
         self.questions_images = bool(questions_images)
+        self._warned_no_rotation = False
         self.images_cache_dir = images_cache_dir
         self.images_prefix = images_prefix or DEFAULT_IMAGES_PREFIX
 
@@ -346,6 +395,60 @@ class CaptchaEngine:
                     ip,
                 )
 
+    # ── Ротация вопросов ─────────────────────────────────────────────────────
+
+    def _rotation_key(self) -> str:
+        """Ключ в storage: у разных наборов категорий своя история."""
+        digest = hashlib.sha1(','.join(sorted(self.categories)).encode()).hexdigest()[:12]
+        return f'recentq:{digest}'
+
+    def _recent_keys(self) -> set:
+        """Тексты недавно показанных вопросов. Ошибки storage не ломают капчу."""
+        try:
+            data = self.storage.get(self._rotation_key())
+        except Exception as exc:  # noqa: BLE001 — хранилище может быть недоступно
+            logger.debug('Ротация вопросов: storage недоступен (%s)', exc)
+            return set()
+        if not isinstance(data, dict):
+            return set()
+        texts = data.get('texts')
+        return set(texts) if isinstance(texts, list) else set()
+
+    def _rotate_pool(self, pool: List[dict]) -> List[dict]:
+        """
+        Пул без недавно показанных вопросов.
+
+        Если «свежих» не хватает на челлендж, отдаём весь пул: повтор лучше,
+        чем капча из двух вопросов.
+        """
+        recent = self._recent_keys()
+        if not recent:
+            return pool
+        fresh = [q for q in pool if _question_key(q) not in recent]
+        return fresh if len(fresh) >= self.question_count else pool
+
+    def _remember_questions(self, questions: List[dict]) -> None:
+        """Запомнить показанные вопросы (для ротации)."""
+        try:
+            data = self.storage.get(self._rotation_key())
+        except Exception:  # noqa: BLE001 — не критично для выдачи капчи
+            data = None
+        texts = list(data.get('texts') or []) if isinstance(data, dict) else []
+        known = set(texts)
+        for question in questions:
+            key = _question_key(question)
+            if key and key not in known:
+                known.add(key)
+                texts.append(key)
+        try:
+            self.storage.set(
+                self._rotation_key(),
+                {'texts': texts[-RECENT_QUESTIONS_LIMIT:]},
+                RECENT_QUESTIONS_TTL,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug('Ротация вопросов: не удалось сохранить историю (%s)', exc)
+
     def create_challenge(self) -> Challenge:
         """Создаёт новый набор вопросов."""
         if self.only_extra:
@@ -367,8 +470,31 @@ class CaptchaEngine:
                 entry.setdefault('category', 'custom')
                 pool.append(entry)
 
+        # Один и тот же вопрос дважды в одной капче — это не проверка, а
+        # потерянное время (кеш «Решу ЕГЭ» может содержать повторы).
+        pool = _dedupe_questions(pool)
+
+        # Ротация: сначала вопросы, которых не было в последних челленджах.
+        # Без неё маленький банк (15 встроенных вопросов) выдаёт один и тот же
+        # набор каждый раз — бот, один раз посмотревший ответы, проходит всегда.
+        rotation_possible = len(pool) > self.question_count
+        if rotation_possible:
+            pool = self._rotate_pool(pool)
+
         self._rng.shuffle(pool)
         questions = pool[:self.question_count]
+
+        if rotation_possible:
+            self._remember_questions(questions)
+        elif not self._warned_no_rotation:
+            self._warned_no_rotation = True
+            logger.warning(
+                'Пул из %d вопрос(ов) при question_count=%d: каждый челлендж '
+                'содержит все вопросы, ротация невозможна. Уменьшите '
+                'question_count или загрузите больше заданий '
+                '(`kremle-detect questions sync`).',
+                len(pool), self.question_count,
+            )
 
         # Картинки из кеша отдаём своим роутом: иначе каждый показ капчи
         # сообщает порталу IP пользователя (и ломается, если портал закрыл
@@ -638,6 +764,10 @@ class CaptchaEngine:
             'passed': passed,
             'errors': errors,
             'total': total,
+            # Порог, по которому реально судили (с учётом «не больше total-1»).
+            # Клиент показывает его человеку: раньше шаблон угадывал порог как
+            # errors > total / 2 и врал «почти прошли» при провале.
+            'max_errors': min(self.max_errors, max(total - 1, 0)),
         }
 
     def notify_detect(self, detect_result, ip: str = None) -> None:

@@ -283,7 +283,8 @@ def kremle_urls():
         ch = engine.create_challenge()
         request.session[TOKEN_KEY] = ch.token
 
-        data = ch.to_dict(verify_url=reverse('kremle_verify'))
+        data = ch.to_dict(verify_url=reverse('kremle_verify'),
+                          max_errors=engine.max_errors)
 
         if _wants_json(request, settings) or accepts_json(request.META.get('HTTP_ACCEPT', '')):
             response = JsonResponse(data)

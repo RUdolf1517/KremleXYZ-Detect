@@ -53,6 +53,7 @@ jobs:
         # отдаёт файлы рисунков (Content-Type, доступность, отсутствие 403 на
         # горячую ссылку) и читаются ли они потом из кеша.
         run: |
+          set -o pipefail
           kremle-detect questions check "${{ inputs.problem_id || '1001' }}" \
             --images --download --json | tee problem-images.json
           python - <<'PY'
@@ -80,8 +81,30 @@ jobs:
       - name: Sync с рисунками и чистка кеша
         # Заодно проверяем `--download` на пачке заданий и что кеш можно
         # ограничить по размеру (`questions images --prune`).
+        #
+        # Живой портал — нестабильный сосед: он может отдать вариант с
+        # непригодными заданиями или ответить 403 на часть страниц. Поэтому
+        # вывод каждой команды попадает в аннотацию (логи Actions иногда
+        # недоступны), а падение основного пути повторяется с явными id.
         run: |
-          kremle-detect questions sync -c math -n 2 --images --download
+          set +e
+          primary=$(kremle-detect questions sync -c math -n 5 --images --download 2>&1)
+          code=$?
+          echo "$primary"
+          if [ "$code" -ne 0 ]; then
+            echo "::warning title=Sync::основной sync не удался (код $code), повторяю с явными id"
+            fallback=$(kremle-detect questions sync -c math -n 2 --ids 1001,1002,1003 \
+                         --images --download 2>&1)
+            code=$?
+            echo "$fallback"
+            if [ "$code" -ne 0 ]; then
+              tail_primary=$(echo "$primary" | tail -12 | tr '\n' '|' | cut -c1-1500)
+              tail_fallback=$(echo "$fallback" | tail -12 | tr '\n' '|' | cut -c1-1500)
+              echo "::error title=Sync failed::sync -n 5: $tail_primary ||| sync --ids: $tail_fallback"
+              exit 1
+            fi
+          fi
+
           kremle-detect questions images
           kremle-detect questions images --prune 1
           kremle-detect questions images

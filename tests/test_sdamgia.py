@@ -534,3 +534,84 @@ class TestCacheMemo:
     def test_missing_file_is_fine(self, tmp_path):
         assert read_cache('math', str(tmp_path)) is None
         assert cache_age('math', str(tmp_path)) is None
+
+
+class TestFetchFallback:
+    """
+    Если задания из варианта не разобрались, перебор идёт дальше.
+
+    Без этого `sync -n 2` зависел от удачи: в вариант могли попасть два
+    «непригодных» задания, и команда падала с «ничего не скачалось».
+    """
+
+    @pytest.fixture
+    def portal(self, sdamgia_html):
+        """Портал: вариант ссылается на несуществующие задания, seed-ids живые."""
+        def make(junk_ids=('999001', '999002')):
+            general = json.dumps({'larinVariants': [{'href': '/variant/1'}]})
+            variant = ''.join(f'<a href="/problem?id={pid}">{i}</a>'
+                              for i, pid in enumerate(junk_ids))
+
+            def get(url):
+                if url.endswith('/newapi/general'):
+                    return general
+                if url.endswith('/variant/1'):
+                    return variant
+                if any(pid in url for pid in junk_ids):
+                    return '<html><body>Задание не найдено</body></html>'
+                return sdamgia_html
+            return get
+        return make
+
+    def test_falls_back_to_seed_ids(self, portal):
+        questions = fetch_questions('math', limit=2, get=portal())
+        assert len(questions) == 2
+        assert all(q['problem_id'] != '999001' for q in questions)
+
+    def test_sync_does_not_fail_on_unlucky_variant(self, portal, tmp_path):
+        result = sync(['math'], limit=2, cache_dir=str(tmp_path), get=portal())
+        assert result == {'math': 2}
+        assert len(read_cache('math', str(tmp_path))['questions']) == 2
+
+    def test_no_extra_requests_when_limit_reached(self, sdamgia_html):
+        general = json.dumps({'larinVariants': [{'href': '/variant/1'}]})
+        variant = ('<a href="/problem?id=1001">1</a><a href="/problem?id=1002">2</a>')
+        requested = []
+
+        def get(url):
+            requested.append(url)
+            if url.endswith('/newapi/general'):
+                return general
+            if url.endswith('/variant/1'):
+                return variant
+            return sdamgia_html
+
+        fetch_questions('math', limit=2, get=get)
+        problems = [u for u in requested if 'problem?id=' in u]
+        assert len(problems) == 2   # ровно столько, сколько нужно
+
+    def test_explicit_ids_are_not_extended(self, portal):
+        requested = []
+        get = portal(junk_ids=('999001',))
+
+        def counting(url):
+            requested.append(url)
+            return get(url)
+
+        assert fetch_questions('math', limit=3, problem_ids=['999001'],
+                               get=counting) == []
+        assert [u for u in requested if 'problem?id=' in u] == [
+            'https://math-ege.sdamgia.ru/problem?id=999001'
+        ]
+
+    def test_fallback_is_bounded(self, portal):
+        """Перебор ограничен окном PROBE_WINDOW — бесконечных запросов нет."""
+        requested = []
+
+        def get(url):
+            requested.append(url)
+            return '<html><body>Задание не найдено</body></html>'
+
+        assert fetch_questions('math', limit=2, get=get) == []
+        problems = [u for u in requested if 'problem?id=' in u]
+        assert len(problems) <= PROBE_WINDOW + 5

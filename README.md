@@ -948,6 +948,7 @@ kremle-detect questions --category math --count 5
 kremle-detect questions show -c math -n 5              # из кеша РешуЕГЭ или банка
 kremle-detect questions show --source builtin         # только встроенный банк
 kremle-detect questions sync -c math -n 100           # обновить кеш
+kremle-detect questions sync --ids 1001,1002          # только конкретные задания
 kremle-detect questions sync --ids 1001,1002 --dry-run
 kremle-detect questions sync --images --download      # рисунки в локальный кеш
 kremle-detect questions check 1001 --download         # один рисунок проверить и скачать

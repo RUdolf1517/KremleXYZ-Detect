@@ -647,14 +647,33 @@ def fetch_questions(
 
     base_url = BASE_URLS[SUBJECTS[category]]
 
-    ids = list(problem_ids or [])
+    explicit_ids = list(problem_ids or [])
+    ids = list(explicit_ids)
     if not ids:
         ids = discover_problem_ids(category, limit=limit, get=get)
 
     questions: List[dict] = []
+    attempted = set()
+
+    if not explicit_ids:
+        # Портал отдаёт на страницах вариантов ссылки на задания, которые могут не
+        # разобраться (текстовый ответ, длинное условие, «задание не найдено»).
+        # Добираем перебором ближайших id: иначе `sync -n 2` падал бы просто
+        # потому, что в вариант попались два непригодных задания.
+        fallback_seen = set(ids)
+        for offset in range(PROBE_WINDOW):
+            pid = str(SEED_PROBLEM_IDS[category] + offset)
+            if pid in fallback_seen:
+                continue
+            fallback_seen.add(pid)
+            ids.append(pid)
+
     for pid in ids:
         if len(questions) >= limit:
             break
+        if pid in attempted:
+            continue
+        attempted.add(pid)
         try:
             html = get(f'{base_url}/problem?id={pid}')
         except (HTTPError, URLError, OSError) as exc:

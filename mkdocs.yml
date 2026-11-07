@@ -61,15 +61,25 @@ plugins:
 nav:
   - Обзор: index.md
   - Установка: install.md
+  - Детекция: detection.md
   - Интеграции:
       - Flask: integrations/flask.md
       - Django: integrations/django.md
       - FastAPI: integrations/fastapi.md
       - Голое ядро: integrations/bare-core.md
       - SPA и JSON: integrations/spa.md
+      - React: react.md
   - Капча: captcha.md
-  - Вопросы: questions.md
-  - Эксплуатация: operations.md
+  - Вопросы:
+      - Банк и «Решу ЕГЭ»: questions.md
+      - Задания с рисунком: images.md
+  - Эксплуатация:
+      - Хранение, лимиты, метрики: operations.md
+      - API-роуты: api.md
+      - CLI: cli.md
   - Безопасность: security.md
-  - Разработка: development.md
+  - Разработка:
+      - Окружение и структура: development.md
+      - Тесты: testing.md
+      - Релиз и публикация: release.md
   - FAQ: faq.md

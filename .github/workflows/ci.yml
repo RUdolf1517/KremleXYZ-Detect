@@ -155,7 +155,8 @@ jobs:
           set -euo pipefail
           # index.md — это index.html в корне, остальные страницы — каталогами
           test -f site/index.html || { echo "::error::нет главной страницы"; exit 1; }
-          pages="install captcha questions operations security faq development"
+          pages="install detection captcha questions images operations api cli"
+          pages="$pages security faq development testing release react"
           pages="$pages integrations/flask integrations/django integrations/fastapi"
           pages="$pages integrations/bare-core integrations/spa"
           for page in $pages; do

@@ -12,7 +12,8 @@ requires-python = ">=3.9"
 authors = [
     { name = "RUdolf1517" },
 ]
-keywords = ["captcha", "yandex", "detect", "flask", "django", "fastapi", "bot-protection"]
+keywords = ["captcha", "yandex", "detect", "flask", "django", "fastapi", "starlette",
+            "litestar", "bot-protection"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Framework :: Flask",
@@ -33,10 +34,13 @@ flask = ["flask>=2.0"]
 django = ["django>=3.2"]
 # itsdangerous нужен starlette SessionMiddleware (куки капчи)
 fastapi = ["fastapi>=0.68", "jinja2>=3.0", "itsdangerous>=2.0"]
+starlette = ["starlette>=0.27", "itsdangerous>=2.0"]
+litestar = ["litestar>=2.0"]
 redis = ["redis>=4.0"]
 demo = ["fastapi>=0.68", "uvicorn>=0.20", "itsdangerous>=2.0"]
 all = ["flask>=2.0", "django>=3.2", "fastapi>=0.68", "jinja2>=3.0",
-       "redis>=4.0", "uvicorn>=0.20", "itsdangerous>=2.0"]
+       "redis>=4.0", "uvicorn>=0.20", "itsdangerous>=2.0",
+       "starlette>=0.27", "litestar>=2.0"]
 # Для запуска тестов: httpx нужен TestClient, fakeredis — тесты Redis без сервера
 test = ["pytest>=7.0", "pytest-cov>=4.0", "httpx>=0.24", "fakeredis[lua]>=2.10",
          "ruff>=0.6"]

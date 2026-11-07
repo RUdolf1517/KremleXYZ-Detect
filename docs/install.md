@@ -9,13 +9,15 @@ pip install kremle-detect                       # только ядро (Flask/D
 pip install "kremle-detect[flask]"              # Flask
 pip install "kremle-detect[django]"             # Django
 pip install "kremle-detect[fastapi]"            # FastAPI + Starlette SessionMiddleware
+pip install "kremle-detect[starlette]"          # Starlette (+ itsdangerous для сессий)
+pip install "kremle-detect[litestar]"           # Litestar 2.x
 pip install "kremle-detect[redis]"              # RedisStorage
 pip install "kremle-detect[all]"                # всё сразу
 pip install "kremle-detect[demo]"               # демо-сервер на uvicorn
 ```
 
-Python **3.9+**. Зависимостей у ядра нет вообще: Flask, Django, FastAPI нужны
-только если вы их сами используете.
+Python **3.9+**. Зависимостей у ядра нет вообще: Flask, Django, FastAPI,
+Starlette, Litestar нужны только если вы их сами используете.
 
 Если пакета ещё нет в индексе (или нужен конкретный коммит):
 

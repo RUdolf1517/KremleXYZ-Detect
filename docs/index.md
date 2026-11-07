@@ -43,7 +43,7 @@ KremleFlask(app, question_count=15, max_errors=3)
 |---|---|
 | [Установка](install.md) | extras, установка из git, демо, Docker, смоук |
 | [Детекция](detection.md) | UA, боты, реферер, Client Hints, фингерпринт |
-| [Flask](integrations/flask.md) · [Django](integrations/django.md) · [FastAPI](integrations/fastapi.md) | быстрый старт по фреймворкам |
+| [Flask](integrations/flask.md) · [Django](integrations/django.md) · [FastAPI](integrations/fastapi.md) · [Starlette](integrations/starlette.md) · [Litestar](integrations/litestar.md) | быстрый старт по фреймворкам |
 | [Голое ядро](integrations/bare-core.md) | любой фреймворк, без интеграции |
 | [SPA и JSON](integrations/spa.md) | `fetch`, 403 в JSON, CORS, headless-режим |
 | [React](react.md) | `kremle-react`: компонент и хук |
@@ -61,12 +61,12 @@ KremleFlask(app, question_count=15, max_errors=3)
 ## Что уже работает
 
 ```bash
-pip install "kremle-detect[all]"      # Flask + Django + FastAPI + Redis
+pip install "kremle-detect[all]"      # Flask + Django + FastAPI + Starlette + Litestar + Redis
 kremle-detect serve                    # демо на http://localhost:8000
 kremle-detect questions sync -n 50     # скачать задания «Решу ЕГЭ» в кеш
 ```
 
-- **Интеграции:** Flask, Django, FastAPI — паритет роутов и настроек.
+- **Интеграции:** Flask, Django, FastAPI, Starlette, Litestar — паритет роутов и настроек.
 - **Капча:** вопросы ЕГЭ, картинки в заданиях, честный результат, таймер,
   доступная разметка, ротация вопросов.
 - **Эксплуатация:** Redis, rate limit, IP за прокси, блоклист, health/stats/metrics,

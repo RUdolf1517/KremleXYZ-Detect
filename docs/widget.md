@@ -75,7 +75,7 @@ widget.destroy();      // убрать капчу со страницы
 
 ## Протокол
 
-Тот же, что у Flask/Django/FastAPI и `kremle-react`, — никаких отдельных
+Тот же, что у Flask/Django/FastAPI/Starlette/Litestar и `kremle-react`, — никаких отдельных
 эндпоинтов:
 
 ```

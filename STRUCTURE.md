@@ -30,6 +30,7 @@ KremleXYZ-Detect/
 │   ├── integrations/
 │   │   ├── __init__.py              Реэкспорт интеграций
 │   │   ├── _common.py               JSON-гард, экранирование JSON для <script>, заголовки безопасности
+│   │   ├── asgi_ext.py              Starlette и Litestar: guard + роуты (общее ASGI-ядро)
 │   │   ├── flask_ext.py             KremleFlask (before_request, protect, blueprint)
 │   │   ├── django_ext.py            KremleDjangoMiddleware + kremle_urls()
 │   │   └── fastapi_ext.py           KremleFastAPI (middleware + роуты, headless)
@@ -69,6 +70,7 @@ KremleXYZ-Detect/
 │   ├── test_captcha_security.py     Экранирование JSON, CSP и защитные заголовки
 │   ├── test_secret_rotation.py      Предупреждение о дефолтном секрете, ротация ключей
 │   ├── test_questions_mixing.py     Источники вопросов: own / sdamgia / mixed
+│   ├── test_asgi_integrations.py    Starlette и Litestar: паритет роутов, guard, сессии
 │   ├── test_widget.py               Бандл виджета, роут /kremle/widget, сниппет, демо
 │   ├── test_structure_sync.py       Версии и состав модулей в документации
 │   ├── test_cli.py                  Диагностика, списки, логи, serve

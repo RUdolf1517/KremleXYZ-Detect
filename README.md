@@ -6,12 +6,12 @@
 Яндекс Браузер, Яндекс-боты и переходы с Яндекса получают капчу с вопросами ЕГЭ.
 Все остальные проходят сразу.
 
-[Установка](#установка) · [Демо за минуту](#демо-за-минуту) · [Быстрый старт](#быстрый-старт) · [Детекция](#что-считается-яндексом) · [Вопросы](#вопросы-банк-и-решу-егэ) · [Monitor](#monitor-режим-и-сегменты) · [Эксплуатация](#эксплуатация-health-stats-metrics) · [CLI](#cli) · [Релиз](#релиз) · [Безопасность](#безопасность-что-честно) · [2.7](#что-изменилось-в-27)
+[Установка](#установка) · [Демо за минуту](#демо-за-минуту) · [Быстрый старт](#быстрый-старт) · [Детекция](#что-считается-яндексом) · [Вопросы](#вопросы-банк-и-решу-егэ) · [Monitor](#monitor-режим-и-сегменты) · [Эксплуатация](#эксплуатация-health-stats-metrics) · [CLI](#cli) · [Релиз](#релиз) · [Безопасность](#безопасность-что-честно) · [2.9](#что-изменилось-в-29) · [Роадмап](ROADMAP.md)
 
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
-[![version](https://img.shields.io/badge/version-2.7.1-111111?style=flat-square)](CHANGELOG.md)
-[![tests](https://img.shields.io/badge/tests-502%20passed%20%2B%2024%20react-2ea44f?style=flat-square)](#тесты)
+[![version](https://img.shields.io/badge/version-2.9.0-111111?style=flat-square)](CHANGELOG.md)
+[![tests](https://img.shields.io/badge/tests-625%20passed%20%2B%2026%20react-2ea44f?style=flat-square)](#тесты)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
 </div>

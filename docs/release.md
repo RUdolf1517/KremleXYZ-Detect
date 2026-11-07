@@ -131,6 +131,26 @@ Settings → **Publishing access** → *Require two-factor authentication and di
 bypass 2fa tokens* → Update Package Settings. По документации это не влияет на
 trusted publishers, но убивает возможность опубликовать по утёкшему токену.
 
+## Сайт документации и демо
+
+`docs/**` собирается в сайт воркфлоу `Pages` (`.github/workflows/pages.yml`) при
+каждом пуше в `main`. Источник публикации — артефакт из Actions, а не ветка
+`gh-pages`: собранный сайт не должен жить отдельным набором файлов, который
+отстаёт от кода (ручной `gh-pages` успел застрять на версии 2.3.4, пока пакет
+ушёл на 2.10).
+
+Что делает сборка:
+
+1. `mkdocs build --strict` — битая ссылка или страница вне `nav` валят сборку;
+2. проверка, что в `site/` лежат `demo.html` и `assets/kremle-widget.min.js` —
+   демо едет вместе с документацией, а не отдельной ссылкой в никуда;
+3. `upload-pages-artifact` → `deploy-pages`.
+
+Адрес: <https://rudolf1517.github.io/KremleXYZ-Detect/>. Если Pages ещё не
+включён (Settings → Pages → Source: **GitHub Actions**), джоб `deploy` не валит
+`main`: шаг помечен `continue-on-error`, в лог уходит предупреждение, а готовая
+сборка остаётся артефактом. После включения достаточно перезапустить `Pages`.
+
 ## Проверка после релиза
 
 Реестры проверяются по API, а не по красивой странице «опубликовано»:

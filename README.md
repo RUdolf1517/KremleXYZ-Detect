@@ -14,6 +14,8 @@
 [![tests](https://img.shields.io/badge/tests-625%20passed%20%2B%2026%20react-2ea44f?style=flat-square)](#тесты)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
+`#капча` `#яндекс` `#антибот` `#flask` `#django` `#fastapi` `#react` `#python` `#security` `#rate-limiting`
+
 </div>
 
 ---

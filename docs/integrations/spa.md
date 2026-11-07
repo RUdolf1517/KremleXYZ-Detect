@@ -8,14 +8,39 @@
 
 - заголовок `Accept: application/json`;
 - заголовок `X-Requested-With: XMLHttpRequest`;
-- путь `/api/...` (эвристика, настраивается `json_api=`).
+- путь под `/api/`, `/v1/`, `/v2/`, `/graphql`.
+
+Отключается через `json_api=False` (Flask/FastAPI) или `KREMLE_JSON_API = False`
+(Django). `headless=True` (Flask/FastAPI) и `KREMLE_HEADLESS = True` (Django) —
+режим «весь сайт API»: JSON отдаётся всегда, даже на `Accept: text/html`.
 
 ```jsonc
 // GET /protected  → 403
 {"error": "captcha_required", "reason": "yandex_browser", "challenge_url": "/kremle/challenge"}
+
+// GET /protected  → 403, политика block
+{"error": "blocked", "action": "block", "challenge_url": null}
 ```
 
-Никаких редиректов — SPA-навигация от них ломается.
+Никаких редиректов — SPA-навигация от них ломается. Все ответы `/kremle/challenge`
+и JSON-блокировки идут с `Cache-Control: no-store`.
+
+## CORS
+
+Если фронт живёт на другом порту (Vite, Next dev), нужен CORS с поддержкой куки —
+сессия капчи хранится в ней:
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['http://localhost:5173'],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
+```
 
 JSON — язык межведомственной переписки: коротко, по делу, без лишних
 поклонов. Клиент просит JSON — получает JSON, а не сюрприз в виде страницы.

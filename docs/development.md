@@ -22,6 +22,8 @@ pip install -e ".[all,test]"
 
 ## Тесты
 
+Подробности по наборам, Redis-тестам и e2e — в разделе [Тесты](testing.md).
+
 ```bash
 pytest -q                                   # всё
 pytest tests/test_captcha.py -q             # один файл

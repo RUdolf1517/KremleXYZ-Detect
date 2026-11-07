@@ -39,15 +39,17 @@ KremleFlask(app, question_count=15, max_errors=3)
 
 | Раздел | О чём |
 |---|---|
-| [Установка](install.md) | extras, демо за минуту, Docker |
+| [Установка](install.md) | extras, установка из git, демо, Docker, смоук |
+| [Детекция](detection.md) | UA, боты, реферер, Client Hints, фингерпринт |
 | [Flask](integrations/flask.md) · [Django](integrations/django.md) · [FastAPI](integrations/fastapi.md) | быстрый старт по фреймворкам |
 | [Голое ядро](integrations/bare-core.md) | любой фреймворк, без интеграции |
-| [SPA и JSON](integrations/spa.md) | `fetch`, 403 в JSON, headless-режим |
+| [SPA и JSON](integrations/spa.md) | `fetch`, 403 в JSON, CORS, headless-режим |
+| [React](react.md) | `kremle-react`: компонент и хук |
 | [Капча](captcha.md) | токен, порог ошибок, таймер, ротация, доступность |
-| [Вопросы](questions.md) | встроенный банк, «Решу ЕГЭ», картинки, свои задания |
-| [Эксплуатация](operations.md) | хранилище, лимиты, health/stats/metrics, прокси, callbacks |
-| [Безопасность](security.md) | что защищено, что нет, как сообщить об уязвимости |
-| [Разработка](development.md) | тесты, линтер, релизный цикл |
+| [Вопросы](questions.md) · [Рисунки](images.md) | банк, «Решу ЕГЭ», свои задания, кеш картинок |
+| [Эксплуатация](operations.md) · [API](api.md) · [CLI](cli.md) | хранилище, лимиты, роуты, команды |
+| [Безопасность](security.md) | что защищено, что нет, требования к продакшену |
+| [Разработка](development.md) · [Тесты](testing.md) · [Релиз](release.md) | окружение, наборы тестов, публикация |
 | [FAQ](faq.md) | частые вопросы и грабли |
 
 Каждая строка ниже проверена тестами — а не написана в отчёте для начальства.

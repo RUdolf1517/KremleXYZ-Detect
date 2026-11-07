@@ -17,6 +17,23 @@ pip install "kremle-detect[demo]"               # демо-сервер на uvi
 Python **3.9+**. Зависимостей у ядра нет вообще: Flask, Django, FastAPI нужны
 только если вы их сами используете.
 
+Если пакета ещё нет в индексе (или нужен конкретный коммит):
+
+```bash
+pip install "kremle-detect[all] @ git+https://github.com/RUdolf1517/KremleXYZ-Detect.git"
+npm install /path/to/KremleXYZ-Detect/kremle-react
+```
+
+Из исходников:
+
+```bash
+git clone https://github.com/RUdolf1517/KremleXYZ-Detect
+cd KremleXYZ-Detect
+python -m venv .venv && . .venv/bin/activate
+pip install -e ".[all]" pytest
+python -m pytest tests/ -q
+```
+
 ## Импортозамещение
 
 `pip install kremle-detect` — и никакой западной капчи с ежемесячной подпиской.

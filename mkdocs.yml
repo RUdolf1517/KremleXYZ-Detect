@@ -66,6 +66,8 @@ nav:
       - Flask: integrations/flask.md
       - Django: integrations/django.md
       - FastAPI: integrations/fastapi.md
+      - Starlette: integrations/starlette.md
+      - Litestar: integrations/litestar.md
       - Голое ядро: integrations/bare-core.md
       - SPA и JSON: integrations/spa.md
       - React: react.md

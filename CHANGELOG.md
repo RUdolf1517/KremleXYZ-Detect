@@ -55,6 +55,15 @@
 
 ### Добавлено
 
+- **Интеграции Starlette и Litestar** (`kremle_detect/integrations/asgi_ext.py`).
+  Обе — тонкие адаптеры над общим ASGI-ядром, поэтому протокол, шаблон капчи и
+  заголовки совпадают с FastAPI до байта: тест сравнивает таблицу роутов с
+  FastAPI и падает при расхождении. `KremleStarlette(app, ...)` сам добавляет
+  `SessionMiddleware` и guard; `KremleLitestar(...)` отдаёт `.middleware` и
+  `.route_handlers` — Litestar собирают декларативно, и лезть в чужой
+  конструктор интеграция не пытается. Extras: `kremle-detect[starlette]`,
+  `kremle-detect[litestar]`; документация — `docs/integrations/starlette.md`,
+  `docs/integrations/litestar.md`.
 - **Готовый образ в GHCR** (`ghcr.io/rudolf1517/kremle-detect`): собирается в CI
   под `linux/amd64` и `linux/arm64`, теги `latest`/`X.Y.Z` по релизу и `edge` с
   `main`. Контейнер не от root, healthcheck на `/kremle/health`, кеш вопросов в

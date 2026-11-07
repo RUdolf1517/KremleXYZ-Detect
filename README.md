@@ -11,7 +11,7 @@
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
 [![version](https://img.shields.io/badge/version-2.10.0-111111?style=flat-square)](CHANGELOG.md)
-[![tests](https://img.shields.io/badge/tests-710%20passed%20%2B%2050%20js-2ea44f?style=flat-square)](docs/testing.md)
+[![tests](https://img.shields.io/badge/tests-750%20passed%20%2B%2050%20js-2ea44f?style=flat-square)](docs/testing.md)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
 `#капча` `#яндекс` `#антибот` `#flask` `#django` `#fastapi` `#react` `#python` `#security` `#rate-limiting`
@@ -85,13 +85,13 @@
 | **Служение Отечеству** | защита своего сайта своими руками, без западных подписок и внешних CDN |
 | **Высокие нравственные идеалы** | строгий режим для тех, кто пришёл из Яндекса: сдавать идеально, без поблажек |
 | **Крепкая семья** | 15 заданий — и свободен: капча не отнимает вечер у родителей, которые зашли посмотреть оценки |
-| **Созидательный труд** | 710 тестов и coverage 92 % — труд, который можно проверить, а не отчитаться о нём |
+| **Созидательный труд** | 750 тестов и coverage 92 % — труд, который можно проверить, а не отчитаться о нём |
 | **Приоритет духовного над материальным** | ни одной строки телеметрии, никакой монетизации, MIT |
 | **Гуманизм, милосердие** | доступная разметка: `aria-*`, тап-таргеты 44 px, `<noscript>`, экранный диктор слышит смену вопроса |
 | **Справедливость** | `max_errors` одинаков для всех, а порог сообщается прямо, без игр в угадайку |
 | **Коллективизм, взаимопомощь** | открытый код, issue, PR — любой может починить и прислать |
 | **Историческая память и преемственность поколений** | вопросы по литературе, атрибуция «Решу ЕГЭ» и Д. Д. Гущину; API не ломается в 2.x — преемственность не только на словах |
-| **Единство народов России** | один протокол для Flask, Django, FastAPI и React — без «в этом фреймворке почти работает» |
+| **Единство народов России** | один протокол для Flask, Django, FastAPI, Starlette, Litestar и React — без «в этом фреймворке почти работает» |
 
 Указ требует обеспечивать передачу ценностей «от поколения к поколению». В
 переводе на нашу задачу это значит: задание, которое человек решает сам, а не
@@ -145,7 +145,7 @@ app.secret_key = 'change-me'
 KremleFlask(app, question_count=15, max_errors=3)
 ```
 
-Две строки — и рубеж обороны стоит. Flask, Django, FastAPI или голое ядро —
+Две строки — и рубеж обороны стоит. Flask, Django, FastAPI, Starlette, Litestar или голое ядро —
 выбирайте по инструменту, а не по указке.
 
 Можно сначала посмотреть, а не блокировать: `policy={'yandex_browser': 'monitor'}`.
@@ -157,9 +157,9 @@ KremleFlask(app, question_count=15, max_errors=3)
 |---|---|
 | **Суверенитет** | ядро без зависимостей, никакой телеметрии, ключи только ваши, `detect()` — чистая функция |
 | **Традиционные ценности** | вопросы ЕГЭ, а не «выберите все квадратики с светофором» |
-| **Соборность** | один шаблон и один протокол для Flask, Django, FastAPI, React и виджета без сборки |
+| **Соборность** | один шаблон и один протокол для Flask, Django, FastAPI, Starlette, Litestar, React и виджета без сборки |
 | **Преемственность** | API не ломается в 2.x; всё, что ломает, копится до 3.0 |
-| **Правда в отчётности** | 710 тестов, coverage 92 %, порог в CI — 85 %, никаких «почти зелёных» |
+| **Правда в отчётности** | 750 тестов, coverage 92 %, порог в CI — 85 %, никаких «почти зелёных» |
 | **Почитание старших** | задания портала «Решу ЕГЭ» с обязательной атрибуцией |
 | **Нестяжательство** | новая зависимость — только если без неё никак |
 | **Оборона, а не нападение** | фильтр защищает свой сайт, а не ходит по чужим |
@@ -184,7 +184,7 @@ README — это вывеска. Вся документация живёт в 
 | [docs/index.md](docs/index.md) | карта документации |
 | [docs/install.md](docs/install.md) | extras, установка из git, демо, Docker, смоук |
 | [docs/detection.md](docs/detection.md) | что считается Яндексом: UA, реферер, Client Hints, фингерпринт |
-| [docs/integrations/](docs/integrations/flask.md) | [Flask](docs/integrations/flask.md) · [Django](docs/integrations/django.md) · [FastAPI](docs/integrations/fastapi.md) · [голое ядро](docs/integrations/bare-core.md) · [SPA и JSON](docs/integrations/spa.md) |
+| [docs/integrations/](docs/integrations/flask.md) | [Flask](docs/integrations/flask.md) · [Django](docs/integrations/django.md) · [FastAPI](docs/integrations/fastapi.md) · [Starlette](docs/integrations/starlette.md) · [Litestar](docs/integrations/litestar.md) · [голое ядро](docs/integrations/bare-core.md) · [SPA и JSON](docs/integrations/spa.md) |
 | [docs/react.md](docs/react.md) | `kremle-react`: компонент, хук, таймер, атрибуция |
 | [docs/widget.md](docs/widget.md) | виджет без React: `<script src>` + `<div>`, без сборки |
 | [docs/captcha.md](docs/captcha.md) | токен, порог ошибок, таймер, ротация, доступность, свой шаблон |
@@ -216,7 +216,7 @@ mkdocs build --strict   # проверка ссылок, как в CI
 
 1. **Код** — 6 500 строк библиотеки, 6 300 строк тестов — почти один к одному. Тест
    пишется до фикса, а не после отчёта.
-2. **Интеграции** — Flask, Django, FastAPI, голое ядро, React, CLI, демо-сервер.
+2. **Интеграции** — Flask, Django, FastAPI, Starlette, Litestar, голое ядро, React, CLI, демо-сервер.
    Паритет роутов и настроек, без «в этом фреймворке почти работает».
 3. **Эксплуатация** — Redis, лимиты, прокси, health/stats/metrics, Prometheus,
    ежедневная проверка живого портала.

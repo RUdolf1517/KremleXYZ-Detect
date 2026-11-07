@@ -10,7 +10,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
-[![version](https://img.shields.io/badge/version-2.10.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.11.0-111111?style=flat-square)](CHANGELOG.md)
 [![tests](https://img.shields.io/badge/tests-750%20passed%20%2B%2050%20js-2ea44f?style=flat-square)](docs/testing.md)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 

@@ -305,7 +305,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes=$(awk '/^## \[/{n++} n==1' CHANGELOG.md | head -n -1)
+          # Ноты берём из раздела CHANGELOG ровно этой версии, а не из первого
+          # попавшегося: первым теперь идёт [Unreleased], и релиз уезжал с
+          # текстом-заглушкой.
+          notes=$(python - <<'PY'
+          import os, re
+          tag = os.environ['GITHUB_REF_NAME'].lstrip('v')
+          text = open('CHANGELOG.md', encoding='utf-8').read()
+          match = re.search(
+              rf'^## \[{re.escape(tag)}\].*?(?=^## \[|\Z)', text, re.M | re.S
+          )
+          print((match.group(0) if match else f'kremle-detect {tag}').strip())
+          PY
+          )
           # Повторный запуск по тому же тегу не должен падать: релиз уже есть —
           # перезаливаем артефакты, а не создаём второй.
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then

@@ -45,6 +45,7 @@ Django-интеграция KremleDetect (middleware).
     KREMLE_JSON_API = True        # JSON-ответ вместо редиректа для fetch/SPA
     KREMLE_HEADLESS = False       # всегда JSON (весь сайт — API)
     KREMLE_ENABLE_OPS_ROUTES = True
+    KREMLE_CSP_POLICY = None      # своя CSP; "" — не отправлять заголовок
 """
 
 from __future__ import annotations
@@ -64,6 +65,8 @@ from ..session import (
 from ..storage import MemoryStorage, RedisStorage
 from ._common import (
     accepts_json, blocked_payload, challenge_payload, no_store_headers, wants_json,
+    captcha_headers,
+    render_captcha_html,
 )
 
 _engine_cache = {}
@@ -131,6 +134,11 @@ def _get_engine(settings) -> CaptchaEngine:
             ),
         )
     return _engine_cache[cache_key]
+
+
+def _captcha_headers(settings) -> dict:
+    """Заголовки ответов капчи: не кешировать + защитные заголовки."""
+    return captcha_headers(getattr(settings, 'KREMLE_CSP_POLICY', None))
 
 
 def _ip_in_whitelist(ip: str, whitelist: list) -> bool:
@@ -288,7 +296,7 @@ def kremle_urls():
 
         if _wants_json(request, settings) or accepts_json(request.META.get('HTTP_ACCEPT', '')):
             response = JsonResponse(data)
-            for name, value in no_store_headers().items():
+            for name, value in _captcha_headers(settings).items():
                 response[name] = value
             return response
 
@@ -303,9 +311,10 @@ def kremle_urls():
                 f'Не удалось открыть шаблон капчи: {tpl_path!r} — {e}'
             ) from e
 
-        html = html.replace('{{ questions_json }}', json.dumps(data, ensure_ascii=False))
+        # `</script>` в тексте вопроса вырывался из шаблона — экранируем
+        html = render_captcha_html(html, data)
         response = HttpResponse(html, content_type='text/html; charset=utf-8')
-        for name, value in no_store_headers().items():
+        for name, value in _captcha_headers(settings).items():
             response[name] = value
         return response
 
@@ -342,14 +351,17 @@ def kremle_urls():
         else:
             result['redirect'] = None
 
-        return JsonResponse(result)
+        response = JsonResponse(result)
+        for name, value in _captcha_headers(settings).items():
+            response[name] = value
+        return response
 
     @require_GET
     def status(request):
         from django.conf import settings
         engine = _get_engine(settings)
         state = request.session.get(SESSION_KEY)
-        return JsonResponse({
+        response = JsonResponse({
             'verified': is_verified(
                 state,
                 ua=request.META.get('HTTP_USER_AGENT'),
@@ -357,14 +369,22 @@ def kremle_urls():
             ),
             'expires_in': remaining_seconds(state),
         })
+        for name, value in _captcha_headers(settings).items():
+            response[name] = value
+        return response
 
     @csrf_exempt
     @require_POST
     def logout(request):
+        from django.conf import settings
+
         request.session.pop(SESSION_KEY, None)
         request.session.pop(TOKEN_KEY, None)
         request.session.pop(NEXT_KEY, None)
-        return JsonResponse({'verified': False})
+        response = JsonResponse({'verified': False})
+        for name, value in _captcha_headers(settings).items():
+            response[name] = value
+        return response
 
     @require_GET
     def health(request):

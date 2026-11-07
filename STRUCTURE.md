@@ -1,4 +1,4 @@
-# kremle-detect v2.7.0
+# kremle-detect v2.10.0
 
 Python-библиотека, которая показывает капчу с вопросами ЕГЭ пользователям Яндекс Браузера,
 Яндекс-ботам и переходам с Яндекса. Flask, Django, FastAPI + голое ядро для любого фреймворка.
@@ -10,7 +10,7 @@ Python-библиотека, которая показывает капчу с �
 ```
 KremleXYZ-Detect/
 ├── kremle_detect/                   Python-пакет
-│   ├── __init__.py                  Публичный API, __version__ = '2.7.0'
+│   ├── __init__.py                  Публичный API, __version__ = '2.10.0'
 │   ├── detector.py                  Детекция (UA, боты, referer, Client Hints)
 │   ├── captcha.py                   Ядро: CaptchaEngine, Challenge, лимиты, callbacks
 │   ├── policy.py                    Действия сегментов (challenge/block/monitor/allow), сэмплирование
@@ -19,6 +19,7 @@ KremleXYZ-Detect/
 │   ├── storage.py                   MemoryStorage, RedisStorage, EventLog
 │   ├── storage_async.py             AsyncRedisStorage, AsyncStorageAdapter (threadpool)
 │   ├── ip.py                        Резолвинг IP, авто/явные trusted proxies, IP/CIDR
+│   ├── images.py                    Картинки к заданиям (вкл/выкл, атрибуция)
 │   ├── questions/                   Банк вопросов
 │   │   ├── __init__.py              get_questions(source=..., allow_images=...)
 │   │   ├── sdamgia.py               Клиент «Решу ЕГЭ»: API, HTML-парсер, кеш, sync
@@ -27,16 +28,18 @@ KremleXYZ-Detect/
 │   │   ├── russian.py               15 вопросов — русский язык
 │   │   └── literature.py            15 вопросов — литература
 │   ├── integrations/
-│   │   ├── _common.py               JSON-гард: wants_json, challenge_payload, no-store
+│   │   ├── __init__.py              Реэкспорт интеграций
+│   │   ├── _common.py               JSON-гард, экранирование JSON для <script>, заголовки безопасности
 │   │   ├── flask_ext.py             KremleFlask (before_request, protect, blueprint)
 │   │   ├── django_ext.py            KremleDjangoMiddleware + kremle_urls()
 │   │   └── fastapi_ext.py           KremleFastAPI (middleware + роуты, headless)
 │   ├── cli.py                       kremle-detect: диагностика, списки, логи, serve
 │   ├── demo.py                      Демо-приложение (FastAPI + /stats)
+│   ├── py.typed                     Маркер типизации (PEP 561)
 │   └── templates/
 │       └── kremle_captcha.html      HTML капчи + JS-фингерпринт
 ├── kremle-react/                    React-компонент и хук (tsup, TypeScript)
-├── tests/                           502 тестов
+├── tests/                           Тесты (pytest, покрытие 92 %)
 │   ├── test_detector.py             Детекция UA/referer/hints
 │   ├── test_captcha.py              Challenge, engine, storage, callbacks
 │   ├── test_engine_security.py      Валидация настроек, одноразовые токены, лимиты
@@ -56,6 +59,9 @@ KremleXYZ-Detect/
 │   ├── test_storage_async.py        AsyncRedisStorage на фейковом клиенте
 │   ├── test_cli_questions.py        show / sync / cache
 │   ├── test_common.py               Accept, JSON-payload, no-store
+│   ├── test_captcha_security.py     Экранирование JSON, CSP и защитные заголовки
+│   ├── test_secret_rotation.py      Предупреждение о дефолтном секрете, ротация ключей
+│   ├── test_structure_sync.py       Версии и состав модулей в документации
 │   ├── test_cli.py                  Диагностика, списки, логи, serve
 │   ├── test_demo.py                 Демо-страницы и полный цикл
 │   ├── test_e2e.py                  Живой HTTP-сервер (uvicorn), куки, logout

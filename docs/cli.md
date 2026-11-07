@@ -73,7 +73,7 @@ kremle-detect logs --no-color
 ## Версия
 
 ```bash
-kremle-detect --version      # kremle-detect 2.9.0
+kremle-detect --version      # kremle-detect 2.10.0
 ```
 
 ---

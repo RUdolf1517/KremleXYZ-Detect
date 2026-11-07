@@ -11,7 +11,7 @@ pytest tests/ -q
 
 # 2. версия во всех трёх файлах + запись в CHANGELOG.md
 # 3. тег и пуш — дальше всё делает .github/workflows/release.yml
-git tag v2.9.0 && git push origin v2.9.0
+git tag v2.10.0 && git push origin v2.10.0
 ```
 
 Workflow соберёт wheel/sdist, сверит версию с тегом, поставит wheel в чистый venv
@@ -27,6 +27,36 @@ OIDC, без токенов) и npm (`--provenance`), и создаст GitHub R
 - **npm**: trusted publishing, подробности ниже.
 - Если OIDC на PyPI недоступен — секрет `PYPI_API_TOKEN` и раскомментировать
   `password` в шаге публикации.
+
+## SBOM и подпись артефактов
+
+Рядом с `kremle_detect-*.whl` в релизе лежат:
+
+| Файл | Что это |
+|---|---|
+| `sbom-python.cdx.json` | CycloneDX-1.6 SBOM Python-пакета со всеми extras |
+| `sbom-npm.cdx.json` | CycloneDX-1.5 SBOM `kremle-react` (`npm sbom`) |
+| `<артефакт>.sig` + `<артефакт>.pem` | подпись и сертификат sigstore (keyless) |
+
+SBOM снимается с **установленного** wheel (`cyclonedx-py environment`), а не с
+`pyproject.toml`: в отчёт попадают реальные версии зависимостей. Подпись — через
+OIDC GitHub Actions, приватного ключа нигде нет.
+
+Проверить подпись:
+
+```bash
+cosign verify-blob \
+  --certificate kremle_detect-2.10.0-py3-none-any.whl.pem \
+  --signature   kremle_detect-2.10.0-py3-none-any.whl.sig \
+  --certificate-identity-regexp '^https://github.com/RUdolf1517/KremleXYZ-Detect/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  kremle_detect-2.10.0-py3-none-any.whl
+```
+
+Если sigstore недоступен, шаг подписи не валит релиз: артефакты публикуются без
+`.sig`, а в логе остаётся `::warning`. Так же ведёт себя установка
+`cosign-installer` — публикация важнее подписи, но молчать об этом workflow не
+будет.
 
 ## npm: trusted publishing (OIDC)
 

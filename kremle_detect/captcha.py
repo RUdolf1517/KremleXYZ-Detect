@@ -78,8 +78,38 @@ def _require_int(name: str, value: Any, minimum: int) -> int:
     return value
 
 
+DEFAULT_SECRET = 'kremle-default-secret'
+
+
 def _sign(data: str, secret: str) -> str:
     return hmac.new(secret.encode(), data.encode(), hashlib.sha256).hexdigest()
+
+
+def _normalize_secrets(secret: Any, logger_: logging.Logger = logger) -> List[str]:
+    """
+    Привести ``secret`` к списку ключей: первый подписывает, все проверяют.
+
+    Список нужен для плавной ротации: какое-то время живут челленджи,
+    подписанные старым ключом, и если его сразу выбросить — все, кто в середине
+    капчи, получат ``invalid_token``.
+
+    Пример:
+        _normalize_secrets('new')            # ['new']
+        _normalize_secrets(['new', 'old'])    # ['new', 'old']
+    """
+    if isinstance(secret, str):
+        secrets = [secret] if secret else []
+    else:
+        secrets = [str(item) for item in secret if str(item)]
+    if not secrets:
+        raise ValueError('secret не может быть пустым')
+    if secrets[0] == DEFAULT_SECRET:
+        logger_.warning(
+            'Используется секрет по умолчанию (%r): токены капчи может подделать '
+            'любой, кто знает этот ключ. Задайте свой: secret="..." или '
+            'KREMLE_SECRET.', DEFAULT_SECRET,
+        )
+    return secrets
 
 
 class Challenge:
@@ -96,7 +126,7 @@ class Challenge:
     def __init__(
         self,
         questions: List[dict],
-        secret: str = 'kremle-default-secret',
+        secret: str = DEFAULT_SECRET,
     ):
         self.questions = questions
         self.created_at = time.time()
@@ -205,7 +235,7 @@ class CaptchaEngine:
         categories: Optional[Sequence[str]] = None,
         question_count: int = DEFAULT_QUESTION_COUNT,
         max_errors: int = DEFAULT_MAX_ERRORS,
-        secret: str = 'kremle-default-secret',
+        secret: str | Sequence[str] = DEFAULT_SECRET,
         extra_questions: Optional[List[dict]] = None,
         only_extra: bool = False,
         storage: Optional[BaseStorage] = None,
@@ -233,7 +263,11 @@ class CaptchaEngine:
             categories: категории встроенных вопросов.
             question_count: сколько вопросов в одном челлендже.
             max_errors: допустимое число ошибок (строго меньше question_count).
-            secret: секрет для HMAC-подписи токенов.
+            secret: секрет для HMAC-подписи токенов — строка или список строк.
+                Первый ключ подписывает новые челленджи, остальные принимаются
+                при проверке: так ключ меняют без того, чтобы разом убить все
+                выданные капчи (``secret=['новый', 'старый']``). Пустой секрет
+                по умолчанию вызывает ``WARNING``.
             extra_questions: список своих вопросов.
             only_extra: если True — только extra_questions.
             storage: бэкенд хранения (MemoryStorage/RedisStorage).
@@ -278,7 +312,10 @@ class CaptchaEngine:
                 self.max_errors, self.question_count, self.question_count - 1,
             )
             self.max_errors = self.question_count - 1
-        self.secret = secret
+        #: Все действующие ключи: первый подписывает новые челленджи,
+        #: остальные принимаются при проверке (плавная ротация).
+        self.secrets = _normalize_secrets(secret)
+        self.secret = self.secrets[0]
         self.extra_questions = list(extra_questions) if extra_questions else []
         if self.extra_questions:
             validate_questions(self.extra_questions)
@@ -545,8 +582,10 @@ class CaptchaEngine:
         # Re-derive the expected token from stored data and compare.
         # If Redis/memory was tampered with (e.g. answers changed), this fails.
         answers_str = json.dumps([q['ans'] for q in data['questions']], separators=(',', ':'))
-        expected = _sign(f'{answers_str}:{data["created_at"]}', self.secret)
-        if not hmac.compare_digest(expected, token):
+        signed = f'{answers_str}:{data["created_at"]}'
+        # проверяем всеми действующими ключами: старый ещё принимается, пока
+        # его не убрали из списка (ротация без разрыва активных капч)
+        if not any(hmac.compare_digest(_sign(signed, key), token) for key in self.secrets):
             logger.warning('Challenge HMAC mismatch — possible storage tampering: token=%s', token[:16])
             return None
         return Challenge._deserialize(data)

@@ -6,6 +6,14 @@
  * в Next.js/Remix.
  */
 
+/**
+ * Отпечаток клиента.
+ *
+ * Пять полей — ровно столько, сколько нужно, чтобы отличить Яндекс Браузер от
+ * остальных. Всё, что не влияет на решение (список брендов целиком, язык
+ * интерфейса), не собирается: лишние сигналы — это лишние персональные данные,
+ * которые некуда девать и незачем хранить.
+ */
 export interface KremleFingerprint {
   /** Яндекс Браузер в navigator.userAgentData.brands (Client Hints JS API) */
   yaBrands: boolean
@@ -13,14 +21,10 @@ export interface KremleFingerprint {
   yandexApi: boolean
   /** Заполнены скрытые honeypot-поля (типичный признак бота) */
   honeypot: boolean
-  /** Полный список брендов, если браузер его отдаёт */
-  brands?: string[]
   /** navigator.webdriver — автоматизация через Selenium/Puppeteer */
   webdriver?: boolean
-  /** Язык интерфейса */
-  lang?: string
-  /** Часовой пояс */
-  tz?: string
+  /** Часовой пояс — грубая примета автоматизации (пусто в headless-браузерах) */
+  timezone?: string
 }
 
 export interface HoneypotValues {
@@ -75,15 +79,12 @@ export function collectFingerprint(honeypot: HoneypotValues = {}): KremleFingerp
     yandexApi,
     honeypot: honeypotFilled,
     webdriver: Boolean((navigator as Navigator & { webdriver?: boolean }).webdriver),
-    lang: navigator.language || '',
   }
 
-  if (brands) fp.brands = brands
-
   try {
-    fp.tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+    fp.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
   } catch {
-    fp.tz = ''
+    fp.timezone = ''
   }
 
   return fp

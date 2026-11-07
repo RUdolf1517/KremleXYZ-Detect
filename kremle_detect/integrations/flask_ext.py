@@ -15,7 +15,6 @@ Flask-интеграция KremleDetect.
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Callable, List, Optional, Sequence
 
@@ -34,7 +33,13 @@ from ..session import (
 )
 from ..storage import BaseStorage, MemoryStorage, RedisStorage
 from ._common import (
-    accepts_json, blocked_payload, challenge_payload, no_store_headers, wants_json,
+    accepts_json,
+    blocked_payload,
+    captcha_headers,
+    challenge_payload,
+    no_store_headers,
+    render_captcha_html,
+    wants_json,
 )
 
 # Эндпоинты, которые не надо защищать
@@ -124,7 +129,7 @@ class KremleFlask:
         categories: Optional[Sequence[str]] = None,
         question_count: int = 15,
         max_errors: int = 3,
-        secret: Optional[str] = None,
+        secret: str | Sequence[str] | None = None,
         skip_endpoints: Optional[Sequence[str]] = None,
         auto_guard: bool = True,
         storage: Optional[BaseStorage] = None,
@@ -151,6 +156,7 @@ class KremleFlask:
         questions_images: bool = False,
         images_cache_dir: Optional[str] = None,
         images_prefix: str = '/kremle/img/',
+        csp_policy: Optional[str] = None,
         json_api: bool = True,
         headless: bool = False,
         enable_ops_routes: bool = True,
@@ -186,6 +192,7 @@ class KremleFlask:
         self.questions_images = questions_images
         self.images_cache_dir = images_cache_dir
         self.images_prefix = images_prefix
+        self.csp_policy = csp_policy
         self.json_api = json_api
         self.headless = headless
         self.enable_ops_routes = enable_ops_routes
@@ -290,6 +297,10 @@ class KremleFlask:
         trusted_proxies = self.trusted_proxies
         enable_ops = self.enable_ops_routes
 
+        def cap_headers() -> dict:
+            # не кешировать + нельзя встроить в iframe и угадать тип
+            return captcha_headers(self.csp_policy)
+
         @bp.route('/challenge')
         def challenge():
             ip = _get_client_ip(request, trusted_proxies)
@@ -313,7 +324,7 @@ class KremleFlask:
 
             # headless/JSON-клиент получает вопросы сразу, без HTML
             if self.headless or accepts_json(request.headers.get('Accept', '')):
-                return jsonify(data), 200, no_store_headers()
+                return jsonify(data), 200, cap_headers()
 
             tpl_path = custom_template or default_tpl_path
             try:
@@ -325,10 +336,11 @@ class KremleFlask:
                 ) from e
             # Простой string-replace — шаблон не зависит от Jinja2 и работает
             # одинаково во Flask, Django и FastAPI без экранирования кавычек.
-            html = html.replace('{{ questions_json }}', json.dumps(data, ensure_ascii=False))
+            # `</script>` в тексте вопроса вырывался из шаблона — экранируем
+            html = render_captcha_html(html, data)
             return html, 200, {
                 'Content-Type': 'text/html; charset=utf-8',
-                **no_store_headers(),
+                **cap_headers(),
             }
 
         @bp.route('/verify', methods=['POST'])
@@ -357,7 +369,7 @@ class KremleFlask:
             else:
                 result['redirect'] = None
 
-            return jsonify(result)
+            return jsonify(result), 200, cap_headers()
 
         @bp.route('/status')
         def status():
@@ -369,14 +381,14 @@ class KremleFlask:
                     bind_ua=self.bind_ua,
                 ),
                 'expires_in': remaining_seconds(state),
-            })
+            }), 200, cap_headers()
 
         @bp.route('/logout', methods=['POST'])
         def logout():
             session.pop(SESSION_KEY, None)
             session.pop(TOKEN_KEY, None)
             session.pop(NEXT_KEY, None)
-            return jsonify({'verified': False})
+            return jsonify({'verified': False}), 200, cap_headers()
 
         @bp.route('/img/<key>')
         def image(key):

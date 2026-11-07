@@ -229,13 +229,61 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write   # keyless-подпись sigstore (OIDC → Fulcio/Rekor)
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
 
       - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
+
+      - name: SBOM (CycloneDX) — Python и npm
+        # SBOM описывает то, что реально установится: ставим собранный wheel
+        # со всеми extras в пустое окружение и снимаем состав оттуда.
+        run: |
+          set -o pipefail
+          python -m venv /tmp/sbom
+          /tmp/sbom/bin/pip install --quiet "$(ls dist/*.whl)[all]" "cyclonedx-bom>=8,<9"
+          /tmp/sbom/bin/cyclonedx-py environment /tmp/sbom/bin/python \
+            --pyproject pyproject.toml --mc-type library \
+            -o dist/sbom-python.cdx.json --of JSON
+          (cd kremle-react && npm sbom --sbom-format=cyclonedx > ../dist/sbom-npm.cdx.json)
+          python - <<'PY'
+          import json
+          for name in ('dist/sbom-python.cdx.json', 'dist/sbom-npm.cdx.json'):
+              data = json.load(open(name, encoding='utf-8'))
+              root = data['metadata']['component']
+              print(f"{name}: {root['name']} {root['version']}, компонентов: {len(data['components'])}")
+          PY
+
+      - uses: sigstore/cosign-installer@v3
+        id: cosign
+        # sigstore может быть недоступен — релиз из-за этого падать не должен
+        continue-on-error: true
+
+      - name: Подпись артефактов (sigstore keyless)
+        if: steps.cosign.outcome == 'success'
+        continue-on-error: true
+        run: |
+          for file in dist/*.whl dist/*.tar.gz dist/*.cdx.json; do
+            [ -e "$file" ] || continue
+            if cosign sign-blob --yes --output-signature "$file.sig" \
+                 --output-certificate "$file.pem" "$file"; then
+              echo "подписан: $file"
+            else
+              echo "::warning title=Подпись::не удалось подписать $file — артефакт остаётся без .sig"
+            fi
+          done
+          ls -l dist/ | sed 's/^/  /'
 
       - name: Create release
         env:

@@ -15,7 +15,6 @@ FastAPI / Starlette интеграция KremleDetect.
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Callable, List, Optional, Sequence
 
@@ -30,7 +29,13 @@ from ..session import (
 )
 from ..storage import BaseStorage, MemoryStorage, RedisStorage
 from ._common import (
-    accepts_json, blocked_payload, challenge_payload, no_store_headers, wants_json,
+    accepts_json,
+    blocked_payload,
+    captcha_headers,
+    challenge_payload,
+    no_store_headers,
+    render_captcha_html,
+    wants_json,
 )
 
 # FastAPI/Starlette are optional dependencies but this file is only imported
@@ -82,7 +87,7 @@ class KremleFastAPI:
         categories: Optional[Sequence[str]] = None,
         question_count: int = 15,
         max_errors: int = 3,
-        secret: str = 'kremle-default-secret',
+        secret: str | Sequence[str] = 'kremle-default-secret',
         skip_paths: Optional[Sequence[str]] = None,
         storage: Optional[BaseStorage] = None,
         rate_limit: int = 10,
@@ -112,6 +117,7 @@ class KremleFastAPI:
         json_api: bool = True,
         enable_ops_routes: bool = True,
         async_offload: bool = True,
+        csp_policy: Optional[str] = None,
     ):
         self.engine = CaptchaEngine(
             categories=categories,
@@ -143,11 +149,14 @@ class KremleFastAPI:
         self.skip_paths = list(skip_paths or ['/docs', '/openapi.json', '/redoc'])
         self.whitelist = whitelist or []
         self.custom_template = template
-        self.secret = secret
+        # SessionMiddleware ждёт строку: для куки берём первый ключ,
+        # движку уходит весь список (старые ключи принимаются при проверке)
+        self.secret = secret[0] if isinstance(secret, (list, tuple)) else secret
         self.headless = headless
         self.json_api = json_api
         self.enable_ops_routes = enable_ops_routes
         self.async_offload = async_offload
+        self.csp_policy = csp_policy
         # None → авто (loopback + приватные сети), [] → не доверять никому
         self.trusted_proxies = None if trusted_proxies is None else list(trusted_proxies)
         self.bind_ip = bind_ip
@@ -285,7 +294,7 @@ class KremleFastAPI:
 
             # to_dict — чистая сериализация без I/O, threadpool не нужен
             data = ch.to_dict(verify_url=verify_url, max_errors=engine.max_errors)
-            no_store = no_store_headers()
+            no_store = captcha_headers(self.csp_policy)
 
             if headless or accepts_json(request.headers.get('accept', '')):
                 return JSONResponse(data, headers=no_store)
@@ -299,10 +308,8 @@ class KremleFastAPI:
                     f'Не удалось открыть шаблон капчи: {tpl_path!r} — {e}'
                 ) from e
 
-            html = html.replace(
-                '{{ questions_json }}',
-                json.dumps(data, ensure_ascii=False),
-            )
+            # `</script>` в тексте вопроса вырывался из шаблона — экранируем
+            html = render_captcha_html(html, data)
             return HTMLResponse(html, headers=no_store)
 
         @app.post('/kremle/verify')
@@ -333,7 +340,7 @@ class KremleFastAPI:
             else:
                 result['redirect'] = None
 
-            return JSONResponse(result)
+            return JSONResponse(result, headers=captcha_headers(self.csp_policy))
 
         @app.get('/kremle/status')
         async def kremle_status(request: Request):
@@ -345,14 +352,15 @@ class KremleFastAPI:
                     bind_ua=self.bind_ua,
                 ),
                 'expires_in': remaining_seconds(state),
-            })
+            }, headers=captcha_headers(self.csp_policy))
 
         @app.post('/kremle/logout')
         async def kremle_logout(request: Request):
             request.session.pop(SESSION_KEY, None)
             request.session.pop(TOKEN_KEY, None)
             request.session.pop(NEXT_KEY, None)
-            return JSONResponse({'verified': False})
+            return JSONResponse({'verified': False},
+                                headers=captcha_headers(self.csp_policy))
 
         @app.get('/kremle/img/{key}')
         async def kremle_image(key: str):

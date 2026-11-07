@@ -33,7 +33,8 @@ describe('collectFingerprint', () => {
     })
     const fp = collectFingerprint()
     expect(fp.yaBrands).toBe(true)
-    expect(fp.brands).toEqual(['Chromium', 'YaBrowser'])
+    // список брендов целиком больше не отправляем — только вывод «яндекс/нет»
+    expect(fp).not.toHaveProperty('brands')
     // @ts-expect-error cleanup
     delete navigator.userAgentData
   })
@@ -51,13 +52,21 @@ describe('collectFingerprint', () => {
     expect(collectFingerprint({ name: '   ' }).honeypot).toBe(false)
   })
 
-  it('возвращает webdriver и язык', () => {
+  it('возвращает webdriver и часовой пояс', () => {
     setUserAgent('Mozilla/5.0 Chrome/120')
     Object.defineProperty(navigator, 'webdriver', { configurable: true, value: true })
     const fp = collectFingerprint()
     expect(fp.webdriver).toBe(true)
-    expect(typeof fp.lang).toBe('string')
+    expect(typeof fp.timezone).toBe('string')
     // @ts-expect-error cleanup
     delete navigator.webdriver
+  })
+
+  it('не собирает лишних полей', () => {
+    setUserAgent('Mozilla/5.0 Chrome/120')
+    const fp = collectFingerprint()
+    // ровно пять сигналов: язык и полный список брендов — лишние данные
+    expect(Object.keys(fp).sort()).toEqual(['honeypot', 'timezone', 'webdriver', 'yaBrands', 'yandexApi'])
+    expect(fp).not.toHaveProperty('lang')
   })
 })

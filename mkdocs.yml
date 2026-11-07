@@ -1,0 +1,75 @@
+site_name: kremle-detect
+site_description: Капча-фильтр по браузеру для Flask, Django и FastAPI. Вопросы ЕГЭ, честный результат, эксплуатация.
+site_url: https://rudolf1517.github.io/KremleXYZ-Detect/
+repo_url: https://github.com/RUdolf1517/KremleXYZ-Detect
+repo_name: RUdolf1517/KremleXYZ-Detect
+edit_uri: edit/main/docs/
+docs_dir: docs
+strict: true
+
+theme:
+  name: material
+  language: ru
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Тёмная тема
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Светлая тема
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      # Кириллица в заголовках → читаемые якоря (#свои-вопросы), а не #_1
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+nav:
+  - Обзор: index.md
+  - Установка: install.md
+  - Интеграции:
+      - Flask: integrations/flask.md
+      - Django: integrations/django.md
+      - FastAPI: integrations/fastapi.md
+      - Голое ядро: integrations/bare-core.md
+      - SPA и JSON: integrations/spa.md
+  - Капча: captcha.md
+  - Вопросы: questions.md
+  - Эксплуатация: operations.md
+  - Безопасность: security.md
+  - Разработка: development.md
+  - FAQ: faq.md

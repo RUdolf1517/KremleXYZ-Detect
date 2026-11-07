@@ -132,6 +132,37 @@ jobs:
       - name: ruff check
         run: ruff check .
 
+  docs:
+    # Сайт документации должен собираться без битых ссылок.
+    # Старый ручной gh-pages отстал на шесть релизов (2.3.4) — больше так не надо.
+    name: Документация (mkdocs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install "mkdocs-material>=9.5,<10"
+
+      - name: Build (strict)
+        run: mkdocs build --strict
+
+      - name: Проверить, что страницы попали в сборку
+        run: |
+          set -euo pipefail
+          # index.md — это index.html в корне, остальные страницы — каталогами
+          test -f site/index.html || { echo "::error::нет главной страницы"; exit 1; }
+          pages="install captcha questions operations security faq development"
+          pages="$pages integrations/flask integrations/django integrations/fastapi"
+          pages="$pages integrations/bare-core integrations/spa"
+          for page in $pages; do
+            test -f "site/${page}/index.html" || { echo "::error::нет страницы $page"; exit 1; }
+          done
+          echo "все страницы собраны"
+
   package:
     # Проверяем, что пакет собирается и данные попадают в wheel
     runs-on: ubuntu-latest

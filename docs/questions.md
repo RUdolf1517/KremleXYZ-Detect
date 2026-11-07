@@ -10,11 +10,37 @@
 | Значение | Что берёт |
 |---|---|
 | `auto` | кеш «Решу ЕГЭ», если есть; иначе встроенный банк |
-| `builtin` | только встроенные вопросы |
+| `own` | только свой банк (встроенный + `extra_questions`), без сети |
+| `builtin` | алиас `own` (остался до 3.0) |
 | `sdamgia` | только кеш портала |
+| `own+sdamgia` | оба источника в одной капче, пропорция — `mixed_ratio` |
 
-Переключатель «свои / портал / оба вместе» — в [роадмапе](https://github.com/RUdolf1517/KremleXYZ-Detect/blob/main/ROADMAP.md)
-(2.11, [issue #34](https://github.com/RUdolf1517/KremleXYZ-Detect/issues/34)).
+## Смешивание источников
+
+```python
+CaptchaEngine(
+    question_count=15,
+    questions_source='own+sdamgia',   # своё + портал в одной капче
+    mixed_ratio=0.5,                  # половина вопросов — из «Решу ЕГЭ»
+)
+```
+
+`mixed_ratio` — доля вопросов портала (0..1, по умолчанию 0.5). `0` — только
+свои, `1` — только портал. Если один источник пуст (нет кеша, кончились свои
+вопросы), челлендж добирается другим: капча всегда полная, а не половина.
+Дедупликация и ротация работают на общем пуле, как и раньше.
+
+В JSON челленджа у каждого вопроса есть `source_kind` — `own` или `sdamgia`.
+Атрибуция (`sources`, `attribution`) строится по факту: подпись появится, только
+если в челлендже реально есть задания портала. Поле `source` осталось тем же
+(метаданные задания портала) — его тип в 2.x не меняется.
+
+```bash
+kremle-detect questions show -n 5 --source own+sdamgia --mixed-ratio 0.3
+```
+
+Django: `KREMLE_QUESTIONS_SOURCE = 'own+sdamgia'`, `KREMLE_MIXED_RATIO = 0.5`.
+Flask/FastAPI: те же аргументы конструктора — `questions_source` и `mixed_ratio`.
 
 ## Встроенный банк
 

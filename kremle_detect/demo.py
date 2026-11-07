@@ -122,6 +122,7 @@ def build_app(policy: Optional[dict] = None,
         # демо не должно упираться в лимит выдачи при нагрузочном смоуке
         challenge_rate_limit=1000,
         questions_source=os.environ.get('KREMLE_QUESTIONS_SOURCE', 'auto'),
+        mixed_ratio=float(os.environ.get('KREMLE_MIXED_RATIO', 0.5)),
         questions_images=questions_images,
     )
 

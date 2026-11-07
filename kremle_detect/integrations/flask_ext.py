@@ -110,8 +110,9 @@ class KremleFlask:
         metrics_enabled: вести счётчики (``/kremle/stats``)
         verified_ttl: срок действия «капча пройдена» в секундах (0 — бессрочно)
         bind_ip / bind_ua: переспрашивать капчу при смене IP / User-Agent
-        questions_source: ``auto`` (кеш РешуЕГЭ → встроенный банк), ``builtin``,
-                          ``sdamgia``
+        questions_source: ``auto`` (кеш РешуЕГЭ → встроенный банк), ``own``
+                          (``builtin`` — алиас), ``sdamgia``, ``own+sdamgia``
+        mixed_ratio: доля вопросов «Решу ЕГЭ» для ``own+sdamgia`` (0..1, 0.5)
         questions_images: показывать задания с рисунком из «Решу ЕГЭ»
         images_cache_dir: каталог кеша картинок (по умолчанию
                           ``~/.cache/kremle-detect/images``); картинки из кеша
@@ -153,6 +154,7 @@ class KremleFlask:
         bind_ip: bool = False,
         bind_ua: bool = False,
         questions_source: str = 'auto',
+        mixed_ratio: float = 0.5,
         questions_images: bool = False,
         images_cache_dir: Optional[str] = None,
         images_prefix: str = '/kremle/img/',
@@ -189,6 +191,7 @@ class KremleFlask:
         self.bind_ip = bind_ip
         self.bind_ua = bind_ua
         self.questions_source = questions_source
+        self.mixed_ratio = mixed_ratio
         self.questions_images = questions_images
         self.images_cache_dir = images_cache_dir
         self.images_prefix = images_prefix
@@ -230,6 +233,7 @@ class KremleFlask:
             bind_ip=self.bind_ip,
             bind_ua=self.bind_ua,
             questions_source=self.questions_source,
+            mixed_ratio=self.mixed_ratio,
             questions_images=self.questions_images,
             images_cache_dir=self.images_cache_dir,
             images_prefix=self.images_prefix,

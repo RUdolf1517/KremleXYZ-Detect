@@ -24,3 +24,4 @@ kremle-react/dist/
 htmlcov/
 .pytest_cache/
 kremle-react/coverage/
+site/

@@ -6,7 +6,7 @@
 Яндекс Браузер, Яндекс-боты и переходы с Яндекса получают капчу с вопросами ЕГЭ.
 Все остальные проходят сразу.
 
-[Установка](#установка) · [Демо за минуту](#демо-за-минуту) · [Быстрый старт](#быстрый-старт) · [Детекция](#что-считается-яндексом) · [Вопросы](#вопросы-банк-и-решу-егэ) · [Monitor](#monitor-режим-и-сегменты) · [Эксплуатация](#эксплуатация-health-stats-metrics) · [CLI](#cli) · [Релиз](#релиз) · [Безопасность](#безопасность-что-честно) · [2.9](#что-изменилось-в-29) · [Роадмап](ROADMAP.md)
+[Установка](#установка) · [Демо за минуту](#демо-за-минуту) · [Быстрый старт](#быстрый-старт) · [Детекция](#что-считается-яндексом) · [Вопросы](#вопросы-банк-и-решу-егэ) · [Monitor](#monitor-режим-и-сегменты) · [Эксплуатация](#эксплуатация-health-stats-metrics) · [CLI](#cli) · [Релиз](#релиз) · [Безопасность](#безопасность-что-честно) · [2.9](#что-изменилось-в-29) · [Документация](docs/index.md) · [Роадмап](ROADMAP.md)
 
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
@@ -110,6 +110,31 @@ KREMLE_DEMO_POLICY=monitor kremle-detect serve
 ```bash
 python scripts/loadtest.py -n 500 -c 20
 ```
+
+## Документация
+
+README — это краткий вход. Подробности живут в `docs/` (собираются mkdocs-material):
+
+| Раздел | О чём |
+|---|---|
+| [docs/index.md](docs/index.md) | обзор и карта документации |
+| [docs/install.md](docs/install.md) | установка, extras, демо, Docker |
+| [docs/integrations/](docs/integrations/flask.md) | Flask, Django, FastAPI, голое ядро, SPA |
+| [docs/captcha.md](docs/captcha.md) | токен, порог, таймер, ротация, свой шаблон |
+| [docs/questions.md](docs/questions.md) | банк, «Решу ЕГЭ», картинки, свои вопросы |
+| [docs/operations.md](docs/operations.md) | Redis, лимиты, health/stats/metrics, прокси |
+| [docs/security.md](docs/security.md) | что защищено, что нет, как сообщить |
+| [docs/faq.md](docs/faq.md) | частые грабли |
+
+```bash
+pip install mkdocs-material
+mkdocs serve            # локальный сайт на http://127.0.0.1:8000
+mkdocs build --strict   # проверка ссылок, как в CI
+```
+
+Правила приёма изменений — в [CONTRIBUTING.md](CONTRIBUTING.md) (написан в
+жанре пародии на бюрократический патриотический документ; правила при этом
+настоящие).
 
 ## Быстрый старт
 

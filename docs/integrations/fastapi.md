@@ -1,0 +1,90 @@
+# FastAPI
+
+## Минимум
+
+```python
+from fastapi import FastAPI
+from kremle_detect.integrations.fastapi_ext import KremleFastAPI
+
+app = FastAPI()
+
+kremle = KremleFastAPI(
+    app,
+    categories=['math', 'physics'],
+    question_count=10,
+    secret='your-secret',
+)
+
+@app.get('/')
+async def index():
+    return {'message': 'Добро пожаловать!'}
+```
+
+`SessionMiddleware` добавляется автоматически, если её ещё нет (нужна для куки
+капчи). Если у вас уже своя — библиотека её не трогает.
+
+## Асинхронность и event loop
+
+FastAPI вызывает движок из `async def`, а движок синхронный: он считает HMAC,
+читает кеш вопросов и обращается к хранилищу. Синхронный Redis-клиент внутри
+`async def` блокировал бы event loop, поэтому по умолчанию включён оффлоад:
+
+```python
+KremleFastAPI(app, async_offload=True)    # по умолчанию: работа в threadpool
+KremleFastAPI(app, async_offload=False)   # вызывать движок прямо в loop
+```
+
+Для настоящего async-хранилища:
+
+```python
+from kremle_detect.storage_async import AsyncRedisStorage, AsyncStorageAdapter
+
+storage = AsyncStorageAdapter(AsyncRedisStorage(url='redis://localhost:6379/0'))
+```
+
+`AsyncStorageAdapter` даёт синхронный интерфейс поверх async-хранилища и
+работает вместе с `async_offload`. Нативный async-движок — в [роадмапе](https://github.com/RUdolf1517/KremleXYZ-Detect/blob/main/ROADMAP.md)
+(3.0): он требует ломающих изменений.
+
+## Headless / JSON
+
+Если весь сервис — API, HTML-капча бессмысленна:
+
+```python
+KremleFastAPI(app, headless=True)
+```
+
+`GET /kremle/challenge` отдаёт JSON вместо страницы. Подробнее —
+[SPA и JSON](spa.md).
+
+## Middleware без привязки к app
+
+```python
+from kremle_detect.integrations.fastapi_ext import KremleFastAPI
+
+kremle = KremleFastAPI()          # без app
+...
+kremle.init_app(app)              # в lifespan / create_app
+```
+
+## OpenAPI
+
+Роуты капчи попадают в схему как обычные эндпоинты. Чтобы они не мозолили
+глаза в публичной документации API:
+
+```python
+KremleFastAPI(app, enable_ops_routes=False)
+```
+
+Это выключит только health/stats/metrics — ручки капчи остаются, они нужны
+людям.
+
+## Проверка
+
+```bash
+uvicorn myapp:app --reload
+curl -H 'User-Agent: Mozilla/5.0 ... YaBrowser/24.1 ...' localhost:8000/
+curl -H 'User-Agent: Mozilla/5.0 ... Chrome/120.0 ...' localhost:8000/
+```
+
+Первая команда должна вернуть `403` с `challenge_url`, вторая — `200`.

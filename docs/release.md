@@ -11,7 +11,7 @@ pytest tests/ -q
 
 # 2. версия во всех трёх файлах + запись в CHANGELOG.md
 # 3. тег и пуш — дальше всё делает .github/workflows/release.yml
-git tag v2.10.0 && git push origin v2.10.0
+git tag v2.11.0 && git push origin v2.11.0
 ```
 
 Workflow соберёт wheel/sdist, сверит версию с тегом, поставит wheel в чистый venv
@@ -46,11 +46,11 @@ OIDC GitHub Actions, приватного ключа нигде нет.
 
 ```bash
 cosign verify-blob \
-  --certificate kremle_detect-2.10.0-py3-none-any.whl.pem \
-  --signature   kremle_detect-2.10.0-py3-none-any.whl.sig \
+  --certificate kremle_detect-<версия>-py3-none-any.whl.pem \
+  --signature   kremle_detect-<версия>-py3-none-any.whl.sig \
   --certificate-identity-regexp '^https://github.com/RUdolf1517/KremleXYZ-Detect/' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  kremle_detect-2.10.0-py3-none-any.whl
+  kremle_detect-<версия>-py3-none-any.whl
 ```
 
 Если sigstore недоступен, шаг подписи не валит релиз: артефакты публикуются без

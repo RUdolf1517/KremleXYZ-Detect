@@ -51,6 +51,7 @@ KremleFlask(app, question_count=15, max_errors=3)
 | [Капча](captcha.md) | токен, порог ошибок, таймер, ротация, доступность |
 | [Вопросы](questions.md) · [Рисунки](images.md) | банк, «Решу ЕГЭ», свои задания, кеш картинок |
 | [Эксплуатация](operations.md) · [API](api.md) · [CLI](cli.md) | хранилище, лимиты, роуты, команды |
+| [Сниппеты](snippets.md) | WordPress, nginx, Docker Compose, systemd |
 | [Безопасность](security.md) | что защищено, что нет, требования к продакшену |
 | [Разработка](development.md) · [Тесты](testing.md) · [Релиз](release.md) | окружение, наборы тестов, публикация |
 | [FAQ](faq.md) | частые вопросы и грабли |

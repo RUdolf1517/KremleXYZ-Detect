@@ -1,13 +1,19 @@
 # Демо одной командой:
-#   docker compose up --build
+#   docker compose up            # соберёт локально (или возьмёт готовый образ)
 #   → http://localhost:8000
 #
+# Готовый образ из GHCR, без сборки:
+#   docker compose pull && docker compose up
+#
 # С Redis (хранилище общее для нескольких воркеров):
-#   docker compose --profile redis up --build
-#   KREMLE_REDIS_URL=redis://redis:6379/0 docker compose --profile redis up --build
+#   docker compose --profile redis up
+#   KREMLE_REDIS_URL=redis://redis:6379/0 docker compose --profile redis up
 
 services:
   demo:
+    # Образ публикуется из CI: теги latest / edge / 2.11.0
+    image: ghcr.io/rudolf1517/kremle-detect:${KREMLE_IMAGE_TAG:-latest}
+    # build остаётся: `docker compose up --build` соберёт из исходников
     build: .
     ports:
       - "8000:8000"
@@ -16,8 +22,16 @@ services:
       KREMLE_DEMO_POLICY: ${KREMLE_DEMO_POLICY:-challenge}
       KREMLE_REDIS_URL: ${KREMLE_REDIS_URL:-}
       KREMLE_QUESTIONS_SOURCE: ${KREMLE_QUESTIONS_SOURCE:-auto}
+      # в проде задайте свой: KREMLE_SECRET=... иначе будет WARNING в логе
+      KREMLE_SECRET: ${KREMLE_SECRET:-}
     volumes:
       - kremle-cache:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/kremle/health', timeout=2).status == 200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     restart: unless-stopped
 
   redis:

@@ -31,7 +31,7 @@ pytest -q --cov=kremle_detect --cov-report=term-missing
 ruff check .
 ```
 
-Текущее состояние: **708 passed / 17 skipped**, coverage 92 %. Порог в CI — 85 %.
+Текущее состояние: **710 passed / 17 skipped**, coverage 92 %. Порог в CI — 85 %.
 
 Тесты не ходят в сеть: `get=` подменяется, Redis — `fakeredis`, портал
 «Решу ЕГЭ» — фикстурами. Если ваш тест требует интернета, он не примут.

@@ -158,6 +158,7 @@ jobs:
           pages="install detection captcha questions images operations api cli"
           pages="$pages security faq development testing release react widget snippets"
           pages="$pages integrations/flask integrations/django integrations/fastapi"
+          pages="$pages integrations/starlette integrations/litestar"
           pages="$pages integrations/bare-core integrations/spa"
           for page in $pages; do
             test -f "site/${page}/index.html" || { echo "::error::нет страницы $page"; exit 1; }

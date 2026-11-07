@@ -1,0 +1,87 @@
+name: Pages
+
+# Сайт документации вместе со статическим демо:
+#   https://rudolf1517.github.io/KremleXYZ-Detect/
+#
+# Публикуется из Actions, а не из ветки gh-pages: собранный сайт — артефакт,
+# а не второй набор исходников, который неизбежно отстаёт (ручной gh-pages
+# застрял на 2.3.4, пока пакет ушёл на 2.10).
+#
+# Требуется включённый источник публикации «GitHub Actions»
+# (Settings → Pages → Build and deployment → Source: GitHub Actions).
+# Пока источник не включён, джоб deploy не валит main: шаги помечены
+# continue-on-error, а в лог уходит ::warning с подсказкой.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Сборка сайта
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install mkdocs
+        run: pip install "mkdocs-material>=9.5,<10"
+
+      - name: Build (strict)
+        run: mkdocs build --strict
+
+      - name: Проверить демо и бандл в сборке
+        run: |
+          set -euo pipefail
+          test -f site/index.html || { echo "::error::нет главной страницы"; exit 1; }
+          test -f site/demo.html || { echo "::error::нет статического демо"; exit 1; }
+          test -f site/assets/kremle-widget.min.js || {
+            echo "::error::в сборку не попал бандл виджета"; exit 1; }
+          echo "сайт и демо собраны"
+
+      - name: Загрузить артефакт
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Публикация
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Включить Pages
+        id: pages
+        continue-on-error: true
+        uses: actions/configure-pages@v5
+
+      - name: Опубликовать
+        id: deployment
+        if: steps.pages.outcome == 'success'
+        uses: actions/deploy-pages@v4
+
+      - name: Пояснение, если Pages выключен
+        if: steps.pages.outcome != 'success'
+        run: |
+          echo "::warning::Pages не включён: сайт собран, но не опубликован. Нужно Settings -> Pages -> Source: GitHub Actions, затем перезапустить workflow."
+          echo "Готовая сборка лежит в артефакте github-pages этой задачи."

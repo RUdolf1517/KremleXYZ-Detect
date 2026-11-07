@@ -80,6 +80,7 @@ KremleXYZ-Detect/
 ├── .github/workflows/
 │   ├── ci.yml                       Тесты 3.9–3.13 + Redis, покрытие, wheel, React, виджет, audit
 │   ├── docker.yml                   Образ в GHCR (amd64+arm64) и его смоук
+│   ├── pages.yml                    Сайт документации и демо на GitHub Pages
 │   ├── release.yml                  Публикация по тегу: PyPI (OIDC), npm (provenance), Release
 │   └── sdamgia-live.yml             Ежедневная проверка живого «Решу ЕГЭ»
 ├── scripts/loadtest.py              Нагрузочный смоук (rps, p50/p95)

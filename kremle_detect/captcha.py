@@ -23,8 +23,9 @@ from .policy import (
     validate_sample_rate,
 )
 from .questions import (
-    ALL_CATEGORY_NAMES, attribution_text, get_questions, question_sources,
-    validate_questions,
+    ALL_CATEGORY_NAMES, DEFAULT_MIXED_RATIO, MIXED_SOURCE, attribution_text,
+    get_questions, mix_questions, normalize_source, question_sources,
+    validate_mixed_ratio, validate_questions,
 )
 from .storage import BaseStorage, MemoryStorage
 
@@ -143,6 +144,8 @@ class Challenge:
                 safe['category'] = q['category']
             if 'source' in q:
                 safe['source'] = q['source']
+            if 'source_kind' in q:
+                safe['source_kind'] = q['source_kind']
             if 'problem_id' in q:
                 safe['problem_id'] = q['problem_id']
             if q.get('images'):
@@ -254,6 +257,7 @@ class CaptchaEngine:
         bind_ip: bool = False,
         bind_ua: bool = False,
         questions_source: str = 'auto',
+        mixed_ratio: float = DEFAULT_MIXED_RATIO,
         questions_images: bool = False,
         images_cache_dir: Optional[str] = None,
         images_prefix: str = DEFAULT_IMAGES_PREFIX,
@@ -296,8 +300,12 @@ class CaptchaEngine:
                 Если картинка уже скачана, клиент получает ссылку на свой роут
                 ``/kremle/img/<key>`` вместо портала; иначе — горячую ссылку.
             images_prefix: префикс URL для картинок из кеша.
-            questions_source: ``auto`` (кеш РешуЕГЭ, если есть, иначе встроенный
-                банк), ``builtin`` (только встроенные), ``sdamgia`` (только кеш).
+            questions_source: откуда брать вопросы: ``auto`` (кеш РешуЕГЭ, если
+                есть, иначе встроенный банк), ``own`` (только свой банк;
+                ``builtin`` — алиас), ``sdamgia`` (только кеш портала),
+                ``own+sdamgia`` (оба источника в одной капче).
+            mixed_ratio: доля вопросов «Решу ЕГЭ» для ``own+sdamgia`` (0..1,
+                по умолчанию 0.5); остальными режимами игнорируется.
         """
         self.categories = list(categories) if categories else list(ALL_CATEGORY_NAMES)
         self.question_count = _require_int('question_count', question_count, 1)
@@ -349,12 +357,9 @@ class CaptchaEngine:
         self.bind_ip = bool(bind_ip)
         self.bind_ua = bool(bind_ua)
 
-        if questions_source not in ('auto', 'builtin', 'sdamgia'):
-            raise ValueError(
-                f"questions_source должен быть 'auto', 'builtin' или 'sdamgia', "
-                f"получено {questions_source!r}"
-            )
-        self.questions_source = questions_source
+        # старые имена (builtin/auto) остаются рабочими до 3.0
+        self.questions_source = normalize_source(questions_source)
+        self.mixed_ratio = validate_mixed_ratio(mixed_ratio)
         self.questions_images = bool(questions_images)
         self._warned_no_rotation = False
         self.images_cache_dir = images_cache_dir
@@ -493,7 +498,8 @@ class CaptchaEngine:
                 raise ValueError(
                     'only_extra=True но extra_questions пуст — нечего показывать'
                 )
-            pool = [dict(q) for q in self.extra_questions]
+            pool = [dict(q, source_kind=q.get('source_kind', 'own'))
+                    for q in self.extra_questions]
         else:
             pool = get_questions(
                 categories=self.categories,
@@ -501,10 +507,12 @@ class CaptchaEngine:
                 shuffle=False,
                 source=self.questions_source,
                 allow_images=self.questions_images,
+                mixed_ratio=self.mixed_ratio,
             )
             for q in self.extra_questions:
                 entry = dict(q)
                 entry.setdefault('category', 'custom')
+                entry.setdefault('source_kind', 'own')
                 pool.append(entry)
 
         # Один и тот же вопрос дважды в одной капче — это не проверка, а
@@ -518,8 +526,19 @@ class CaptchaEngine:
         if rotation_possible:
             pool = self._rotate_pool(pool)
 
-        self._rng.shuffle(pool)
-        questions = pool[:self.question_count]
+        if self.questions_source == MIXED_SOURCE and not self.only_extra:
+            # Пропорция соблюдается на этапе выдачи: пул уже прошёл дедуп и
+            # ротацию, делим его по происхождению и добираем по mixed_ratio.
+            questions = mix_questions(
+                [q for q in pool if q.get('source_kind') == 'own'],
+                [q for q in pool if q.get('source_kind') == 'sdamgia'],
+                self.question_count,
+                self.mixed_ratio,
+                rng=self._rng,
+            )
+        else:
+            self._rng.shuffle(pool)
+            questions = pool[:self.question_count]
 
         if rotation_possible:
             self._remember_questions(questions)

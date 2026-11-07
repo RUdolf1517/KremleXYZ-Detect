@@ -4,7 +4,7 @@
 > наполовину, а падает целиком.»
 
 ```bash
-python -m pytest tests/ -q      # 661 passed, 17 skipped
+python -m pytest tests/ -q      # 685 passed, 17 skipped
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,

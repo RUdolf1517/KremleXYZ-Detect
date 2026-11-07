@@ -272,9 +272,11 @@ def cmd_questions(args):
         count = getattr(args, 'legacy_count', None) or 5
     no_shuffle = getattr(args, 'no_shuffle', False) or getattr(args, 'legacy_no_shuffle', False)
     source = getattr(args, 'source', None) or getattr(args, 'legacy_source', None) or 'auto'
+    mixed_ratio = getattr(args, 'mixed_ratio', 0.5)
 
     cats = [category] if category else None
-    qs = get_questions(categories=cats, count=count, shuffle=not no_shuffle, source=source)
+    qs = get_questions(categories=cats, count=count, shuffle=not no_shuffle, source=source,
+                       mixed_ratio=mixed_ratio)
     if not qs:
         print('Вопросов нет. Для загрузки из «Решу ЕГЭ»: kremle-detect questions sync',
               file=sys.stderr)
@@ -283,6 +285,9 @@ def cmd_questions(args):
     for i, q in enumerate(qs):
         cat = q.get('category', '')
         src = (q.get('source') or {}).get('name')
+        kind = q.get('source_kind')
+        if not src and kind == 'sdamgia':
+            src = 'Решу ЕГЭ'
         suffix = f' · {src}' if src else ''
         print(f'\n[{i+1}] [{cat}{suffix}] {q["q"]}')
         for j, opt in enumerate(q['opts']):
@@ -557,8 +562,12 @@ def main():
     q_show.add_argument('--count', '-n', type=int, default=5,
                         help='Количество вопросов (по умолч. 5)')
     q_show.add_argument('--no-shuffle', action='store_true', help='Не перемешивать')
-    q_show.add_argument('--source', choices=['auto', 'builtin', 'sdamgia'], default='auto',
-                        help='Источник вопросов (по умолч. auto)')
+    q_show.add_argument('--source',
+                        choices=['auto', 'own', 'builtin', 'sdamgia', 'own+sdamgia'],
+                        default='auto',
+                        help='Источник вопросов: auto, own (builtin), sdamgia, own+sdamgia')
+    q_show.add_argument('--mixed-ratio', type=float, default=0.5, metavar='0..1',
+                        help='Доля вопросов «Решу ЕГЭ» для own+sdamgia (по умолч. 0.5)')
     q_show.set_defaults(func=cmd_questions)
 
     q_sync = q_sub.add_parser('sync', help='Скачать вопросы «Решу ЕГЭ» в кеш')
@@ -613,7 +622,8 @@ def main():
                      help=argparse.SUPPRESS)
     p_q.add_argument('--no-shuffle', action='store_true', dest='legacy_no_shuffle',
                      help=argparse.SUPPRESS)
-    p_q.add_argument('--source', dest='legacy_source', choices=['auto', 'builtin', 'sdamgia'],
+    p_q.add_argument('--source', dest='legacy_source',
+                     choices=['auto', 'own', 'builtin', 'sdamgia', 'own+sdamgia'],
                      help=argparse.SUPPRESS)
     p_q.set_defaults(func=cmd_questions)
 

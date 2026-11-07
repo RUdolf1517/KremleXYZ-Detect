@@ -40,7 +40,8 @@ Django-интеграция KremleDetect (middleware).
     KREMLE_VERIFIED_TTL = 86400
     KREMLE_BIND_IP = False
     KREMLE_BIND_UA = False
-    KREMLE_QUESTIONS_SOURCE = 'auto'
+    KREMLE_QUESTIONS_SOURCE = 'auto'  # auto | own | sdamgia | own+sdamgia
+    KREMLE_MIXED_RATIO = 0.5          # доля портала для own+sdamgia
     KREMLE_QUESTIONS_IMAGES = False   # задания с рисунком из «Решу ЕГЭ»
     KREMLE_JSON_API = True        # JSON-ответ вместо редиректа для fetch/SPA
     KREMLE_HEADLESS = False       # всегда JSON (весь сайт — API)
@@ -83,6 +84,7 @@ _ENGINE_SETTINGS = (
     'KREMLE_SAMPLE_RATE', 'KREMLE_METRICS_ENABLED', 'KREMLE_VERIFIED_TTL',
     'KREMLE_BIND_IP', 'KREMLE_BIND_UA', 'KREMLE_QUESTIONS_SOURCE',
     'KREMLE_QUESTIONS_IMAGES', 'KREMLE_IMAGES_CACHE_DIR', 'KREMLE_IMAGES_PREFIX',
+    'KREMLE_MIXED_RATIO',
 )
 
 
@@ -127,6 +129,7 @@ def _get_engine(settings) -> CaptchaEngine:
             bind_ip=getattr(settings, 'KREMLE_BIND_IP', False),
             bind_ua=getattr(settings, 'KREMLE_BIND_UA', False),
             questions_source=getattr(settings, 'KREMLE_QUESTIONS_SOURCE', 'auto'),
+            mixed_ratio=getattr(settings, 'KREMLE_MIXED_RATIO', 0.5),
             questions_images=getattr(settings, 'KREMLE_QUESTIONS_IMAGES', False),
             images_cache_dir=getattr(settings, 'KREMLE_IMAGES_CACHE_DIR', None),
             images_prefix=getattr(

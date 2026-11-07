@@ -61,6 +61,7 @@ KremleXYZ-Detect/
 │   ├── test_common.py               Accept, JSON-payload, no-store
 │   ├── test_captcha_security.py     Экранирование JSON, CSP и защитные заголовки
 │   ├── test_secret_rotation.py      Предупреждение о дефолтном секрете, ротация ключей
+│   ├── test_questions_mixing.py     Источники вопросов: own / sdamgia / mixed
 │   ├── test_structure_sync.py       Версии и состав модулей в документации
 │   ├── test_cli.py                  Диагностика, списки, логи, serve
 │   ├── test_demo.py                 Демо-страницы и полный цикл

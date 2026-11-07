@@ -27,7 +27,9 @@ KremleFlask(app, question_count=15, max_errors=3)
 - посмотреть, не блокируя: `policy={'yandex_browser': 'monitor'}` —
   [Monitor-режим](operations.md#monitor-режим);
 - своя капча в SPA: [JSON-API](integrations/spa.md);
-- свои вопросы вместо ЕГЭ: [Вопросы](questions.md#свои-вопросы).
+- свои вопросы вместо ЕГЭ: [Вопросы](questions.md#свои-вопросы);
+- без React и сборки: [виджет](widget.md), а посмотреть глазами можно
+  в [статическом демо](demo.html) — оно не требует сервера.
 
 ## За державу
 
@@ -45,6 +47,7 @@ KremleFlask(app, question_count=15, max_errors=3)
 | [Голое ядро](integrations/bare-core.md) | любой фреймворк, без интеграции |
 | [SPA и JSON](integrations/spa.md) | `fetch`, 403 в JSON, CORS, headless-режим |
 | [React](react.md) | `kremle-react`: компонент и хук |
+| [Виджет без React](widget.md) | `<script src>` + `<div>` — без сборки |
 | [Капча](captcha.md) | токен, порог ошибок, таймер, ротация, доступность |
 | [Вопросы](questions.md) · [Рисунки](images.md) | банк, «Решу ЕГЭ», свои задания, кеш картинок |
 | [Эксплуатация](operations.md) · [API](api.md) · [CLI](cli.md) | хранилище, лимиты, роуты, команды |

@@ -32,6 +32,7 @@ from ..session import (
     NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification, is_verified, remaining_seconds,
 )
 from ..storage import BaseStorage, MemoryStorage, RedisStorage
+from ..widget import headers as widget_headers, read_bundle
 from ._common import (
     accepts_json,
     blocked_payload,
@@ -51,6 +52,7 @@ _SKIP_ENDPOINTS = frozenset({
     'kremle.health',
     'kremle.stats',
     'kremle.metrics',
+    'kremle.widget',
     'static',
 })
 
@@ -393,6 +395,18 @@ class KremleFlask:
             session.pop(TOKEN_KEY, None)
             session.pop(NEXT_KEY, None)
             return jsonify({'verified': False}), 200, cap_headers()
+
+        @bp.route('/widget/<name>')
+        def widget(name):
+            """Собранный виджет без React: один файл, один <script>."""
+            payload = read_bundle(name)
+            if payload is None:
+                return (
+                    'Виджет не собран. В исходниках: cd kremle-widget && npm run build',
+                    404,
+                    {'Cache-Control': 'no-store', 'Content-Type': 'text/plain; charset=utf-8'},
+                )
+            return Response(payload, headers=widget_headers())
 
         @bp.route('/img/<key>')
         def image(key):

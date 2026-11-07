@@ -156,13 +156,18 @@ jobs:
           # index.md — это index.html в корне, остальные страницы — каталогами
           test -f site/index.html || { echo "::error::нет главной страницы"; exit 1; }
           pages="install detection captcha questions images operations api cli"
-          pages="$pages security faq development testing release react"
+          pages="$pages security faq development testing release react widget"
           pages="$pages integrations/flask integrations/django integrations/fastapi"
           pages="$pages integrations/bare-core integrations/spa"
           for page in $pages; do
             test -f "site/${page}/index.html" || { echo "::error::нет страницы $page"; exit 1; }
           done
           echo "все страницы собраны"
+          # статическое демо: страница + бандл, иначе ссылка из README ведёт в 404
+          test -f site/demo.html || { echo "::error::нет статического демо (docs/demo.html)"; exit 1; }
+          test -f site/assets/kremle-widget.min.js || {
+            echo "::error::в сборку не попал бандл виджета для демо"; exit 1; }
+          echo "статическое демо собрано"
 
   package:
     # Проверяем, что пакет собирается и данные попадают в wheel
@@ -217,6 +222,60 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  widget:
+    # Виджет без React: тесты, сборка и сверка собранного бандла с тем,
+    # что лежит в репозитории. Если бандл разъехался с исходниками — падаем.
+    name: Виджет (kremle-widget)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kremle-widget
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Проверить IIFE-сборку (капча проходит без сборщика)
+        run: node scripts/check-dist.mjs
+
+      - name: Бандл в репозитории совпадает с исходниками
+        run: |
+          set -euo pipefail
+          cp dist/kremle-widget.js dist/kremle-widget.min.js dist/kremle-widget.mjs \
+             ../kremle_detect/static/widget/
+          if ! git diff --quiet -- ../kremle_detect/static/widget/; then
+            echo "::error::kremle_detect/static/widget устарел — запустите в kremle-widget: npm run build && cp dist/*.js dist/*.mjs ../kremle_detect/static/widget/"
+            git diff --stat -- ../kremle_detect/static/widget/
+            exit 1
+          fi
+          echo "бандл в репозитории актуален"
+
+      - name: Проверить, что wheel содержит виджет
+        run: |
+          set -o pipefail
+          python3 -m venv /tmp/pkg
+          /tmp/pkg/bin/pip install --quiet build
+          (cd .. && /tmp/pkg/bin/python -m build --wheel --outdir /tmp/widget-dist >/dev/null)
+          /tmp/pkg/bin/python - <<'PY'
+          import glob, zipfile
+          wheel = glob.glob('/tmp/widget-dist/*.whl')[0]
+          names = zipfile.ZipFile(wheel).namelist()
+          expected = 'kremle_detect/static/widget/kremle-widget.min.js'
+          assert expected in names, [n for n in names if 'widget' in n]
+          print('виджет в wheel:', expected)
+          PY
 
   security:
     # Адвайзори-проверки: падение не должно блокировать релиз, но должно быть видно

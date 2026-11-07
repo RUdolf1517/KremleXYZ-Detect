@@ -4,7 +4,7 @@
 > наполовину, а падает целиком.»
 
 ```bash
-python -m pytest tests/ -q      # 685 passed, 17 skipped
+python -m pytest tests/ -q      # 708 passed, 17 skipped
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,
@@ -16,6 +16,7 @@ CI — 85 %.
 
 ```bash
 cd kremle-react && npm test && npm run typecheck && npm run build   # 27 тестов + сборка
+cd kremle-widget && npm test && npm run build                      # 23 теста + IIFE-сборка
 ruff check .                                                        # линтер
 ```
 

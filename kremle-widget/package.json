@@ -1,0 +1,56 @@
+{
+  "name": "kremle-widget",
+  "version": "2.10.0",
+  "description": "Vanilla captcha widget for the kremle-detect web filter: one <script>, no build step",
+  "type": "module",
+  "main": "dist/kremle-widget.mjs",
+  "module": "dist/kremle-widget.mjs",
+  "unpkg": "dist/kremle-widget.min.js",
+  "jsdelivr": "dist/kremle-widget.min.js",
+  "exports": {
+    ".": {
+      "import": "./dist/kremle-widget.mjs",
+      "default": "./dist/kremle-widget.mjs"
+    },
+    "./iife": "./dist/kremle-widget.min.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm test && npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "jsdom": "^30.1.3",
+    "vitest": "^5.0.5"
+  },
+  "keywords": [
+    "captcha",
+    "yandex",
+    "widget",
+    "vanilla",
+    "kremle-detect",
+    "bot-protection"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RUdolf1517/KremleXYZ-Detect.git",
+    "directory": "kremle-widget"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/RUdolf1517/KremleXYZ-Detect#виджет-без-react",
+  "bugs": {
+    "url": "https://github.com/RUdolf1517/KremleXYZ-Detect/issues"
+  }
+}

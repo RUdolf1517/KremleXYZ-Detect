@@ -35,10 +35,17 @@ KremleXYZ-Detect/
 │   │   └── fastapi_ext.py           KremleFastAPI (middleware + роуты, headless)
 │   ├── cli.py                       kremle-detect: диагностика, списки, логи, serve
 │   ├── demo.py                      Демо-приложение (FastAPI + /stats)
+│   ├── widget.py                    Виджет без React: бандл, сниппет, заголовки
 │   ├── py.typed                     Маркер типизации (PEP 561)
+│   ├── static/
+│   │   └── widget/
+│   │       ├── kremle-widget.js     Виджет: IIFE для <script src>
+│   │       ├── kremle-widget.min.js  Он же минифицированный (по умолчанию)
+│   │       └── kremle-widget.mjs    ESM-сборка для сборщиков
 │   └── templates/
 │       └── kremle_captcha.html      HTML капчи + JS-фингерпринт
 ├── kremle-react/                    React-компонент и хук (tsup, TypeScript)
+├── kremle-widget/                   Ванильный виджет (esbuild: ESM + IIFE)
 ├── tests/                           Тесты (pytest, покрытие 92 %)
 │   ├── test_detector.py             Детекция UA/referer/hints
 │   ├── test_captcha.py              Challenge, engine, storage, callbacks
@@ -62,6 +69,7 @@ KremleXYZ-Detect/
 │   ├── test_captcha_security.py     Экранирование JSON, CSP и защитные заголовки
 │   ├── test_secret_rotation.py      Предупреждение о дефолтном секрете, ротация ключей
 │   ├── test_questions_mixing.py     Источники вопросов: own / sdamgia / mixed
+│   ├── test_widget.py               Бандл виджета, роут /kremle/widget, сниппет
 │   ├── test_structure_sync.py       Версии и состав модулей в документации
 │   ├── test_cli.py                  Диагностика, списки, логи, serve
 │   ├── test_demo.py                 Демо-страницы и полный цикл

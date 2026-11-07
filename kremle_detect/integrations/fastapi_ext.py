@@ -28,6 +28,7 @@ from ..session import (
     NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification, is_verified, remaining_seconds,
 )
 from ..storage import BaseStorage, MemoryStorage, RedisStorage
+from ..widget import headers as widget_headers, read_bundle
 from ._common import (
     accepts_json,
     blocked_payload,
@@ -363,6 +364,18 @@ class KremleFastAPI:
             request.session.pop(NEXT_KEY, None)
             return JSONResponse({'verified': False},
                                 headers=captcha_headers(self.csp_policy))
+
+        @app.get('/kremle/widget/{name}')
+        async def kremle_widget(name: str):
+            """Собранный виджет без React: один файл, один <script>."""
+            payload = await run(read_bundle, name)
+            if payload is None:
+                return PlainTextResponse(
+                    'Виджет не собран. В исходниках: cd kremle-widget && npm run build',
+                    status_code=404,
+                    headers={'Cache-Control': 'no-store'},
+                )
+            return Response(payload, headers=widget_headers())
 
         @app.get('/kremle/img/{key}')
         async def kremle_image(key: str):

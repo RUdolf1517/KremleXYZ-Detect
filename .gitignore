@@ -18,7 +18,9 @@ venv/
 *.swo
 .claude/
 kremle-react/node_modules/
+kremle-widget/node_modules/
 kremle-react/dist/
+kremle-widget/dist/
 .coverage
 .coverage.*
 htmlcov/

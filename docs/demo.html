@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kremle-detect — демо капчи</title>
+<meta name="robots" content="noindex">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 3rem 1.25rem; background: #050505; color: #ddd;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    line-height: 1.6;
+  }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.1rem; letter-spacing: .08em; font-weight: 600; margin: 0 0 .35rem; }
+  .lead { color: #888; font-size: .85rem; margin: 0 0 2rem; }
+  .lead a { color: #9ab; }
+  .note {
+    margin-top: 2rem; padding: .9rem 1.1rem; border-left: 2px solid #444;
+    color: #888; font-size: .8rem;
+  }
+  .note strong { color: #bbb; font-weight: 600; }
+  footer { margin-top: 2.5rem; color: #555; font-size: .72rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>проверка, которую видит Яндекс Браузер</h1>
+  <p class="lead">
+    Демонстрация виджета <code>kremle-widget</code>: тот же протокол и тот же
+    шаблон, что в Flask/Django/FastAPI. Без установки, без аккаунтов и без
+    сервера — вопросы и ответы зашиты в страницу.
+    <a href="./index.md">Документация →</a>
+  </p>
+
+  <div id="kremle"></div>
+
+  <div class="note">
+    <strong>Это демо, а не защита.</strong> Правильные ответы лежат в коде
+    страницы — любой, кто умеет открыть исходник, их увидит. Настоящая капча
+    проверяет ответы на сервере (<code>POST /kremle/verify</code>), а правильные
+    варианты не покидают сервер вообще. Показать демо человеку, который не
+    пользуется Яндекс Браузером, можно прямо здесь.
+  </div>
+
+  <footer>
+    Сатира на государственнический текст — в README проекта; технические
+    утверждения этой страницы — правда, их проверяет CI.
+  </footer>
+</main>
+
+<script src="./assets/kremle-widget.min.js"></script>
+<script>
+/* Демо-сервер в самой странице: те же поля ответа, что у интеграций. */
+const QUESTIONS = [
+  {
+    q: 'Производная функции f(x) = x³ равна:',
+    opts: ['3x²', 'x²/3', '3x', 'x³/3'],
+    ans: 0,
+    category: 'math',
+  },
+  {
+    q: 'Дискриминант квадратного уравнения ax² + bx + c = 0:',
+    opts: ['D = b² − 4ac', 'D = b² + 4ac', 'D = 4ac − b²', 'D = b² − 2ac'],
+    ans: 0,
+    category: 'math',
+  },
+  {
+    q: 'Теорема Пифагора: катеты a, b, гипотенуза c:',
+    opts: ['c² = a² + b²', 'c = a + b', 'c² = a² − b²', 'c² = (a+b)²'],
+    ans: 0,
+    category: 'math',
+  },
+];
+
+const MAX_ERRORS = 1;           // как max_errors=1 на сервере
+const TTL = 900;                // 15 минут, как TOKEN_TTL
+let issued = 0;
+
+function jsonResponse(payload, status) {
+  return {
+    ok: status >= 200 && status < 300,
+    status: status,
+    json: async function () { return payload; },
+  };
+}
+
+async function demoFetch(url, init) {
+  init = init || {};
+  const method = (init.method || 'GET').toUpperCase();
+  await new Promise(function (resolve) { setTimeout(resolve, 120); });  // сеть не мгновенная
+
+  if (String(url).indexOf('/challenge') !== -1 && method === 'GET') {
+    issued += 1;
+    /* Перемешивание вариантов — как SystemRandom на сервере. */
+    const questions = QUESTIONS.map(function (item) {
+      const opts = item.opts.slice();
+      const correct = opts[item.ans];
+      for (let i = opts.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = opts[i]; opts[i] = opts[j]; opts[j] = tmp;
+      }
+      return { q: item.q, opts: opts, category: item.category, _correct: opts.indexOf(correct) };
+    });
+    window.__demoQuestions = questions;
+    return jsonResponse({
+      questions: questions.map(function (item) {
+        return { q: item.q, opts: item.opts, category: item.category };
+      }),
+      token: 'demo-' + issued,
+      created_at: Math.floor(Date.now() / 1000),
+      verify_url: '/kremle/verify',
+      expires_in: TTL,
+      max_errors: MAX_ERRORS,
+      sources: [],
+      attribution: '',
+    }, 200);
+  }
+
+  if (String(url).indexOf('/verify') !== -1 && method === 'POST') {
+    const body = JSON.parse(init.body || '{}');
+    const correct = (window.__demoQuestions || []).filter(function (item, index) {
+      return body.answers && body.answers[String(index)] === item._correct;
+    }).length;
+    const total = (window.__demoQuestions || []).length;
+    const errors = total - correct;
+    const passed = errors <= MAX_ERRORS;
+    return jsonResponse({
+      passed: passed,
+      errors: errors,
+      total: total,
+      max_errors: MAX_ERRORS,
+      redirect: null,
+    }, 200);
+  }
+
+  if (String(url).indexOf('/logout') !== -1) {
+    return jsonResponse({ verified: false }, 200);
+  }
+
+  return jsonResponse({ error: 'not_found' }, 404);
+}
+
+KremleWidget.mount('#kremle', {
+  fetch: demoFetch,
+  title: '[ проверка ]',
+  description: 'Три задания из ЕГЭ. Две ошибки — и проверка засчитана как провал.',
+});
+</script>
+</body>
+</html>

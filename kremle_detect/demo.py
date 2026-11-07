@@ -110,7 +110,8 @@ def build_app(policy: Optional[dict] = None,
 
     kremle = KremleFastAPI(
         app,
-        secret=os.environ.get('KREMLE_SECRET', 'demo-secret-not-for-production'),
+        # пустая переменная окружения — это «не задано», а не «пустой ключ»
+        secret=os.environ.get('KREMLE_SECRET') or 'demo-secret-not-for-production',
         storage=storage,
         categories=['math', 'physics'],
         question_count=question_count,

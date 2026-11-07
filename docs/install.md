@@ -87,13 +87,30 @@ KREMLE_DEMO_POLICY=monitor kremle-detect serve
 
 ## Docker
 
+Без сборки — готовый образ из GHCR:
+
 ```bash
-docker compose up --build      # → http://localhost:8000
+docker run -p 8000:8000 ghcr.io/rudolf1517/kremle-detect:latest
+# → http://localhost:8000
 ```
 
-Образ — демо/песочница. Для продакшена собирайте свой и монтируйте кеш вопросов
-(`kremle-detect questions sync`), иначе после рестарта контейнера задания
-останутся только встроенные.
+Из репозитория, одной командой:
+
+```bash
+docker compose up              # возьмёт latest из GHCR или соберёт локально
+docker compose pull && docker compose up     # точно без сборки
+docker compose --profile redis up            # демо + Redis
+```
+
+Теги образа: `latest` и `X.Y.Z` — по релизному тегу, `edge` — с каждой сборки
+`main`. Собираются `linux/amd64` и `linux/arm64` (Raspberry Pi, Mac на ARM).
+Контейнер работает не от root, кеш вопросов живёт в томе `/data`, healthcheck
+ходит на `/kremle/health`.
+
+Образ — демо/песочница. Для продакшена берите его же, но задайте свой ключ
+(`-e KREMLE_SECRET=...`), смонтируйте кеш вопросов (`kremle-detect questions sync`)
+и закройте ops-роуты на прокси — подробности в
+[сниппетах](snippets.md#docker-compose).
 
 ## Проверка установки
 

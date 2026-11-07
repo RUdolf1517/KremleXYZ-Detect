@@ -166,6 +166,24 @@ class TestEntrypoint:
         assert 'Яндекс' in demo._INDEX_HTML
 
 
+class TestSecretFromEnv:
+    """Пустая переменная окружения — это «не задано», а не пустой ключ."""
+
+    def test_empty_secret_env_does_not_crash(self, monkeypatch):
+        from kremle_detect import demo
+
+        monkeypatch.setenv('KREMLE_SECRET', '')
+        app = demo.build_app()
+        assert app.state.kremle.engine.secret  # дефолт демо, а не ValueError
+
+    def test_own_secret_from_env(self, monkeypatch):
+        from kremle_detect import demo
+
+        monkeypatch.setenv('KREMLE_SECRET', 'мой-ключ')
+        app = demo.build_app()
+        assert app.state.kremle.engine.secret == 'мой-ключ'
+
+
 class TestSessionDependency:
     """Без itsdangerous Starlette не даёт SessionMiddleware — сообщение должно быть внятным."""
 

@@ -76,6 +76,7 @@ nav:
       - Задания с рисунком: images.md
   - Эксплуатация:
       - Хранение, лимиты, метрики: operations.md
+      - "Сниппеты: WordPress, nginx, Docker": snippets.md
       - API-роуты: api.md
       - CLI: cli.md
   - Безопасность: security.md

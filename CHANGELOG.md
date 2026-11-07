@@ -55,6 +55,13 @@
 
 ### Добавлено
 
+- **Готовый образ в GHCR** (`ghcr.io/rudolf1517/kremle-detect`): собирается в CI
+  под `linux/amd64` и `linux/arm64`, теги `latest`/`X.Y.Z` по релизу и `edge` с
+  `main`. Контейнер не от root, healthcheck на `/kremle/health`, кеш вопросов в
+  томе `/data`; после публикации CI поднимает образ и проверяет демо, виджет и
+  ops-роуты. `docker compose up` берёт готовый образ, `--build` собирает локально.
+- **Сниппеты для установки** (`docs/snippets.md`): WordPress, nginx (прокси,
+  лимит частоты, капча перед PHP), Docker Compose с Redis, systemd.
 - **Виджет без React** (`kremle-widget`). Капча ставится двумя строками —
   `<div id="kremle">` и `<script src="/kremle/widget/kremle-widget.min.js">`:
   ни Node, ни сборщика, ни React. Говорит на том же протоколе, что остальные

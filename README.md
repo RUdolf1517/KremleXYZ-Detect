@@ -168,7 +168,7 @@ KremleFlask(app, question_count=15, max_errors=3)
 
 - **2.9.0** — честный результат, таймер, ротация вопросов, доступность *(сдано)*;
 - **2.10** — безопасность: экранирование, CSP, секрет и ротация, SBOM *(сдано)*;
-- **2.11** — охват: vanilla-виджет *(сдано)*, образ в GHCR, сайт документации, переключатель источников вопросов *(сдано)*;
+- **2.11** — охват: vanilla-виджет *(сдано)*, образ в GHCR *(сдано)*, сайт документации, переключатель источников вопросов *(сдано)*;
 - **2.12** — эксплуатация: health со свежестью кеша, адаптивная сложность, mypy;
 - **3.0** — платформа: plugin API источников, нативный async-движок.
 
@@ -191,6 +191,7 @@ README — это вывеска. Вся документация живёт в 
 | [docs/questions.md](docs/questions.md) | банк, «Решу ЕГЭ», свои вопросы, дистракторы |
 | [docs/images.md](docs/images.md) | задания с рисунком, локальный кеш, проверка без Яндекса |
 | [docs/operations.md](docs/operations.md) | Redis, лимиты, прокси, monitor-режим, health/stats/metrics, callbacks |
+| [docs/snippets.md](docs/snippets.md) | готовые блоки: WordPress, nginx, Docker Compose, systemd |
 | [docs/api.md](docs/api.md) | все роуты, коды ошибок, `Retry-After`, `no-store` |
 | [docs/cli.md](docs/cli.md) | `kremle-detect`: диагностика, вопросы, блоклист, демо, логи |
 | [docs/security.md](docs/security.md) | что защищено, что пока нет, требования к продакшену |

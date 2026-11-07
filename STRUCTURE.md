@@ -69,14 +69,15 @@ KremleXYZ-Detect/
 │   ├── test_captcha_security.py     Экранирование JSON, CSP и защитные заголовки
 │   ├── test_secret_rotation.py      Предупреждение о дефолтном секрете, ротация ключей
 │   ├── test_questions_mixing.py     Источники вопросов: own / sdamgia / mixed
-│   ├── test_widget.py               Бандл виджета, роут /kremle/widget, сниппет
+│   ├── test_widget.py               Бандл виджета, роут /kremle/widget, сниппет, демо
 │   ├── test_structure_sync.py       Версии и состав модулей в документации
 │   ├── test_cli.py                  Диагностика, списки, логи, serve
 │   ├── test_demo.py                 Демо-страницы и полный цикл
 │   ├── test_e2e.py                  Живой HTTP-сервер (uvicorn), куки, logout
 │   └── test_redis_live.py           Redis/Lua/TTL на настоящем сервере (маркер redis)
 ├── .github/workflows/
-│   ├── ci.yml                       Тесты 3.9–3.13 + Redis, покрытие, wheel, React, audit
+│   ├── ci.yml                       Тесты 3.9–3.13 + Redis, покрытие, wheel, React, виджет, audit
+│   ├── docker.yml                   Образ в GHCR (amd64+arm64) и его смоук
 │   ├── release.yml                  Публикация по тегу: PyPI (OIDC), npm (provenance), Release
 │   └── sdamgia-live.yml             Ежедневная проверка живого «Решу ЕГЭ»
 ├── scripts/loadtest.py              Нагрузочный смоук (rps, p50/p95)

@@ -1,0 +1,122 @@
+name: Docker
+
+# Образ для «попробовать одной командой»:
+#   docker run -p 8000:8000 ghcr.io/rudolf1517/kremle-detect:latest
+#
+# Публикуем при пуше в main (метка `edge`) и по тегу v* (метка версии + latest).
+# На pull request — только сборка без публикации: видно, что Dockerfile живой.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write   # ghcr.io
+
+env:
+  IMAGE: ghcr.io/rudolf1517/kremle-detect
+
+jobs:
+  build:
+    name: Образ (GHCR)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Метаданные
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Вход в GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Сборка (и публикация)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            KREMLE_VERSION=${{ steps.meta.outputs.version }}
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.created }}
+
+  smoke:
+    # Образ должен не просто собраться, а ответить на /kremle/health.
+    name: Образ отвечает
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Забрать образ
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME#v}"
+          else
+            tag="edge"
+          fi
+          echo "SMOKE_TAG=${tag}" >> "$GITHUB_ENV"
+          docker pull "${IMAGE}:${tag}"
+
+      - name: Запустить и дождаться health
+        run: |
+          set -euo pipefail
+          docker run -d --name kremle -p 8000:8000 "${IMAGE}:${SMOKE_TAG}"
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/kremle/health >/tmp/health.json 2>/dev/null; then
+              cat /tmp/health.json
+              echo
+              echo "образ живой"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error title=Health::образ не ответил на /kremle/health"
+          docker logs kremle | tail -40
+          exit 1
+
+      - name: Демо, виджет и ops-роуты внутри образа
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o /tmp/index.html -w '%{http_code}' http://127.0.0.1:8000/)
+          echo "GET / → $code"
+          test "$code" = "200"
+          grep -qi 'kremle' /tmp/index.html
+          # виджет без React едет внутри образа — проверим, что файл на месте
+          size=$(curl -fsS http://127.0.0.1:8000/kremle/widget/kremle-widget.min.js | wc -c)
+          echo "виджет: ${size} байт"
+          test "$size" -gt 5000
+          curl -fsS http://127.0.0.1:8000/kremle/stats >/dev/null && echo "stats ok"
+          # контейнер не должен работать от root
+          test "$(docker exec kremle id -u)" != "0"
+
+      - name: Логи и остановка
+        if: always()
+        run: |
+          docker logs kremle 2>&1 | tail -20 || true
+          docker rm -f kremle || true

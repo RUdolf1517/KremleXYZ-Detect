@@ -246,21 +246,37 @@ jobs:
           name: dist
           path: dist/
 
-      - name: SBOM (CycloneDX) — Python и npm
-        # SBOM описывает то, что реально установится: ставим собранный wheel
-        # со всеми extras в пустое окружение и снимаем состав оттуда.
+      - name: SBOM Python (CycloneDX)
+        # Описываем то, что реально установится: ставим собранный wheel со всеми
+        # extras в пустое окружение и снимаем состав оттуда, а не из pyproject.
+        continue-on-error: true
         run: |
-          set -o pipefail
           python -m venv /tmp/sbom
           /tmp/sbom/bin/pip install --quiet "$(ls dist/*.whl)[all]" "cyclonedx-bom>=8,<9"
           /tmp/sbom/bin/cyclonedx-py environment /tmp/sbom/bin/python \
             --pyproject pyproject.toml --mc-type library \
             -o dist/sbom-python.cdx.json --of JSON
-          (cd kremle-react && npm sbom --sbom-format=cyclonedx > ../dist/sbom-npm.cdx.json)
+
+      - name: SBOM kremle-react (CycloneDX)
+        # `npm sbom` читает дерево из node_modules, поэтому нужен npm ci.
+        continue-on-error: true
+        working-directory: kremle-react
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm sbom --sbom-format=cyclonedx > ../dist/sbom-npm.cdx.json
+
+      - name: Проверить SBOM
+        # Отчёт нужен рядом с артефактами, но его отсутствие не должно отменять
+        # релиз: публикация в индексы к этому моменту уже состоялась.
+        run: |
           python - <<'PY'
-          import json
+          import json, pathlib
           for name in ('dist/sbom-python.cdx.json', 'dist/sbom-npm.cdx.json'):
-              data = json.load(open(name, encoding='utf-8'))
+              path = pathlib.Path(name)
+              if not path.exists() or path.stat().st_size == 0:
+                  print(f"::warning title=SBOM::{name} не собран — релиз публикуется без него")
+                  continue
+              data = json.loads(path.read_text(encoding='utf-8'))
               root = data['metadata']['component']
               print(f"{name}: {root['name']} {root['version']}, компонентов: {len(data['components'])}")
           PY

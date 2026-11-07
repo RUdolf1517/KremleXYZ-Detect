@@ -26,7 +26,7 @@
 |---|---|
 | Реестры | PyPI `kremle-detect` 2.10.0, npm `kremle-react` 2.10.0 (provenance) |
 | Код | 6 700 строк библиотеки, 6 500 строк тестов |
-| Тесты | 708 passed / 17 skipped, coverage 92 % |
+| Тесты | 710 passed / 17 skipped, coverage 92 % |
 | Интеграции | Flask, Django, FastAPI, голое ядро, React, виджет без сборки, CLI, демо-сервер |
 | CI | 11 джобов: тесты 3.9–3.13, ruff, package, react, security, живой портал |
 

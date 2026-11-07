@@ -69,6 +69,7 @@ nav:
       - Голое ядро: integrations/bare-core.md
       - SPA и JSON: integrations/spa.md
       - React: react.md
+      - Виджет без React: widget.md
   - Капча: captcha.md
   - Вопросы:
       - Банк и «Решу ЕГЭ»: questions.md

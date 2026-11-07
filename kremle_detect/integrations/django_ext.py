@@ -64,6 +64,7 @@ from ..session import (
     NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification, is_verified, remaining_seconds,
 )
 from ..storage import MemoryStorage, RedisStorage
+from ..widget import headers as widget_headers, read_bundle
 from ._common import (
     accepts_json, blocked_payload, challenge_payload, no_store_headers, wants_json,
     captcha_headers,
@@ -424,6 +425,18 @@ def kremle_urls():
         )
 
     @require_GET
+    def widget(request, name):
+        """Собранный виджет без React: один файл, один <script>."""
+        payload = read_bundle(name)
+        if payload is None:
+            return HttpResponse(
+                'Виджет не собран. В исходниках: cd kremle-widget && npm run build',
+                status=404, content_type='text/plain; charset=utf-8',
+                headers={'Cache-Control': 'no-store'},
+            )
+        return HttpResponse(payload, headers=widget_headers())
+
+    @require_GET
     def image(request, key):
         """Картинка задания из локального кеша (см. ``kremle_detect.images``)."""
         from django.conf import settings
@@ -445,6 +458,7 @@ def kremle_urls():
         path('logout/', logout, name='kremle_logout'),
         # без завершающего слэша: images_prefix по умолчанию '/kremle/img/'
         path('img/<str:key>', image, name='kremle_image'),
+        path('widget/<str:name>', widget, name='kremle_widget'),
     ]
 
     # Эксплуатационные роуты можно выключить целиком (KREMLE_ENABLE_OPS_ROUTES)

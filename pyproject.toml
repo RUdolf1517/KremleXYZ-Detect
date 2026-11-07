@@ -48,13 +48,13 @@ kremle-detect = "kremle_detect.cli:main"
 include = ["kremle_detect*"]
 
 [tool.setuptools.package-data]
-kremle_detect = ["templates/*.html", "py.typed"]
+kremle_detect = ["templates/*.html", "py.typed", "static/widget/*.js", "static/widget/*.mjs"]
 
 [tool.ruff]
 # Лёгкий набор: ошибки и неиспользуемый код, без вкусовщины про форматирование.
 target-version = "py39"
 line-length = 100
-exclude = [".git", "build", "dist", "kremle-react", ".venv"]
+exclude = [".git", "build", "dist", "kremle-react", "kremle-widget", ".venv"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "UP"]

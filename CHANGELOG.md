@@ -6,6 +6,51 @@
 > «История пишется для потомков: что сделано — то записано, что не записано —
 > того не было.»
 
+## [2.10.0] — 2026-11-08
+
+Безопасность: второй раздел роадмапа. Ничего не удалено из публичного API,
+кроме полей фингерпринта, которые сервер никогда не читал.
+
+### Безопасность
+
+- **JSON в шаблоне капчи экранируется.** Текст вопроса больше не может вырваться
+  из `<script>`: `<`, `>`, `&` и U+2028/U+2029 заменяются на `\u003c`-формы,
+  `JSON.parse` возвращает исходный текст. Общий помощник
+  `render_captcha_html()` для Flask, Django и FastAPI — раньше подстановка была
+  простым `replace` в трёх местах.
+- **Заголовки безопасности на роутах капчи.** `/kremle/challenge`,
+  `/kremle/verify`, `/kremle/status`, `/kremle/logout` отвечают с
+  `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer` и CSP. Политика настраивается: `csp_policy=` у
+  Flask/FastAPI, `KREMLE_CSP_POLICY` в Django; пустая строка отключает CSP для
+  своих шаблонов со внешними скриптами.
+- **Секрет: предупреждение и ротация.** Старт с дефолтным
+  `kremle-default-secret` пишет WARNING, пустой секрет — `ValueError`.
+  `secret=['новый', 'старый']`: первый ключ подписывает, все проверяют —
+  смена ключа не обрывает уже выданные капчи.
+- **SBOM и подпись релиза.** В GitHub Release рядом с wheel/sdist кладутся
+  CycloneDX-SBOM для Python (снят с установленного wheel) и для npm, артефакты
+  подписываются sigstore keyless (`cosign sign-blob`, `*.sig` + `*.pem`).
+  Недоступность sigstore публикацию не ломает — остаётся `::warning`.
+
+### Изменено
+
+- **Фингерпринт: 14 полей → 5.** И в `kremle-react` (`collectFingerprint`), и в
+  HTML-шаблоне капчи остались `yaBrands`, `yandexApi`, `honeypot`, `webdriver`,
+  `timezone`. Полный User-Agent, список брендов, язык, разрешение экрана и прочее
+  больше не отправляются: сервер читал только три поля, остальное было сбором
+  данных без пользы для решения. В `kremle-react` `tz` переименован в
+  `timezone`, а `brands`/`lang` убраны из типа `KremleFingerprint`.
+
+### Добавлено
+
+- **Тест на расхождение документации с кодом** (`tests/test_structure_sync.py`):
+  версия в `STRUCTURE.md`, бейдже README, `pyproject.toml` и
+  `kremle-react/package.json` обязана совпадать с `__version__`, а список файлов
+  в `STRUCTURE.md` — с содержимым `kremle_detect/`.
+- Тесты безопасности капчи (`tests/test_captcha_security.py`) и ротации секрета
+  (`tests/test_secret_rotation.py`) — по всем трём интеграциям.
+
 ## [Unreleased]
 
 ### Изменено

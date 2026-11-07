@@ -2,7 +2,7 @@
 
 > «Кто сказал, что предохранитель не может быть красивым?»
 
-`kremle-react@2.9.0` — ESM + CJS + `'use client'` + типы, 26 тестов. Собран на
+`kremle-react@2.10.0` — ESM + CJS + `'use client'` + типы, 27 тестов. Собран на
 React 19, TypeScript 7 и jsdom 30 (`npm install` — Node ≥ 22). Версия npm-пакета
 совпадает с версией Python-пакета: один релиз, один тег.
 
@@ -10,6 +10,21 @@ React 19, TypeScript 7 и jsdom 30 (`npm install` — Node ≥ 22). Версия
 npm install kremle-react
 npm install /path/to/KremleXYZ-Detect/kremle-react   # из исходников
 ```
+
+## Фингерпринт: пять полей
+
+`collectFingerprint()` собирает ровно то, что влияет на решение, — и ничего
+сверх этого:
+
+```ts
+{ yaBrands, yandexApi, honeypot, webdriver, timezone }
+```
+
+`yaBrands` (`navigator.userAgentData.brands` и `YaBrowser` в UA), `yandexApi`
+(`window.yandex`/`Ya`/`YaBrowser`) и `honeypot` включают строгий режим на
+сервере; `webdriver` и `timezone` — грубые приметы автоматизации. Полный список
+брендов и язык интерфейса не отправляются: решение по ним не принимается, а
+данные — уже персональные. С 2.10 поля `brands` и `lang` убраны.
 
 ## Готовая капча
 

@@ -68,6 +68,16 @@ Django — это про порядок: всё в настройках, всё 
 | `KREMLE_QUESTIONS_SOURCE` | `'auto'` | откуда брать вопросы |
 | `KREMLE_QUESTIONS_IMAGES` | `False` | показывать задания с рисунком |
 | `KREMLE_IMAGES_CACHE_DIR` / `KREMLE_IMAGES_PREFIX` | `~/.cache/kremle-detect/images` / `/kremle/img/` | кеш картинок и префикс URL |
+| `KREMLE_CSP_POLICY` | `None` | своя CSP для роутов капчи (`''` — не отправлять) |
+
+`KREMLE_SECRET` понимает список: `KREMLE_SECRET = ['новый-ключ', 'старый-ключ']` —
+первый подписывает, все проверяют, поэтому смена ключа не обрывает капчи,
+выданные до неё. Дефолтный ключ (и `SECRET_KEY`, взятый как секрет) пишет
+WARNING в лог.
+
+На роутах капчи всегда уходят `X-Frame-Options: DENY`, `X-Content-Type-Options:
+nosniff` и `Referrer-Policy: no-referrer`; CSP настраивается `KREMLE_CSP_POLICY`
+(подробности — [Безопасность: CSP](../security.md#csp-как-ужесточить-и-что-сломается)).
 
 Переменные окружения Django читает сам, отдельный парсер библиотека не
 подсовывает: если нужен `django-environ` — используйте его.

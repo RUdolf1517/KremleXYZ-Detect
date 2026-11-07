@@ -81,6 +81,30 @@ KremleFlask(app, template='/path/to/my_captcha.html')
 JSON `{questions, token, created_at, verify_url, expires_in, max_errors, sources,
 attribution}`. Подробнее — [Капча: свой шаблон](../captcha.md#свой-шаблон).
 
+## Заголовки безопасности и CSP
+
+На `/kremle/challenge`, `/kremle/verify`, `/kremle/status` и `/kremle/logout`
+уходят `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer` и CSP, совместимая со штатным шаблоном (inline
+скрипт и стили). Капчу нельзя встроить в чужую страницу и подменить.
+
+```python
+KremleFlask(app, csp_policy="default-src 'none'; script-src 'unsafe-inline'; "
+                            "style-src 'unsafe-inline'; frame-ancestors 'none'")
+KremleFlask(app, csp_policy='')     # свой шаблон со внешними скриптами — CSP не шлём
+```
+
+Что ломается при ужесточении — в [Безопасность: CSP](../security.md#csp-как-ужесточить-и-что-сломается).
+
+## Смена секрета без разрыва капч
+
+`secret` принимает список: первый ключ подписывает новые токены, все —
+проверяют старые. Активные капчи (TTL 15 минут) переживут смену ключа.
+
+```python
+KremleFlask(app, secret=['новый-ключ', 'старый-ключ'])   # старый убрать через 15 минут
+```
+
 ## Настройки
 
 Flask-интеграция настраивается только аргументами конструктора и не читает

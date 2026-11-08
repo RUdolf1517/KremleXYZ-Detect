@@ -43,6 +43,9 @@ Django-интеграция KremleDetect (middleware).
     KREMLE_QUESTIONS_SOURCE = 'auto'  # auto | own | sdamgia | own+sdamgia
     KREMLE_MIXED_RATIO = 0.5          # доля портала для own+sdamgia
     KREMLE_QUESTIONS_IMAGES = False   # задания с рисунком из «Решу ЕГЭ»
+    KREMLE_ADAPTIVE = True            # строже после серии провалов с IP
+    KREMLE_ADAPTIVE_THRESHOLD = 3     # сколько провалов подряд включают ступень
+    KREMLE_ADAPTIVE_EXTRA_QUESTIONS = 2   # +вопросов на каждой ступени
     KREMLE_JSON_API = True        # JSON-ответ вместо редиректа для fetch/SPA
     KREMLE_HEADLESS = False       # всегда JSON (весь сайт — API)
     KREMLE_ENABLE_OPS_ROUTES = True
@@ -85,7 +88,8 @@ _ENGINE_SETTINGS = (
     'KREMLE_SAMPLE_RATE', 'KREMLE_METRICS_ENABLED', 'KREMLE_VERIFIED_TTL',
     'KREMLE_BIND_IP', 'KREMLE_BIND_UA', 'KREMLE_QUESTIONS_SOURCE',
     'KREMLE_QUESTIONS_IMAGES', 'KREMLE_IMAGES_CACHE_DIR', 'KREMLE_IMAGES_PREFIX',
-    'KREMLE_MIXED_RATIO',
+    'KREMLE_MIXED_RATIO', 'KREMLE_ADAPTIVE', 'KREMLE_ADAPTIVE_THRESHOLD',
+    'KREMLE_ADAPTIVE_EXTRA_QUESTIONS',
 )
 
 
@@ -131,6 +135,11 @@ def _get_engine(settings) -> CaptchaEngine:
             bind_ua=getattr(settings, 'KREMLE_BIND_UA', False),
             questions_source=getattr(settings, 'KREMLE_QUESTIONS_SOURCE', 'auto'),
             mixed_ratio=getattr(settings, 'KREMLE_MIXED_RATIO', 0.5),
+            adaptive=getattr(settings, 'KREMLE_ADAPTIVE', True),
+            adaptive_threshold=getattr(settings, 'KREMLE_ADAPTIVE_THRESHOLD', 3),
+            adaptive_extra_questions=getattr(
+                settings, 'KREMLE_ADAPTIVE_EXTRA_QUESTIONS', 2
+            ),
             questions_images=getattr(settings, 'KREMLE_QUESTIONS_IMAGES', False),
             images_cache_dir=getattr(settings, 'KREMLE_IMAGES_CACHE_DIR', None),
             images_prefix=getattr(
@@ -292,11 +301,11 @@ def kremle_urls():
                                 headers={'Retry-After': str(engine.rate_window)})
         engine.track_challenge(ip)
 
-        ch = engine.create_challenge()
+        ch = engine.create_challenge(ip=ip)
         request.session[TOKEN_KEY] = ch.token
 
         data = ch.to_dict(verify_url=reverse('kremle_verify'),
-                          max_errors=engine.max_errors)
+                          max_errors=ch.max_errors)
 
         if _wants_json(request, settings) or accepts_json(request.META.get('HTTP_ACCEPT', '')):
             response = JsonResponse(data)

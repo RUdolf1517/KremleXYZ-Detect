@@ -46,6 +46,14 @@ DEFAULT_CHALLENGE_RATE_LIMIT = 60  # выдач челленджа с одног
 RECENT_QUESTIONS_LIMIT = 400
 RECENT_QUESTIONS_TTL = 6 * 3600
 
+#: Сколько живёт серия провалов с одного IP. «Подряд» — это не «за месяц»:
+#: человек, вернувшийся через час, снова видит обычную капчу.
+ADAPTIVE_STREAK_TTL = 30 * 60
+
+#: Максимум ступеней ужесточения. Дальше растут только счётчик rate limit и
+#: блоклист: бесконечно длинная капча просто перестаёт быть проходимой.
+ADAPTIVE_MAX_LEVEL = 3
+
 
 def _question_key(question: dict) -> str:
     """
@@ -129,9 +137,15 @@ class Challenge:
         self,
         questions: List[dict],
         secret: str = DEFAULT_SECRET,
+        max_errors: Optional[int] = None,
     ):
         self.questions = questions
         self.created_at = time.time()
+        # Порог, по которому выдан именно этот челлендж. None — «как настроено
+        # в движке». Адаптивная сложность меняет порог на лету, и проверять
+        # ответы по текущим настройкам было бы нечестно: строгий челлендж
+        # оценивался бы по мягкому порогу.
+        self.max_errors = max_errors
 
         # Токен = HMAC от ответов + timestamp (защита от подделки)
         answers_str = json.dumps([q['ans'] for q in questions], separators=(',', ':'))
@@ -199,6 +213,7 @@ class Challenge:
             'safe_questions': self.safe_questions,
             'token': self.token,
             'created_at': self.created_at,
+            'max_errors': self.max_errors,
         }
 
     @classmethod
@@ -209,6 +224,8 @@ class Challenge:
         obj.safe_questions = data['safe_questions']
         obj.token = data['token']
         obj.created_at = data['created_at']
+        # челленджи, выданные до 2.12, поля не имеют — это не повод падать
+        obj.max_errors = data.get('max_errors')
         return obj
 
 
@@ -259,6 +276,9 @@ class CaptchaEngine:
         bind_ua: bool = False,
         questions_source: str = 'auto',
         mixed_ratio: float = DEFAULT_MIXED_RATIO,
+        adaptive: bool = True,
+        adaptive_threshold: int = 3,
+        adaptive_extra_questions: int = 2,
         questions_images: bool = False,
         images_cache_dir: Optional[str] = None,
         images_prefix: str = DEFAULT_IMAGES_PREFIX,
@@ -295,6 +315,13 @@ class CaptchaEngine:
             verified_ttl: сколько секунд действует «капча пройдена» (0 — бессрочно).
             bind_ip: переспрашивать капчу при смене IP.
             bind_ua: переспрашивать капчу при смене User-Agent.
+            adaptive: ужесточать капчу после серии провалов с одного IP
+                (по умолчанию да). Первый провал ничего не меняет.
+            adaptive_threshold: сколько провалов подряд включают следующую
+                ступень (по умолчанию 3).
+            adaptive_extra_questions: сколько вопросов добавлять на каждой
+                ступени (по умолчанию 2); порог ошибок уменьшается на столько
+                же, но не ниже нуля.
             questions_images: показывать задания с рисунком (по умолчанию нет)
             images_cache_dir: каталог локального кеша картинок (по умолчанию
                 ``~/.cache/kremle-detect/images``, см. ``kremle_detect.images``).
@@ -361,6 +388,13 @@ class CaptchaEngine:
         # старые имена (builtin/auto) остаются рабочими до 3.0
         self.questions_source = normalize_source(questions_source)
         self.mixed_ratio = validate_mixed_ratio(mixed_ratio)
+        self.adaptive = bool(adaptive)
+        self.adaptive_threshold = _require_int(
+            'adaptive_threshold', adaptive_threshold, 1
+        )
+        self.adaptive_extra_questions = _require_int(
+            'adaptive_extra_questions', adaptive_extra_questions, 0
+        )
         self.questions_images = bool(questions_images)
         self._warned_no_rotation = False
         self.images_cache_dir = images_cache_dir
@@ -514,8 +548,66 @@ class CaptchaEngine:
             stale_after_hours=stale_after_hours,
         )
 
-    def create_challenge(self) -> Challenge:
-        """Создаёт новый набор вопросов."""
+    # ── Адаптивная сложность ─────────────────────────────────────────────────
+
+    def fail_streak(self, ip: str) -> int:
+        """
+        Сколько провалов подряд набрал IP (0 — чистая история).
+
+        Счётчик живёт ``ADAPTIVE_STREAK_TTL`` и сбрасывается первым успехом.
+        Он отдельный от rate limit: там лимит на блокировку, здесь — на
+        сложность.
+        """
+        if not self.adaptive or not ip:
+            return 0
+        return int(self.storage.get_counter(f'streak:{ip}') or 0)
+
+    def _track_streak_fail(self, ip: str) -> None:
+        """Учесть провал в серии (для адаптивной сложности)."""
+        if not self.adaptive or not ip:
+            return
+        self.storage.increment(f'streak:{ip}', ADAPTIVE_STREAK_TTL)
+
+    def _reset_streak(self, ip: str) -> None:
+        """Успех обнуляет серию: наказывать за прошлое больше не за что."""
+        if ip:
+            self.storage.delete(f'streak:{ip}')
+
+    def adaptive_level(self, ip: Optional[str] = None) -> int:
+        """
+        Ступень ужесточения для IP: 0 — обычная капча, дальше строже.
+
+        Три провала подряд (``adaptive_threshold``) — первая ступень, шесть —
+        вторая, но не выше ``ADAPTIVE_MAX_LEVEL``.
+        """
+        if not self.adaptive or not ip:
+            return 0
+        return min(self.fail_streak(ip) // self.adaptive_threshold, ADAPTIVE_MAX_LEVEL)
+
+    def difficulty(self, ip: Optional[str] = None) -> Dict[str, int]:
+        """
+        Сколько вопросов и какой порог ошибок получит этот IP.
+
+        Пример:
+            engine.difficulty(ip)   # {'level': 0, 'question_count': 5, 'max_errors': 2}
+        """
+        level = self.adaptive_level(ip)
+        count = self.question_count + level * self.adaptive_extra_questions
+        return {
+            'level': level,
+            'question_count': count,
+            'max_errors': max(0, self.max_errors - level),
+        }
+
+    def create_challenge(self, ip: Optional[str] = None) -> Challenge:
+        """
+        Создаёт новый набор вопросов.
+
+        Args:
+            ip: IP клиента. Нужен адаптивной сложности: после серии провалов
+                челлендж приходит длиннее и со строгим порогом. Без IP —
+                обычная капча.
+        """
         if self.only_extra:
             if not self.extra_questions:
                 raise ValueError(
@@ -542,10 +634,21 @@ class CaptchaEngine:
         # потерянное время (кеш «Решу ЕГЭ» может содержать повторы).
         pool = _dedupe_questions(pool)
 
+        # Адаптивная сложность: серия провалов делает капчу длиннее и строже.
+        # Считаем один раз, чтобы один челлендж не оказался наполовину строгим.
+        plan = self.difficulty(ip)
+        challenge_count = min(plan['question_count'], len(pool))
+        challenge_max_errors = plan['max_errors']
+        if plan['level']:
+            logger.info(
+                'Adaptive difficulty: ip=%s level=%d questions=%d max_errors=%d',
+                ip, plan['level'], challenge_count, challenge_max_errors,
+            )
+
         # Ротация: сначала вопросы, которых не было в последних челленджах.
         # Без неё маленький банк (15 встроенных вопросов) выдаёт один и тот же
         # набор каждый раз — бот, один раз посмотревший ответы, проходит всегда.
-        rotation_possible = len(pool) > self.question_count
+        rotation_possible = len(pool) > challenge_count
         if rotation_possible:
             pool = self._rotate_pool(pool)
 
@@ -555,13 +658,13 @@ class CaptchaEngine:
             questions = mix_questions(
                 [q for q in pool if q.get('source_kind') == 'own'],
                 [q for q in pool if q.get('source_kind') == 'sdamgia'],
-                self.question_count,
+                challenge_count,
                 self.mixed_ratio,
                 rng=self._rng,
             )
         else:
             self._rng.shuffle(pool)
-            questions = pool[:self.question_count]
+            questions = pool[:challenge_count]
 
         if rotation_possible:
             self._remember_questions(questions)
@@ -572,7 +675,7 @@ class CaptchaEngine:
                 'содержит все вопросы, ротация невозможна. Уменьшите '
                 'question_count или загрузите больше заданий '
                 '(`kremle-detect questions sync`).',
-                len(pool), self.question_count,
+                len(pool), challenge_count,
             )
 
         # Картинки из кеша отдаём своим роутом: иначе каждый показ капчи
@@ -586,13 +689,13 @@ class CaptchaEngine:
         # Пул может оказаться меньше question_count (мало категорий/своих вопросов).
         # Проверка реального числа вопросов — в verify(): лимит ошибок там
         # подрезается до len(questions) - 1. Здесь только предупреждаем.
-        if len(questions) <= self.max_errors and not self._warned_small_pool:
+        if len(questions) <= challenge_max_errors and not self._warned_small_pool:
             self._warned_small_pool = True
             logger.warning(
                 'В пуле %d вопрос(ов), а max_errors=%d — лимит ошибок будет '
                 'уменьшен до %d. Добавьте категории/свои вопросы или уменьшите '
                 'max_errors.',
-                len(questions), self.max_errors, max(len(questions) - 1, 0),
+                len(questions), challenge_max_errors, max(len(questions) - 1, 0),
             )
 
         # Перемешиваем варианты ответов на сервере: индекс правильного ответа
@@ -604,7 +707,11 @@ class CaptchaEngine:
             q['opts'] = shuffled
             q['ans'] = shuffled.index(correct_text)
 
-        challenge = Challenge(questions, self.secret)
+        challenge = Challenge(
+            questions,
+            self.secret,
+            max_errors=min(challenge_max_errors, max(len(questions) - 1, 0)),
+        )
 
         self.storage.set(
             f'challenge:{challenge.token}',
@@ -809,6 +916,11 @@ class CaptchaEngine:
                 errors += 1
 
         total = len(challenge.questions)
+        # Порог, с которым челлендж выдан: адаптивная сложность могла его
+        # ужесточить, а фингерпринт — ужесточить ещё сильнее. Берём строгий из
+        # двух: прощать то, что человеку обещали не прощать, нельзя.
+        if challenge.max_errors is not None:
+            effective_max_errors = min(effective_max_errors, challenge.max_errors)
         # На 1 вопрос — минимум 1 верный ответ: даже если пул оказался меньше
         # question_count, свободного прохода не будет.
         effective_max_errors = min(effective_max_errors, max(total - 1, 0))
@@ -821,6 +933,7 @@ class CaptchaEngine:
         if passed:
             self._clear_rate_attempts(ip)
             self._track_pass(ip)
+            self._reset_streak(ip)
             self.metrics.count_pass()
             logger.info('Captcha PASSED: ip=%s errors=%d/%d', ip, errors, total)
             self.storage.log_event({
@@ -832,6 +945,7 @@ class CaptchaEngine:
         else:
             self._track_rate_attempt(ip)
             self._track_fail(ip)
+            self._track_streak_fail(ip)
             self.metrics.count_fail()
             logger.info('Captcha FAILED: ip=%s errors=%d/%d', ip, errors, total)
             self.storage.log_event({
@@ -845,10 +959,15 @@ class CaptchaEngine:
             'passed': passed,
             'errors': errors,
             'total': total,
-            # Порог, по которому реально судили (с учётом «не больше total-1»).
-            # Клиент показывает его человеку: раньше шаблон угадывал порог как
-            # errors > total / 2 и врал «почти прошли» при провале.
-            'max_errors': min(self.max_errors, max(total - 1, 0)),
+            # Порог, который видел человек: тот, с которым выдан челлендж, и
+            # «не больше total-1». Скрытое ужесточение по фингерпринту сюда не
+            # попадает — о нём клиенту знать не нужно (это была бы подсказка
+            # ботам), а обещанный порог остаётся честным.
+            'max_errors': min(
+                challenge.max_errors if challenge.max_errors is not None
+                else self.max_errors,
+                max(total - 1, 0),
+            ),
         }
 
     def notify_detect(self, detect_result, ip: str = None) -> None:

@@ -315,6 +315,56 @@ logging.getLogger('kremle').setLevel(logging.INFO)
 kremle-detect logs -n 50
 ```
 
+## Трассировка и JSON-логи
+
+Смотреть в логи — хорошо; видеть, сколько заняла конкретная капча у конкретного
+человека — лучше. Для этого есть OpenTelemetry, но только как extras:
+библиотека, которая тянет агент в обязательные зависимости, — библиотека,
+которую не поставят.
+
+```bash
+pip install "kremle-detect[otel]"
+export KREMLE_OTEL_ENDPOINT=http://localhost:4318   # OTLP/HTTP (Jaeger, Tempo)
+kremle-detect serve
+```
+
+Без `KREMLE_OTEL_ENDPOINT` (или без extras) всё работает как раньше: спаны —
+пустые заглушки, ни одного лишнего импорта в горячем пути.
+
+Что видно в трейсе:
+
+| Спан | Атрибуты |
+|---|---|
+| `kremle.challenge` | `questions`, `max_errors`, `source` |
+| `kremle.verify` | `passed`, `errors`, `total`, `max_errors`, `error` |
+
+IP и токен челленджа туда **не** попадают: первый — персональные данные,
+второй — секрет, по которому проходят капчу. Связать лог с трейсом можно по
+`trace_id`, он есть в JSON-логе.
+
+```bash
+export KREMLE_LOG_JSON=1
+kremle-detect serve
+```
+
+```json
+{"ts": "2026-10-24T12:00:00.123+00:00", "level": "INFO", "logger": "kremle",
+ "message": "Challenge created: token=1f4c9a0b7e2d1234 questions=5",
+ "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"}
+```
+
+Своими руками, без переменных окружения:
+
+```python
+from kremle_detect.telemetry import setup_tracing, setup_json_logs
+
+setup_tracing(service_name='my-site', endpoint='http://localhost:4318')
+setup_json_logs()          # логгер kremle — в JSON, уровень INFO
+```
+
+`setup_json_logs()` выключает `propagate`: иначе та же запись уедет в корневой
+обработчик обычным текстом, и в потоке получится смесь форматов.
+
 Порядок в хозяйстве начинается с расписания: кеш вопросов обязан обновляться,
 а не лежать десятилетней картошкой в подвале.
 

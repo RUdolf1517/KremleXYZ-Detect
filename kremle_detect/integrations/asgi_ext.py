@@ -37,7 +37,9 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import (
+    TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple,
+)
 
 from .. import __version__
 from ..captcha import CaptchaEngine
@@ -63,6 +65,9 @@ from ._common import (
 
 logger = logging.getLogger('kremle')
 
+if TYPE_CHECKING:  # pragma: no cover - только для типов, litestar не нужен в рантайме
+    from litestar import Request as LitestarRequest, Response as LitestarResponse
+
 #: Префикс всех служебных роутов.
 PREFIX = '/kremle'
 
@@ -76,7 +81,7 @@ Header = Tuple[bytes, bytes]
 class ASGIRequest:
     """Только то, что нужно капче: путь, метод, заголовки, тело, сессия."""
 
-    def __init__(self, scope: dict, receive: Optional[Callable] = None,
+    def __init__(self, scope: Mapping[str, Any], receive: Optional[Callable] = None,
                  body: Optional[bytes] = None):
         self.scope = scope
         self._receive = receive

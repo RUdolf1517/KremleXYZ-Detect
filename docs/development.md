@@ -27,11 +27,43 @@ pip install -e ".[all,test]"
 ```bash
 pytest -q                                   # всё
 pytest tests/test_captcha.py -q             # один файл
-pytest -q --cov=kremle_detect --cov-report=term-missing
+pytest -q --cov=kremle_detect --cov-report=term-missing --cov-report=json
+python scripts/coverage_gate.py             # пороги по модулям
 ruff check .
+mypy kremle_detect                          # типы
 ```
 
-Текущее состояние: **832 passed / 17 skipped**, coverage 93 %. Порог в CI — 85 %.
+Текущее состояние: **893 passed / 17 skipped**, coverage 94 %. В CI два порога:
+общий (`--cov-fail-under`) и по модулям — он в `pyproject.toml`, секция
+`[tool.kremle.coverage]`:
+
+```toml
+[tool.kremle.coverage]
+overall = 90
+"kremle_detect/demo.py" = 95
+"kremle_detect/storage.py" = 95
+"kremle_detect/integrations/fastapi_ext.py" = 95
+```
+
+Общий процент прячет провал в одном файле: добавьте триста непокрытых строк
+рядом с зелёными тестами — суммарная цифра не шевельнётся. Поэтому у модулей,
+где ошибка стоит дорого, порог свой, и `scripts/coverage_gate.py` роняет джоб
+ровно с именем просевшего файла.
+
+Типы проверяет `mypy` в отдельном джобе. Настройки — в `[tool.mypy]`:
+`check_untyped_defs` (проверяются и тела функций без аннотаций),
+`no_implicit_optional` (голый `x: str = None` — ошибка, а не «так и надо»),
+`warn_unused_ignores` (лишний `# type: ignore` тоже ошибка — иначе они
+накапливаются и прячут настоящие проблемы). Пакет объявляет `py.typed`, то есть
+типы обещаны наружу — значит их надо проверять, а не надеяться.
+
+Нагрузочный смоук — отдельный **неблокирующий** джоб: числа зависят от раннера,
+поэтому они публикуются в summary PR, но мерж не останавливают.
+
+```bash
+kremle-detect serve &                       # демо на :8000
+python scripts/loadtest.py -n 300 -c 20 --json-out /tmp/loadtest.json
+```
 
 Тесты не ходят в сеть: `get=` подменяется, Redis — `fakeredis`, портал
 «Решу ЕГЭ» — фикстурами. Если ваш тест требует интернета, он не примут.
@@ -54,7 +86,8 @@ kremle_detect/
 ├── captcha.py             ядро: CaptchaEngine, Challenge, лимиты, callbacks
 ├── policy.py              действия сегментов, сэмплирование
 ├── metrics.py             счётчики, snapshot(), prometheus()
-├── session.py             TTL «капча пройдена», привязка к IP/UA
+├── session.py             TTL «капча пройдена» и «долг капчи», привязка к IP/UA
+├── telemetry.py           OpenTelemetry ([otel]) и JSON-логи, по умолчанию no-op
 ├── storage.py             MemoryStorage, RedisStorage, EventLog
 ├── storage_async.py       AsyncRedisStorage, AsyncStorageAdapter
 ├── images.py              кеш картинок, SSRF-защита, prune

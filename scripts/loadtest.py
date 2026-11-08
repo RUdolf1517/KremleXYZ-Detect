@@ -176,18 +176,33 @@ def main(argv=None) -> int:
                         help='Потоков (по умолч. 20)')
     parser.add_argument('--url', default='http://127.0.0.1:8000', help='База демо-сервера')
     parser.add_argument('--endpoint', choices=['all', *SCENARIOS], default='all')
+    parser.add_argument('--json-out', default=None,
+                        help='Записать сводку в JSON (для CI-артефакта и summary)')
     args = parser.parse_args(argv)
 
     names = list(SCENARIOS) if args.endpoint == 'all' else [args.endpoint]
     failed = False
+    summary = {}
 
     for name in names:
         stats = run_workers(
             f'[{name}]', args.requests, args.concurrency, SCENARIOS[name](args.url),
         )
         print(stats.report())
+        summary[name] = {
+            'count': stats.count,
+            'errors': stats.errors,
+            'rps': round(stats.count / stats.wall_time, 1) if stats.wall_time else 0.0,
+            'p50_ms': round(stats.percentile(0.5) * 1000, 1),
+            'p95_ms': round(stats.percentile(0.95) * 1000, 1),
+            'max_ms': round(max(stats.latencies, default=0.0) * 1000, 1),
+        }
         if stats.errors:
             failed = True
+
+    if args.json_out:
+        with open(args.json_out, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
 
     print('\nПорядок величин ожидаем: память-хранилище — тысячи rps, '
           'Redis по сети — сотни. Если p95 выше ~100 ms на 20 потоках, '

@@ -15,7 +15,8 @@ KremleXYZ-Detect/
 │   ├── captcha.py                   Ядро: CaptchaEngine, Challenge, лимиты, callbacks
 │   ├── policy.py                    Действия сегментов (challenge/block/monitor/allow), сэмплирование
 │   ├── metrics.py                   Счётчики, snapshot(), prometheus(), health_payload()
-│   ├── session.py                   TTL «капча пройдена», привязка к IP/UA
+│   ├── session.py                   TTL «капча пройдена» и «долг капчи», привязка к IP/UA
+│   ├── telemetry.py                 OpenTelemetry (extras [otel]) и JSON-логи, по умолчанию no-op
 │   ├── storage.py                   MemoryStorage, RedisStorage, EventLog
 │   ├── storage_async.py             AsyncRedisStorage, AsyncStorageAdapter (threadpool)
 │   ├── ip.py                        Резолвинг IP, авто/явные trusted proxies, IP/CIDR
@@ -59,7 +60,11 @@ KremleXYZ-Detect/
 │   ├── test_questions.py            Категории, валидация, формат
 │   ├── test_policy.py               Сегменты, monitor, sample_rate
 │   ├── test_metrics.py              Счётчики, Prometheus, health
-│   ├── test_session.py              TTL «пройдено», привязка к IP/UA
+│   ├── test_session.py              TTL «пройдено» и «долг капчи», привязка к IP/UA
+│   ├── test_telemetry.py            Трейсы challenge/verify, JSON-логи, no-op без [otel]
+│   ├── test_coverage_gate.py        Гейт покрытия по модулям (пороги в pyproject)
+│   ├── test_storage_defaults.py     Умолчания BaseStorage, TTL памяти, Redis без Redis
+│   ├── test_fastapi_edges.py        Края FastAPI: whitelist, block/monitor, флаги, шаблон
 │   ├── test_sdamgia.py              Парсер заданий, дистракторы, кеш, sources
 │   ├── test_flask_ops.py            JSON-гард, ops-роуты, logout (Flask)
 │   ├── test_fastapi_ops.py          То же для FastAPI
@@ -87,7 +92,8 @@ KremleXYZ-Detect/
 │   ├── pages.yml                    Сайт документации и демо на GitHub Pages
 │   ├── release.yml                  Публикация по тегу: PyPI (OIDC), npm (provenance), Release
 │   └── sdamgia-live.yml             Ежедневная проверка живого «Решу ЕГЭ»
-├── scripts/loadtest.py              Нагрузочный смоук (rps, p50/p95)
+├── scripts/loadtest.py              Нагрузочный смоук (rps, p50/p95) — не блокирует CI
+├── scripts/coverage_gate.py         Пороги покрытия по модулям из pyproject.toml
 ├── Dockerfile                       Демо-образ
 ├── docker-compose.yml               Демо + профиль Redis
 ├── SECURITY.md                      Политика раскрытия и модель угроз

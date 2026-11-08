@@ -147,7 +147,7 @@ class MemoryStorage(BaseStorage):
         expires_at = None if ttl is None else time.time() + ttl
         entry = self._data.get(key)
         alive = entry is not None and (entry[1] is None or time.time() <= entry[1])
-        if not alive:
+        if entry is None or not alive:
             self._data[key] = ({'count': 1}, expires_at)
             return 1
         val = entry[0]

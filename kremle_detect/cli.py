@@ -336,13 +336,13 @@ def _download_images(cats, cache_dir, args) -> None:
     from .images import cache_questions, stats
     from .questions.sdamgia import read_cache
 
-    questions = []
+    questions: list = []
     for cat in cats:
         data = read_cache(cat, cache_dir)
         if data:
             questions.extend(data.get('questions') or [])
 
-    total = sum(1 for _ in questions)
+    total = len(questions)
     print(f'Скачиваю рисунки ({total} задани(й) в кеше)...')
     result = cache_questions(questions, cache_dir=cache_dir, force=args.force_images)
     cached, skipped = result['cached'], result['skipped']
@@ -497,7 +497,7 @@ def cmd_questions_images(args):
 def cmd_questions_cache(args):
     from .questions.sdamgia import SUBJECTS, cache_age, cache_path, read_cache
 
-    rows = []
+    rows: list = []
     for cat in SUBJECTS:
         data = read_cache(cat, args.cache_dir)
         if not data:

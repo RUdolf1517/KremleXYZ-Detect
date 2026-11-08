@@ -241,6 +241,103 @@ class TestImagesInDemo:
         assert engine.extra_questions[0]['images']
 
 
+class TestRedisFromEnv:
+    """`KREMLE_REDIS_URL` в демо — единственный способ показать общее хранилище."""
+
+    def test_redis_url_builds_redis_storage(self, monkeypatch):
+        from kremle_detect import demo
+        from kremle_detect import storage as storage_module
+
+        made = {}
+
+        class FakeRedisStorage:
+            def __init__(self, url=None):
+                made['url'] = url
+
+        monkeypatch.setattr(storage_module, 'RedisStorage', FakeRedisStorage)
+        monkeypatch.setenv('KREMLE_REDIS_URL', 'redis://example:6379/0')
+        app = demo.build_app()
+        assert made['url'] == 'redis://example:6379/0'
+        # движок получил именно это хранилище, а не MemoryStorage по умолчанию
+        assert isinstance(app.state.kremle.engine.storage, FakeRedisStorage)
+
+    def test_no_url_means_memory(self, monkeypatch):
+        from kremle_detect import demo
+        from kremle_detect.storage import MemoryStorage
+
+        monkeypatch.delenv('KREMLE_REDIS_URL', raising=False)
+        app = demo.build_app()
+        assert isinstance(app.state.kremle.engine.storage, MemoryStorage)
+
+
+class TestServeBanner:
+    """Баннер после запуска — единственная обратная связь `kremle-detect serve`."""
+
+    @staticmethod
+    def _run_main(monkeypatch, capsys, **kwargs):
+        import uvicorn
+
+        from kremle_detect import demo
+
+        monkeypatch.setattr(uvicorn, 'run', lambda *a, **kw: None)
+        demo.main(port=8123, **kwargs)
+        return capsys.readouterr().out
+
+    def test_banner_without_images(self, monkeypatch, capsys):
+        out = self._run_main(monkeypatch, capsys)
+        assert 'kremle-detect demo → http://localhost:8123' in out
+        assert 'challenge' in out
+        assert 'рисунки выключены' in out
+
+    def test_banner_counts_cached_images(self, monkeypatch, capsys):
+        from kremle_detect import images
+
+        monkeypatch.setattr(images, 'stats', lambda cache_dir: {'count': 7})
+        monkeypatch.setattr(images, 'has_image', lambda url: True)
+        out = self._run_main(monkeypatch, capsys, questions_images=True)
+        assert '7 рисунков в локальном кеше' in out
+
+    def test_banner_reports_tracing_and_json_logs(self, monkeypatch, capsys):
+        import logging
+
+        from kremle_detect import telemetry
+
+        logger = logging.getLogger('kremle')
+        before = (list(logger.handlers), logger.level, logger.propagate)
+        monkeypatch.setenv('KREMLE_OTEL_ENDPOINT', 'http://localhost:4318')
+        monkeypatch.setenv('KREMLE_LOG_JSON', '1')
+        monkeypatch.setattr(telemetry, 'setup_tracing', lambda **kw: True)
+        try:
+            out = self._run_main(monkeypatch, capsys)
+        finally:
+            # JSON-логи — глобальное состояние: другие тесты его не заказывали
+            handlers, level, propagate = before
+            logger.handlers[:] = handlers
+            logger.setLevel(level)
+            logger.propagate = propagate
+        assert 'трейсы: OTLP включён' in out
+        assert 'логи: JSON в stderr' in out
+
+    def test_banner_warns_about_hotlinks(self, monkeypatch, capsys):
+        from kremle_detect import images
+        from kremle_detect.questions import sdamgia
+
+        monkeypatch.setattr(images, 'stats', lambda cache_dir: {'count': 0})
+        monkeypatch.setattr(images, 'has_image', lambda url: False)
+        # демо смотрит кеш по каждой категории — считаем только «math»
+        monkeypatch.setattr(
+            sdamgia, 'read_cache',
+            lambda cat, cache_dir=None: {'questions': [
+                {'images': [{'url': 'https://example.com/a.png'},
+                            {'url': 'https://example.com/b.png'}]},
+            ]} if cat == 'math' else None,
+        )
+        out = self._run_main(monkeypatch, capsys, questions_images=True)
+        # два рисунка не скачаны — про них честно сказано, а не «всё хорошо»
+        assert '2 горячих ссылок' in out
+        assert '--download' in out
+
+
 class TestVerifyUrlBehindProxy:
     """За прокси Host бывает внутренним — браузер не должен ходить на localhost."""
 

@@ -393,8 +393,13 @@ def question_sources(questions: Sequence[dict]) -> List[dict]:
 
 def attribution_text(questions: Sequence[dict]) -> str:
     """Готовая строка атрибуции для шаблона капчи."""
-    names = sorted({(q.get('source') or {}).get('name') for q in questions
-                    if isinstance(q.get('source'), dict) and (q.get('source') or {}).get('name')})
+    names = set()
+    for question in questions:
+        source = question.get('source')
+        if isinstance(source, dict):
+            name = source.get('name')
+            if isinstance(name, str) and name:
+                names.add(name)
     if not names:
         return ''
-    return 'Задания: ' + ', '.join(names)
+    return 'Задания: ' + ', '.join(sorted(names))

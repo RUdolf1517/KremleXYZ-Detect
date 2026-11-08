@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from .images import DEFAULT_PREFIX as DEFAULT_IMAGES_PREFIX, rewrite_questions as _rewrite_images
 from .metrics import Metrics
+from .telemetry import span
 from .policy import (
     ALLOW, CHALLENGE, MONITOR, Decision, normalize_policy, reasons_from_hits,
     validate_sample_rate,
@@ -562,13 +563,13 @@ class CaptchaEngine:
             return 0
         return int(self.storage.get_counter(f'streak:{ip}') or 0)
 
-    def _track_streak_fail(self, ip: str) -> None:
+    def _track_streak_fail(self, ip: Optional[str]) -> None:
         """Учесть провал в серии (для адаптивной сложности)."""
         if not self.adaptive or not ip:
             return
         self.storage.increment(f'streak:{ip}', ADAPTIVE_STREAK_TTL)
 
-    def _reset_streak(self, ip: str) -> None:
+    def _reset_streak(self, ip: Optional[str]) -> None:
         """Успех обнуляет серию: наказывать за прошлое больше не за что."""
         if ip:
             self.storage.delete(f'streak:{ip}')
@@ -608,6 +609,21 @@ class CaptchaEngine:
                 челлендж приходит длиннее и со строгим порогом. Без IP —
                 обычная капча.
         """
+        # Трейс для тех, у кого стоит [otel]; без него — no-op. Токен и IP
+        # сюда не пишем: первый — секрет, второй — персональные данные.
+        with span('kremle.challenge') as current:
+            challenge = self._create_challenge(ip)
+            if current is not None:
+                current.set_attribute('questions', len(challenge.questions))
+                current.set_attribute(
+                    'max_errors',
+                    challenge.max_errors if challenge.max_errors is not None else -1,
+                )
+                current.set_attribute('source', self.questions_source)
+            return challenge
+
+    def _create_challenge(self, ip: Optional[str] = None) -> Challenge:
+        """Тело ``create_challenge`` без трейса: один спан на операцию."""
         if self.only_extra:
             if not self.extra_questions:
                 raise ValueError(
@@ -753,13 +769,13 @@ class CaptchaEngine:
             return True
         return False
 
-    def _track_rate_attempt(self, ip: str) -> None:
+    def _track_rate_attempt(self, ip: Optional[str]) -> None:
         """Учесть неудачную проверку в счётчике rate limit."""
         if self.rate_limit <= 0 or not ip:
             return
         self.storage.increment(f'rate:{ip}', self.rate_window)
 
-    def _clear_rate_attempts(self, ip: str) -> None:
+    def _clear_rate_attempts(self, ip: Optional[str]) -> None:
         """Сбросить счётчик после успешного прохождения."""
         if ip:
             self.storage.delete(f'rate:{ip}')
@@ -817,7 +833,7 @@ class CaptchaEngine:
         """Проверить, в чёрном ли списке IP."""
         return self.storage.blacklist_check(ip)
 
-    def _track_fail(self, ip: str) -> None:
+    def _track_fail(self, ip: Optional[str]) -> None:
         """Счётчик провалов. Бан при достижении fail_threshold."""
         if self.fail_threshold <= 0 or not ip:
             return
@@ -833,7 +849,7 @@ class CaptchaEngine:
             self.storage.delete(f'fails:{ip}')
             logger.warning('Auto-blacklisted after %d fails: ip=%s', count, ip)
 
-    def _track_pass(self, ip: str) -> None:
+    def _track_pass(self, ip: Optional[str]) -> None:
         """Сбросить счётчик провалов при успехе."""
         if ip:
             self.storage.delete(f'fails:{ip}')
@@ -862,6 +878,25 @@ class CaptchaEngine:
         Токен одноразовый: он удаляется после любой проверки (успешной или нет),
         поэтому для повтора клиент должен запросить новый челлендж.
         """
+        with span('kremle.verify') as current:
+            result = self._verify(token, answers, ip=ip, fingerprint=fingerprint)
+            if current is not None:
+                current.set_attribute('passed', bool(result.get('passed')))
+                current.set_attribute('errors', result.get('errors', -1))
+                current.set_attribute('total', result.get('total', 0))
+                current.set_attribute('max_errors', result.get('max_errors', -1))
+                if result.get('error'):
+                    current.set_attribute('error', str(result['error']))
+            return result
+
+    def _verify(
+        self,
+        token: str,
+        answers: Dict[str, Any],
+        ip: Optional[str] = None,
+        fingerprint: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Тело ``verify`` без трейса: один спан на операцию."""
         # Fingerprint — ужесточаем порог, но не блокируем наглухо.
         # Яндекс Браузер автозаполняет скрытые поля (honeypot), поэтому
         # honeypot тоже не может быть hard-block — иначе живые люди не пройдут.
@@ -970,7 +1005,7 @@ class CaptchaEngine:
             ),
         }
 
-    def notify_detect(self, detect_result, ip: str = None) -> None:
+    def notify_detect(self, detect_result, ip: Optional[str] = None) -> None:
         """Вызвать callback при детекции (используется интеграциями)."""
         logger.info('Yandex detected: ip=%s reason=%s', ip, detect_result.reason)
         self.storage.log_event({

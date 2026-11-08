@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .policy import ACTIONS, DEFAULT_POLICY
 from .storage import BaseStorage
@@ -85,7 +85,7 @@ class Metrics:
     def _get(self, key: str) -> int:
         return self.storage.get_counter(f'stats:{key}')
 
-    def snapshot(self) -> Dict[str, object]:
+    def snapshot(self) -> Dict[str, Any]:
         """
         Плоский снапшот для JSON-эндпоинта.
 

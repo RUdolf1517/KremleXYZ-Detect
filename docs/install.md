@@ -14,6 +14,7 @@ pip install "kremle-detect[litestar]"           # Litestar 2.x
 pip install "kremle-detect[redis]"              # RedisStorage
 pip install "kremle-detect[all]"                # всё сразу
 pip install "kremle-detect[demo]"               # демо-сервер на uvicorn
+pip install "kremle-detect[otel]"               # трейсы OpenTelemetry (необязательно)
 ```
 
 Python **3.9+**. Зависимостей у ядра нет вообще: Flask, Django, FastAPI,

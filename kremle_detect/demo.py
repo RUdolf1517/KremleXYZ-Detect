@@ -240,8 +240,9 @@ def main(host: str = '0.0.0.0', port: Optional[int] = None,
 _OVERLAY_BLOCK = """  <div class="box box--flag">
     <p><b>Капча поверх страницы.</b> Нажмите кнопку — проверка откроется окном
        прямо над этим текстом, без перехода на отдельный адрес. Фон затемнится,
-       страница останется на месте, <code>Esc</code> окно не закроет:
-       «закрыть и зайти» — это и есть обход.</p>
+       страница останется на месте. В бою <code>Esc</code> окно не закрывает —
+       «закрыть и зайти» это и есть обход; здесь Esc разрешён, чтобы вы
+       не застряли в демо.</p>
     <p><button id="overlay-demo" type="button">Открыть капчу поверх страницы</button></p>
     <p class="muted">Это тот же виджет, что стоит на настоящем сайте:
        <code>KremleWidget.guardOverlay()</code>. Серверный режим включается
@@ -320,12 +321,26 @@ _INDEX_HTML = """<!DOCTYPE html>
 </main>
 <script src="/kremle/widget/kremle-widget.min.js"></script>
 <script>
+  var demoGuard = null;
   document.getElementById('overlay-demo').onclick = function () {
     // Окно без ожидания детекции: демо должно показывать форму проверки,
     // а не заставлять человека искать Яндекс Браузер.
-    var guard = KremleWidget.guardOverlay({autoCheck: false, reloadOnPass: false});
-    guard.open();
+    demoGuard = KremleWidget.guardOverlay({
+      autoCheck: false,
+      reloadOnPass: false,
+      description: 'Демо: три задания из банка. На настоящем сайте Esc окно не ' +
+                   'закрывает — закрыть его значило бы обойти проверку.',
+    });
+    demoGuard.open();
   };
+
+  // Выход из демо-окна. В бою такого нет намеренно: «закрыть и зайти» — обход.
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && demoGuard) {
+      demoGuard.close();
+      demoGuard = null;
+    }
+  });
 
   document.getElementById('ping').onclick = async function () {
     var out = document.getElementById('out');

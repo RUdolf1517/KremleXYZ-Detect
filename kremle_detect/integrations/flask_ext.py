@@ -29,7 +29,8 @@ from ..images import RESPONSE_HEADERS as IMAGE_RESPONSE_HEADERS, read_image
 from ..ip import client_ip, ip_matches
 from ..metrics import health_payload
 from ..session import (
-    NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification, is_verified, remaining_seconds,
+    DEFAULT_PENDING_TTL, NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification,
+    clear_pending, is_verified, mark_pending, pending_reason, remaining_seconds,
 )
 from ..storage import BaseStorage, MemoryStorage, RedisStorage
 from ..widget import headers as widget_headers, read_bundle
@@ -123,6 +124,12 @@ class KremleFlask:
         json_api: отвечать JSON клиентам, которые просят JSON (fetch/SPA),
                   вместо редиректа на HTML-капчу
         headless: всегда отвечать JSON (весь сайт — API)
+        sticky_referrer: помнить в сессии, что посетитель пришёл из поиска
+                  Яндекса, и держать капчу, пока он её не прошёл (по умолчанию
+                  да). Без этого Referer-сигнал обходится стиранием
+                  ``/kremle/challenge`` из адресной строки.
+        sticky_ttl: сколько секунд помнить этот «долг капчи» (по умолчанию
+                  900 — столько же, сколько живёт челлендж)
         enable_ops_routes: отдавать ``/kremle/health``, ``/stats``, ``/metrics``
     """
 
@@ -160,9 +167,14 @@ class KremleFlask:
         questions_images: bool = False,
         images_cache_dir: Optional[str] = None,
         images_prefix: str = '/kremle/img/',
+        adaptive: bool = True,
+        adaptive_threshold: int = 3,
+        adaptive_extra_questions: int = 2,
         csp_policy: Optional[str] = None,
         json_api: bool = True,
         headless: bool = False,
+        sticky_referrer: bool = True,
+        sticky_ttl: int = DEFAULT_PENDING_TTL,
         enable_ops_routes: bool = True,
     ):
         self.categories = categories
@@ -197,9 +209,14 @@ class KremleFlask:
         self.questions_images = questions_images
         self.images_cache_dir = images_cache_dir
         self.images_prefix = images_prefix
+        self.adaptive = adaptive
+        self.adaptive_threshold = adaptive_threshold
+        self.adaptive_extra_questions = adaptive_extra_questions
         self.csp_policy = csp_policy
         self.json_api = json_api
         self.headless = headless
+        self.sticky_referrer = bool(sticky_referrer)
+        self.sticky_ttl = int(sticky_ttl)
         self.enable_ops_routes = enable_ops_routes
         self.engine: Optional[CaptchaEngine] = None
 
@@ -239,6 +256,9 @@ class KremleFlask:
             questions_images=self.questions_images,
             images_cache_dir=self.images_cache_dir,
             images_prefix=self.images_prefix,
+            adaptive=self.adaptive,
+            adaptive_threshold=self.adaptive_threshold,
+            adaptive_extra_questions=self.adaptive_extra_questions,
         )
 
         bp = self._create_blueprint()
@@ -363,6 +383,7 @@ class KremleFlask:
             session.pop(TOKEN_KEY, None)
 
             if result['passed']:
+                clear_pending(session)
                 session[SESSION_KEY] = build_verification(
                     ip=ip,
                     ua=request.headers.get('User-Agent'),
@@ -394,6 +415,8 @@ class KremleFlask:
             session.pop(SESSION_KEY, None)
             session.pop(TOKEN_KEY, None)
             session.pop(NEXT_KEY, None)
+            # Долг капчи не снимаем: иначе «выйти» — это кнопка «отмени капчу».
+            # Снимает его только успешный verify или истечение TTL.
             return jsonify({'verified': False}), 200, cap_headers()
 
         @bp.route('/widget/<name>')
@@ -476,7 +499,8 @@ class KremleFlask:
             self.engine.metrics.count_blocked('blacklisted')
             return self._blocked_response('blacklisted')
 
-        decision = self.engine.decide(detect_from_request(request))
+        detection = detect_from_request(request)
+        decision = self.engine.decide(detection)
         self.engine.record_decision(decision, ip=ip)
 
         if decision.action == 'monitor':
@@ -485,8 +509,21 @@ class KremleFlask:
         if decision.action == 'block':
             return self._blocked_response(decision.reason)
         if decision.action == 'challenge':
+            # Referer поисковика — сигнал одноразовый: в следующем запросе его
+            # уже нет. Запоминаем «долг капчи» в сессии, иначе достаточно
+            # стереть /kremle/challenge из адресной строки — и ты прошёл.
+            if self.sticky_referrer and detection.referrer:
+                mark_pending(session, decision.reason, self.sticky_ttl)
             session[NEXT_KEY] = request.url
             return self._challenge_response(decision.reason)
+
+        # Сигналов нет, но сессия помнит, что посетитель пришёл из поиска
+        # Яндекса и капчу так и не прошёл — держим её, пока не пройдёт.
+        reason = pending_reason(session, self.sticky_ttl) if self.sticky_referrer else None
+        if reason:
+            self.engine.metrics.count_detect(reason, 'challenge')
+            session[NEXT_KEY] = request.url
+            return self._challenge_response(reason)
         return None
 
     def is_detected(self) -> bool:
@@ -522,14 +559,23 @@ class KremleFlask:
             if self.engine.is_blacklisted(ip):
                 return self._blocked_response('blacklisted')
 
-            decision = self.engine.decide(detect_from_request(request))
+            detection = detect_from_request(request)
+            decision = self.engine.decide(detection)
             self.engine.record_decision(decision, ip=ip)
 
             if decision.action == 'block':
                 return self._blocked_response(decision.reason)
             if decision.action == 'challenge':
+                if self.sticky_referrer and detection.referrer:
+                    mark_pending(session, decision.reason, self.sticky_ttl)
                 session[NEXT_KEY] = request.url
                 return self._challenge_response(decision.reason)
+
+            reason = pending_reason(session, self.sticky_ttl) \
+                if self.sticky_referrer else None
+            if reason:
+                session[NEXT_KEY] = request.url
+                return self._challenge_response(reason)
             return f(*args, **kwargs)
 
         return wrapper

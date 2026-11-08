@@ -25,7 +25,8 @@ from ..images import RESPONSE_HEADERS as IMAGE_RESPONSE_HEADERS, read_image
 from ..ip import client_ip, ip_matches
 from ..metrics import health_payload
 from ..session import (
-    NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification, is_verified, remaining_seconds,
+    DEFAULT_PENDING_TTL, NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification,
+    clear_pending, is_verified, mark_pending, pending_reason, remaining_seconds,
 )
 from ..storage import BaseStorage, MemoryStorage, RedisStorage
 from ..widget import headers as widget_headers, read_bundle
@@ -116,7 +117,12 @@ class KremleFastAPI:
         questions_images: bool = False,
         images_cache_dir: Optional[str] = None,
         images_prefix: str = '/kremle/img/',
+        adaptive: bool = True,
+        adaptive_threshold: int = 3,
+        adaptive_extra_questions: int = 2,
         json_api: bool = True,
+        sticky_referrer: bool = True,
+        sticky_ttl: int = DEFAULT_PENDING_TTL,
         enable_ops_routes: bool = True,
         async_offload: bool = True,
         csp_policy: Optional[str] = None,
@@ -148,6 +154,9 @@ class KremleFastAPI:
             questions_images=questions_images,
             images_cache_dir=images_cache_dir,
             images_prefix=images_prefix,
+            adaptive=adaptive,
+            adaptive_threshold=adaptive_threshold,
+            adaptive_extra_questions=adaptive_extra_questions,
         )
         self.skip_paths = list(skip_paths or ['/docs', '/openapi.json', '/redoc'])
         self.whitelist = whitelist or []
@@ -157,6 +166,8 @@ class KremleFastAPI:
         self.secret = secret[0] if isinstance(secret, (list, tuple)) else secret
         self.headless = headless
         self.json_api = json_api
+        self.sticky_referrer = bool(sticky_referrer)
+        self.sticky_ttl = int(sticky_ttl)
         self.enable_ops_routes = enable_ops_routes
         self.async_offload = async_offload
         self.csp_policy = csp_policy
@@ -217,6 +228,8 @@ class KremleFastAPI:
         wants_json_fn = self._wants_json
         is_verified_fn = self._is_verified
         run = self._run
+        sticky_referrer = self.sticky_referrer
+        sticky_ttl = self.sticky_ttl
 
         @app.middleware('http')
         async def kremle_guard(request: Request, call_next):
@@ -253,7 +266,8 @@ class KremleFastAPI:
                     'sec-ch-ua-full-version-list', ''
                 ),
             }
-            decision = await run(engine.decide, detect(headers))
+            detection = detect(headers)
+            decision = await run(engine.decide, detection)
             await run(engine.record_decision, decision, ip)
 
             if decision.action == 'monitor':
@@ -264,9 +278,22 @@ class KremleFastAPI:
                                         status_code=403, headers=no_store_headers())
                 return PlainTextResponse('Доступ заблокирован.', status_code=403)
             if decision.action == 'challenge':
+                # Referer поисковика приходит только с первым запросом: без
+                # записи в сессии капча обходится стиранием её адреса.
+                if sticky_referrer and detection.referrer:
+                    mark_pending(request.session, decision.reason, sticky_ttl)
                 request.session[NEXT_KEY] = str(request.url)
                 if wants_json_fn(request):
                     return JSONResponse(challenge_payload(decision.reason), status_code=403,
+                                        headers=no_store_headers())
+                return RedirectResponse('/kremle/challenge', status_code=302)
+
+            reason = pending_reason(request.session, sticky_ttl) if sticky_referrer else None
+            if reason:
+                await run(engine.metrics.count_detect, reason, 'challenge')
+                request.session[NEXT_KEY] = str(request.url)
+                if wants_json_fn(request):
+                    return JSONResponse(challenge_payload(reason), status_code=403,
                                         headers=no_store_headers())
                 return RedirectResponse('/kremle/challenge', status_code=302)
 
@@ -333,6 +360,7 @@ class KremleFastAPI:
             request.session.pop(TOKEN_KEY, None)
 
             if result['passed']:
+                clear_pending(request.session)
                 request.session[SESSION_KEY] = build_verification(
                     ip=ip,
                     ua=request.headers.get('user-agent'),
@@ -362,6 +390,7 @@ class KremleFastAPI:
             request.session.pop(SESSION_KEY, None)
             request.session.pop(TOKEN_KEY, None)
             request.session.pop(NEXT_KEY, None)
+            # Долг капчи переживает выход: иначе /kremle/logout = «отмени капчу».
             return JSONResponse({'verified': False},
                                 headers=captcha_headers(self.csp_policy))
 

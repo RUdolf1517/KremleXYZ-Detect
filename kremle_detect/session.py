@@ -17,7 +17,16 @@ SESSION_KEY = 'kremle_ok'
 NEXT_KEY = 'kremle_next'
 TOKEN_KEY = 'kremle_token'
 
+#: «Долг капчи»: сессия помнит, что этого посетителя уже поймали на сигнале,
+#: который сам по себе одноразовый (Referer поисковика). Живёт до прохождения.
+PENDING_KEY = 'kremle_pending'
+
 DEFAULT_VERIFIED_TTL = 86400  # сутки
+
+#: Сколько секунд помним «долг капчи». 15 минут — столько же, сколько живёт
+#: сам челлендж: если человек не прошёл за это время, он уже не «только что
+#: пришёл из поиска», а новый посетитель.
+DEFAULT_PENDING_TTL = 900
 
 
 def ua_fingerprint(ua: Optional[str]) -> str:
@@ -81,6 +90,57 @@ def is_verified(
             return False
 
     return True
+
+
+def mark_pending(session: Any, reason: Optional[str] = None,
+                 ttl: int = DEFAULT_PENDING_TTL) -> None:
+    """
+    Запомнить в сессии, что посетитель обязан пройти капчу.
+
+    Нужно для одноразовых сигналов: Referer поисковика приходит только с
+    первым запросом. Без такой записи достаточно стереть `/kremle/challenge`
+    из адресной строки — следующий запрос уже без реферера и проходит.
+
+    Пример:
+        mark_pending(session, 'yandex_referrer')
+    """
+    if ttl <= 0:
+        return
+    now = time.time()
+    session[PENDING_KEY] = {'reason': reason, 'ts': now, 'exp': now + ttl}
+
+
+def pending_reason(session: Any, ttl: Optional[int] = None) -> Optional[str]:
+    """
+    Причина, по которой посетитель ещё должен пройти капчу (или None).
+
+    Просроченная запись удаляется: «долг» не тянется бесконечно.
+
+    Пример:
+        reason = pending_reason(session)
+    """
+    state = session.get(PENDING_KEY)
+    if not isinstance(state, Mapping):
+        if state is not None:
+            session.pop(PENDING_KEY, None)
+        return None
+    exp = float(state.get('exp') or 0)
+    if not exp:
+        session.pop(PENDING_KEY, None)
+        return None
+    deadline = exp
+    if ttl is not None and ttl > 0:
+        # окно могли укоротить конфигом уже после выдачи записи
+        deadline = min(deadline, float(state.get('ts') or 0) + ttl)
+    if time.time() > deadline:
+        session.pop(PENDING_KEY, None)
+        return None
+    return state.get('reason') or 'challenge'
+
+
+def clear_pending(session: Any) -> None:
+    """Снять «долг капчи» — после прохождения или выхода."""
+    session.pop(PENDING_KEY, None)
 
 
 def remaining_seconds(state: Any) -> Optional[int]:

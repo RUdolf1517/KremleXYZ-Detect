@@ -448,7 +448,14 @@ class TestLitestar:
                              headers={'User-Agent': YANDEX_UA})
         assert passed.json()['passed'] is True
         assert client.get('/kremle/status').json()['verified'] is True
-        assert client.get('/', headers={'User-Agent': YANDEX_UA}).status_code == 200
+
+        # Именно 200 без единого редиректа: TestClient Litestar идёт по
+        # редиректу сам, и «200 после 302» — это страница капчи, а не
+        # пройденный guard. Так однажды уже спрятался баг с порядком
+        # middleware, когда сессия стояла внутри guard.
+        response = client.get('/', headers={'User-Agent': YANDEX_UA})
+        assert response.history == []
+        assert response.status_code == 200
 
     def test_widget_served(self, client):
         response = client.get('/kremle/widget/kremle-widget.min.js')

@@ -4,14 +4,14 @@
 > наполовину, а падает целиком.»
 
 ```bash
-python -m pytest tests/ -q      # 802 passed, 17 skipped
+python -m pytest tests/ -q      # 832 passed, 17 skipped
 ```
 
 Покрыто: детекция, ядро капчи, валидация настроек, одноразовые токены, rate limit,
 резолвинг IP, политика сегментов и `sample_rate`, метрики и health, TTL «пройдено»,
 провайдер «Решу ЕГЭ» (разбор HTML, дистракторы, кеш, fallback), Flask/Django/FastAPI
 (JSON-гард и разбор `Accept`, monitor, ops-роуты, logout), `AsyncRedisStorage` /
-`AsyncStorageAdapter` на фейковом клиенте и CLI вопросов. Coverage — 92 %, порог в
+`AsyncStorageAdapter` на фейковом клиенте и CLI вопросов. Coverage — 93 %, порог в
 CI — 85 %.
 
 ```bash

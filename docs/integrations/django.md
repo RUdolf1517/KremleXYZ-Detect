@@ -69,6 +69,11 @@ Django — это про порядок: всё в настройках, всё 
 | `KREMLE_QUESTIONS_IMAGES` | `False` | показывать задания с рисунком |
 | `KREMLE_IMAGES_CACHE_DIR` / `KREMLE_IMAGES_PREFIX` | `~/.cache/kremle-detect/images` / `/kremle/img/` | кеш картинок и префикс URL |
 | `KREMLE_CSP_POLICY` | `None` | своя CSP для роутов капчи (`''` — не отправлять) |
+| `KREMLE_STICKY_REFERRER` | `True` | держать «долг капчи» в сессии, а не только в первом запросе |
+| `KREMLE_STICKY_TTL` | `900` | сколько секунд живёт долг капчи |
+| `KREMLE_ADAPTIVE` | `True` | ужесточать капчу после серии провалов |
+| `KREMLE_ADAPTIVE_THRESHOLD` | `3` | провалов подряд до первой ступени |
+| `KREMLE_ADAPTIVE_EXTRA_QUESTIONS` | `2` | сколько вопросов добавляет ступень |
 
 `KREMLE_SECRET` понимает список: `KREMLE_SECRET = ['новый-ключ', 'старый-ключ']` —
 первый подписывает, все проверяют, поэтому смена ключа не обрывает капчи,

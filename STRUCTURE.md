@@ -1,4 +1,4 @@
-# kremle-detect v2.11.0
+# kremle-detect v2.12.0
 
 Python-библиотека, которая показывает капчу с вопросами ЕГЭ пользователям Яндекс Браузера,
 Яндекс-ботам и переходам с Яндекса. Flask, Django, FastAPI + голое ядро для любого фреймворка.
@@ -10,7 +10,7 @@ Python-библиотека, которая показывает капчу с �
 ```
 KremleXYZ-Detect/
 ├── kremle_detect/                   Python-пакет
-│   ├── __init__.py                  Публичный API, __version__ = '2.11.0'
+│   ├── __init__.py                  Публичный API, __version__ = '2.12.0'
 │   ├── detector.py                  Детекция (UA, боты, referer, Client Hints)
 │   ├── captcha.py                   Ядро: CaptchaEngine, Challenge, лимиты, callbacks
 │   ├── policy.py                    Действия сегментов (challenge/block/monitor/allow), сэмплирование

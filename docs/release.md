@@ -11,7 +11,7 @@ pytest tests/ -q
 
 # 2. версия во всех трёх файлах + запись в CHANGELOG.md
 # 3. тег и пуш — дальше всё делает .github/workflows/release.yml
-git tag v2.11.0 && git push origin v2.11.0
+git tag v2.12.0 && git push origin v2.12.0
 ```
 
 Workflow соберёт wheel/sdist, сверит версию с тегом, поставит wheel в чистый venv

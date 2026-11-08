@@ -78,7 +78,7 @@ kremle-detect questions sync -n 50     # скачать задания «Реш�
   Prometheus.
 - **React:** `npm install kremle-react` — тот же протокол, свои темы.
 
-Версия 2.11.0. Что дальше — в [ROADMAP.md](https://github.com/RUdolf1517/KremleXYZ-Detect/blob/main/ROADMAP.md).
+Версия 2.12.0. Что дальше — в [ROADMAP.md](https://github.com/RUdolf1517/KremleXYZ-Detect/blob/main/ROADMAP.md).
 
 ---
 

@@ -46,7 +46,8 @@ from ..images import RESPONSE_HEADERS as IMAGE_RESPONSE_HEADERS, read_image
 from ..ip import client_ip, ip_matches
 from ..metrics import health_payload
 from ..session import (
-    NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification, is_verified, remaining_seconds,
+    DEFAULT_PENDING_TTL, NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification,
+    clear_pending, is_verified, mark_pending, pending_reason, remaining_seconds,
 )
 from ..storage import BaseStorage, MemoryStorage, RedisStorage
 from ..widget import headers as widget_headers, read_bundle
@@ -235,6 +236,11 @@ class KremleASGI:
         csp_policy: Optional[str] = None,
         json_api: bool = True,
         headless: bool = False,
+        adaptive: bool = True,
+        adaptive_threshold: int = 3,
+        adaptive_extra_questions: int = 2,
+        sticky_referrer: bool = True,
+        sticky_ttl: int = DEFAULT_PENDING_TTL,
         enable_ops_routes: bool = True,
     ):
         self.engine = CaptchaEngine(
@@ -264,6 +270,9 @@ class KremleASGI:
             questions_images=questions_images,
             images_cache_dir=images_cache_dir,
             images_prefix=images_prefix,
+            adaptive=adaptive,
+            adaptive_threshold=adaptive_threshold,
+            adaptive_extra_questions=adaptive_extra_questions,
         )
         self.skip_paths = list(skip_paths or ['/docs', '/openapi.json', '/redoc', '/schema'])
         self.whitelist = whitelist or []
@@ -271,6 +280,8 @@ class KremleASGI:
         self.secret = secret[0] if isinstance(secret, (list, tuple)) else secret
         self.headless = headless
         self.json_api = json_api
+        self.sticky_referrer = bool(sticky_referrer)
+        self.sticky_ttl = int(sticky_ttl)
         self.csp_policy = csp_policy
         self.enable_ops_routes = enable_ops_routes
         self.trusted_proxies = None if trusted_proxies is None else list(trusted_proxies)
@@ -356,7 +367,8 @@ class KremleASGI:
                 'sec-ch-ua-full-version-list', ''
             ),
         }
-        decision = await self._run(engine.decide, detect(headers))
+        detection = detect(headers)
+        decision = await self._run(engine.decide, detection)
         await self._run(engine.record_decision, decision, ip)
 
         if decision.action == 'monitor':
@@ -368,13 +380,31 @@ class KremleASGI:
                 )
             return text_response('Доступ заблокирован.', 403)
 
-        if decision.action != 'challenge':
-            # allow — пропускаем; неизвестное действие политики тоже не блокируем
+        if decision.action == 'challenge':
+            # Referer поисковика приходит только с первым запросом: без записи
+            # в сессии капча обходится стиранием её адреса из строки браузера.
+            if self.sticky_referrer and detection.referrer:
+                mark_pending(request.session, decision.reason, self.sticky_ttl)
+            return self._challenge_response(request, decision.reason)
+
+        if decision.action != 'allow':
+            # неизвестное действие политики не блокируем
             return None
 
+        # Сигналов нет, но сессия помнит «долг капчи» — держим, пока не пройдут.
+        reason = pending_reason(request.session, self.sticky_ttl) \
+            if self.sticky_referrer else None
+        if reason:
+            await self._run(engine.metrics.count_detect, reason, 'challenge')
+            return self._challenge_response(request, reason)
+        return None
+
+    def _challenge_response(self, request: ASGIRequest,
+                            reason: Optional[str]) -> ASGIResponse:
+        """Капча: JSON для API-клиента, редирект для браузера."""
         request.session[NEXT_KEY] = request.path
         if self._wants_json(request):
-            return json_response(challenge_payload(decision.reason), 403, no_store_headers())
+            return json_response(challenge_payload(reason), 403, no_store_headers())
         return redirect_response(PREFIX + '/challenge', 302)
 
     async def __call__(self, scope: dict, receive: Callable, send: Callable,
@@ -440,6 +470,7 @@ class KremleASGI:
         request.session.pop(TOKEN_KEY, None)
 
         if result['passed']:
+            clear_pending(request.session)
             request.session[SESSION_KEY] = build_verification(
                 ip=ip,
                 ua=request.headers.get('user-agent'),
@@ -470,6 +501,7 @@ class KremleASGI:
         session.pop(SESSION_KEY, None)
         session.pop(TOKEN_KEY, None)
         session.pop(NEXT_KEY, None)
+        # Долг капчи переживает выход: иначе /kremle/logout = «отмени капчу».
         return json_response({'verified': False}, headers=captcha_headers(self.csp_policy))
 
     async def widget(self, name: str) -> ASGIResponse:
@@ -681,9 +713,13 @@ class KremleLitestar:
                 await core(scope, receive, send, self.app)
 
         session_config = ServerSideSessionConfig()
+        # Порядок важен: Litestar применяет список снаружи внутрь, поэтому
+        # сессия идёт первой. Иначе guard получает запрос, где
+        # ``scope['session']`` ещё не существует, — и «капча пройдена» не
+        # запоминается вовсе: человек проходит её заново на каждой странице.
         return [
-            DefineMiddleware(KremleGuardMiddleware),
             DefineMiddleware(session_config.middleware),
+            DefineMiddleware(KremleGuardMiddleware),
         ]
 
     #: Синоним для ``Litestar(middleware=...)``.

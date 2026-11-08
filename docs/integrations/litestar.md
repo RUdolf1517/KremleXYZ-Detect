@@ -81,7 +81,13 @@ kremle.init_app(app)      # init=False — роуты Litestar добавит и
 
 Те же, что у остальных интеграций: `skip_paths`, `whitelist`,
 `trusted_proxies`, `policy`, `json_api`, `headless`, `csp_policy`,
-`mixed_ratio`, `enable_ops_routes`, `storage`.
+`mixed_ratio`, `enable_ops_routes`, `storage`, `sticky_referrer`, `sticky_ttl`,
+`adaptive`, `adaptive_threshold`, `adaptive_extra_questions`.
+
+Middleware идут в порядке «сессии → guard»: guard читает `scope['session']`,
+поэтому сессия должна быть снаружи. Перепутать местами легко, а последствие
+неочевидное — «капча пройдена» просто не запоминается, и человек проходит её
+заново на каждой странице. `kremle.middleware` уже собран правильно.
 
 ```python
 kremle = KremleLitestar(

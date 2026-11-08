@@ -46,6 +46,8 @@ Django-интеграция KremleDetect (middleware).
     KREMLE_ADAPTIVE = True            # строже после серии провалов с IP
     KREMLE_ADAPTIVE_THRESHOLD = 3     # сколько провалов подряд включают ступень
     KREMLE_ADAPTIVE_EXTRA_QUESTIONS = 2   # +вопросов на каждой ступени
+    KREMLE_STICKY_REFERRER = True  # держать капчу по Referer, пока не пройдена
+    KREMLE_STICKY_TTL = 900        # сколько секунд помнить этот «долг капчи»
     KREMLE_JSON_API = True        # JSON-ответ вместо редиректа для fetch/SPA
     KREMLE_HEADLESS = False       # всегда JSON (весь сайт — API)
     KREMLE_ENABLE_OPS_ROUTES = True
@@ -64,7 +66,8 @@ from ..detector import detect_from_request
 from ..ip import client_ip, ip_matches
 from ..metrics import health_payload
 from ..session import (
-    NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification, is_verified, remaining_seconds,
+    DEFAULT_PENDING_TTL, NEXT_KEY, SESSION_KEY, TOKEN_KEY, build_verification,
+    clear_pending, is_verified, mark_pending, pending_reason, remaining_seconds,
 )
 from ..storage import MemoryStorage, RedisStorage
 from ..widget import headers as widget_headers, read_bundle
@@ -89,7 +92,8 @@ _ENGINE_SETTINGS = (
     'KREMLE_BIND_IP', 'KREMLE_BIND_UA', 'KREMLE_QUESTIONS_SOURCE',
     'KREMLE_QUESTIONS_IMAGES', 'KREMLE_IMAGES_CACHE_DIR', 'KREMLE_IMAGES_PREFIX',
     'KREMLE_MIXED_RATIO', 'KREMLE_ADAPTIVE', 'KREMLE_ADAPTIVE_THRESHOLD',
-    'KREMLE_ADAPTIVE_EXTRA_QUESTIONS',
+    'KREMLE_ADAPTIVE_EXTRA_QUESTIONS', 'KREMLE_STICKY_REFERRER',
+    'KREMLE_STICKY_TTL',
 )
 
 
@@ -252,8 +256,12 @@ class KremleDjangoMiddleware:
                                 headers=no_store_headers())
             return self._plain_blocked()
 
-        decision = engine.decide(detect_from_request(request))
+        detection = detect_from_request(request)
+        decision = engine.decide(detection)
         engine.record_decision(decision, ip=ip)
+
+        sticky = getattr(settings, 'KREMLE_STICKY_REFERRER', True)
+        sticky_ttl = getattr(settings, 'KREMLE_STICKY_TTL', DEFAULT_PENDING_TTL)
 
         if decision.action == 'monitor':
             return self.get_response(request)
@@ -263,13 +271,28 @@ class KremleDjangoMiddleware:
                                     status=403, headers=no_store_headers())
             return self._plain_blocked()
         if decision.action == 'challenge':
-            request.session[NEXT_KEY] = request.get_full_path()
-            if _wants_json(request, settings):
-                return JsonResponse(challenge_payload(decision.reason), status=403,
-                                    headers=no_store_headers())
-            return redirect('/kremle/challenge/')
+            # Referer поисковика приходит только с первым запросом: без записи
+            # в сессии капча обходится стиранием /kremle/challenge из адреса.
+            if sticky and detection.referrer:
+                mark_pending(request.session, decision.reason, sticky_ttl)
+            return self._challenge(request, redirect, JsonResponse, settings,
+                                   decision.reason)
+
+        reason = pending_reason(request.session, sticky_ttl) if sticky else None
+        if reason:
+            engine.metrics.count_detect(reason, 'challenge')
+            return self._challenge(request, redirect, JsonResponse, settings, reason)
 
         return self.get_response(request)
+
+    @staticmethod
+    def _challenge(request, redirect, JsonResponse, settings, reason):
+        """Показать капчу: JSON для API-клиента, редирект для браузера."""
+        request.session[NEXT_KEY] = request.get_full_path()
+        if _wants_json(request, settings):
+            return JsonResponse(challenge_payload(reason), status=403,
+                                headers=no_store_headers())
+        return redirect('/kremle/challenge/')
 
     @staticmethod
     def _plain_blocked():
@@ -354,6 +377,7 @@ def kremle_urls():
         request.session.pop(TOKEN_KEY, None)
 
         if result['passed']:
+            clear_pending(request.session)
             request.session[SESSION_KEY] = build_verification(
                 ip=ip,
                 ua=request.META.get('HTTP_USER_AGENT'),
@@ -394,6 +418,7 @@ def kremle_urls():
         request.session.pop(SESSION_KEY, None)
         request.session.pop(TOKEN_KEY, None)
         request.session.pop(NEXT_KEY, None)
+        # Долг капчи переживает выход: иначе /kremle/logout = «отмени капчу».
         response = JsonResponse({'verified': False})
         for name, value in _captcha_headers(settings).items():
             response[name] = value

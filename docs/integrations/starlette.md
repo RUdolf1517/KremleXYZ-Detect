@@ -65,6 +65,9 @@ KremleStarlette(
     headless=False,             # True — весь сайт API
     csp_policy=None,            # своя CSP для роутов капчи
     mixed_ratio=0.5,            # своё + «Решу ЕГЭ» (questions_source='own+sdamgia')
+    sticky_referrer=True,       # долг капчи живёт в сессии, а не в одном запросе
+    sticky_ttl=900,             # сколько секунд помнить долг
+    adaptive=True,              # ужесточение после серии провалов
 )
 ```
 

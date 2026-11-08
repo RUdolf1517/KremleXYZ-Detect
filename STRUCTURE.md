@@ -47,7 +47,7 @@ KremleXYZ-Detect/
 │       └── kremle_captcha.html      HTML капчи + JS-фингерпринт
 ├── kremle-react/                    React-компонент и хук (tsup, TypeScript)
 ├── kremle-widget/                   Ванильный виджет (esbuild: ESM + IIFE)
-├── tests/                           Тесты (pytest, покрытие 92 %)
+├── tests/                           Тесты (pytest, покрытие 93 %)
 │   ├── test_detector.py             Детекция UA/referer/hints
 │   ├── test_captcha.py              Challenge, engine, storage, callbacks
 │   ├── test_engine_security.py      Валидация настроек, одноразовые токены, лимиты
@@ -74,6 +74,7 @@ KremleXYZ-Detect/
 │   ├── test_adaptive.py             адаптивная сложность: серия провалов, порог челленджа
 │   ├── test_health_questions.py     health и вопросы: возраст кеша, stale, degraded
 │   ├── test_health_integrations.py  блок questions в health у всех пяти интеграций
+│   ├── test_sticky_referrer.py      «долг капчи»: смена пути не снимает требование
 │   ├── test_widget.py               Бандл виджета, роут /kremle/widget, сниппет, демо
 │   ├── test_structure_sync.py       Версии и состав модулей в документации
 │   ├── test_cli.py                  Диагностика, списки, логи, serve

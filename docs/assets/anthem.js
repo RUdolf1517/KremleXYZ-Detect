@@ -1,39 +1,44 @@
 /**
  * Гимн России — кнопка «послушать» для сайта документации.
  *
- * Один файл, без зависимостей и без внешних аудио: мелодия синтезируется
- * Web Audio API по нотам. Так сайт не тянет чужой mp3, не зависит от хостинга
- * и не нарушает ничего лишнего — музыка Александрова перешла в общественное
- * достояние, а записей мы не распространяем.
+ * Мелодия синтезируется в браузере по нотам из партитуры: партия корнета 1
+ * (инструмент в B♭) из партитуры А. В. Александрова, транспонированная в
+ * звучащий до мажор. Никаких внешних mp3 и чужих записей — только ноты.
+ * Темп 76, как в регламенте исполнения.
  *
- * Ноты — мелодия из партитуры (труба/струнные), 77 нот, 126 долей в темпе 76.
- * Кнопка появляется сама в правом нижнем углу каждой страницы.
+ * Кнопка появляется сама в левом нижнем углу каждой страницы.
  */
 (function () {
   'use strict'
 
-  // [доля от начала, длительность в долях, нота MIDI]
+  // [доля от начала, длительность в долях, нота MIDI]; доля — четверть
   var NOTES = [
-  [0, 2, 63], [2, 2, 68], [4, 3, 65], [7, 0.75, 67],
-  [8, 1, 68], [9, 1, 70], [10, 1, 72], [11, 0.75, 73],
-  [12, 1.75, 75], [14, 1.75, 75], [16, 2, 73], [18, 1.75, 70],
-  [20, 2.75, 68], [23, 1, 72], [24, 1, 70], [25, 1, 68],
-  [26, 0.75, 67], [27, 1, 65], [28, 1.75, 63], [30, 0.75, 63],
-  [31, 0.75, 63], [32, 2, 63], [34, 2, 68], [36, 2.75, 65],
-  [39, 1, 67], [40, 1, 68], [41, 1, 70], [42, 1, 72],
-  [43, 0.75, 73], [44, 1.75, 75], [46, 1.75, 75], [48, 1.75, 77],
-  [50, 2, 68], [52, 2.75, 72], [55, 0.75, 73], [56, 1.75, 72],
-  [58, 1.5, 70], [59.5, 0.5, 72], [60, 2.25, 68], [64, 1.75, 70],
-  [66, 2, 70], [68, 2, 70], [70, 1, 68], [71, 1, 70],
-  [72, 2, 72], [74, 1.5, 73], [75.5, 0.5, 72], [76, 2, 75],
-  [78, 1.5, 72], [80, 1.75, 70], [82, 1.75, 70], [84, 2, 70],
-  [86, 1, 72], [87, 1, 70], [88, 2, 68], [90, 1, 67],
-  [91, 1, 68], [92, 2.25, 65], [95, 0.75, 63], [96, 2, 63],
-  [98, 2, 68], [100, 3, 65], [103, 0.75, 67], [104, 1, 68],
-  [105, 1, 70], [106, 1, 72], [107, 0.75, 73], [108, 1.75, 75],
-  [110, 1.75, 75], [112, 2, 77], [114, 2, 68], [116, 2.75, 72],
-  [119, 1, 73], [120, 2, 72], [122, 1.5, 70], [123.5, 0.5, 72],
-  [124, 2.25, 68]
+  [0, 3, 72], [3.5, 0.5, 67], [4, 1, 72], [5, 0.75, 67],
+  [5.75, 0.25, 69], [6, 1, 71], [7, 0.5, 64], [7.5, 0.5, 64],
+  [8, 1, 69], [9, 0.75, 67], [9.75, 0.25, 65], [10, 1, 67],
+  [11, 0.5, 60], [11.5, 0.5, 60], [12, 1, 62], [13, 0.75, 62],
+  [13.75, 0.25, 64], [14, 1, 65], [15, 0.75, 65], [15.75, 0.25, 67],
+  [16, 1, 69], [17, 0.5, 71], [17.5, 0.5, 72], [18, 1.5, 74],
+  [19.5, 0.5, 67], [20, 1, 76], [21, 0.75, 74], [21.75, 0.25, 72],
+  [22, 1, 74], [23, 0.5, 71], [23.5, 0.5, 67], [24, 1, 72],
+  [25, 0.75, 71], [25.75, 0.25, 69], [26, 1, 71], [27, 0.5, 64],
+  [27.5, 0.5, 64], [28, 1, 69], [29, 0.75, 67], [29.75, 0.25, 65],
+  [30, 1, 67], [31, 0.5, 60], [31.5, 0.5, 60], [32, 1, 72],
+  [33, 0.75, 71], [33.75, 0.25, 69], [34, 0.5, 67], [34.5, 0.5, 71],
+  [35, 0.5, 72], [35.5, 0.5, 74], [36, 2, 76], [38, 0.5, 74],
+  [38.5, 0.5, 72], [39, 0.5, 71], [39.5, 0.5, 72], [40, 1.5, 74],
+  [41.5, 0.5, 67], [42, 0.5, 67], [42.5, 0.5, 71], [43, 0.5, 72],
+  [43.5, 0.5, 74], [44, 2, 72], [46, 0.5, 71], [46.5, 0.5, 69],
+  [47, 0.5, 67], [47.5, 0.5, 69], [48, 1.5, 71], [49.5, 0.5, 64],
+  [50, 0.5, 64], [50.5, 0.5, 67], [51, 0.5, 69], [51.5, 0.5, 71],
+  [52, 1, 72], [53, 0.75, 69], [53.75, 0.25, 71], [54, 1, 72],
+  [55, 0.75, 69], [55.75, 0.25, 71], [56, 1, 72], [57, 0.5, 69],
+  [57.5, 0.5, 72], [58, 2, 77], [60, 2, 77], [62, 0.5, 76],
+  [62.5, 0.5, 74], [63, 0.5, 72], [63.5, 0.5, 74], [64, 1.5, 76],
+  [65.5, 0.5, 72], [66, 2, 72], [68, 2, 74], [70, 0.5, 72],
+  [70.5, 0.5, 71], [71, 0.5, 69], [71.5, 0.5, 71], [72, 1.5, 72],
+  [73.5, 0.5, 69], [74, 2, 69], [76, 2, 67], [78, 0.2, 69],
+  [78.11, 1, 71], [79.11, 2.5, 72]
   ]
 
   var BPM = 76
@@ -77,65 +82,147 @@
     document.head.appendChild(style)
   }
 
-  function note(freq, at, duration) {
-    var gain = ctx.createGain()
-    var filter = ctx.createBiquadFilter()
-    filter.type = 'lowpass'
-    filter.frequency.setValueAtTime(Math.min(5200, freq * 6), at)
-    filter.Q.value = 0.6
-
-    var peak = 0.16
-    gain.gain.setValueAtTime(0.0001, at)
-    gain.gain.exponentialRampToValueAtTime(peak, at + 0.05)
-    gain.gain.exponentialRampToValueAtTime(peak * 0.72, at + 0.22)
-    gain.gain.setValueAtTime(peak * 0.72, at + Math.max(0.26, duration - 0.12))
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + duration)
-
-    // Медные: пила + треугольник, чуть расстроенные — так звук не «синтетический».
-    var voices = [
-      { type: 'sawtooth', detune: -4, level: 0.55 },
-      { type: 'triangle', detune: 4, level: 0.45 },
-    ]
-    voices.forEach(function (voice) {
-      var osc = ctx.createOscillator()
-      osc.type = voice.type
-      osc.frequency.value = freq
-      osc.detune.value = voice.detune
-      var level = ctx.createGain()
-      level.gain.value = voice.level
-      osc.connect(level)
-      level.connect(filter)
-      osc.start(at)
-      osc.stop(at + duration + 0.05)
-    })
-
-    // Подголосок октавой ниже — чтобы соло не звучало тонко.
-    var bass = ctx.createOscillator()
-    bass.type = 'sine'
-    bass.frequency.value = freq / 2
-    var bassGain = ctx.createGain()
-    bassGain.gain.value = 0.28
-    bass.connect(bassGain)
-    bassGain.connect(filter)
-    bass.start(at)
-    bass.stop(at + duration + 0.05)
-
-    filter.connect(gain)
-    gain.connect(master)
+  /* Зал: короткий импульсный отклик из затухающего шума — без внешних файлов. */
+  function hallImpulse(seconds, decay) {
+    var rate = ctx.sampleRate
+    var length = Math.max(1, Math.floor(rate * seconds))
+    var buffer = ctx.createBuffer(2, length, rate)
+    for (var channel = 0; channel < 2; channel += 1) {
+      var data = buffer.getChannelData(channel)
+      for (var i = 0; i < length; i += 1) {
+        var t = i / length
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, decay)
+      }
+    }
+    return buffer
   }
 
   function build() {
     var AudioCtx = window.AudioContext || window.webkitAudioContext
     if (!AudioCtx) return false
     ctx = new AudioCtx()
+
     master = ctx.createGain()
-    master.gain.value = 0.9
+    master.gain.value = 0.62
+
     var compressor = ctx.createDynamicsCompressor()
-    compressor.threshold.value = -18
-    compressor.ratio.value = 3
+    compressor.threshold.value = -20
+    compressor.knee.value = 24
+    compressor.ratio.value = 3.2
+    compressor.attack.value = 0.006
+    compressor.release.value = 0.22
+
     master.connect(compressor)
     compressor.connect(ctx.destination)
+
+    // Немного зала: соло без реверберации звучит как пищалка из открытки.
+    var convolver = ctx.createConvolver()
+    convolver.buffer = hallImpulse(2.4, 3.2)
+    var wet = ctx.createGain()
+    wet.gain.value = 0.32
+    var dry = ctx.createGain()
+    dry.gain.value = 1.0
+    convolver.connect(wet)
+    wet.connect(compressor)
+    master.connect(dry)
+    dry.connect(compressor)
+    master.connect(convolver)
     return true
+  }
+
+  function voice(freq, at, duration, level, type, detune) {
+    var osc = ctx.createOscillator()
+    osc.type = type
+    osc.frequency.value = freq
+    osc.detune.value = detune || 0
+
+    // Медный тембр: на длинных нотах добавляем вибрато, на коротких — нет.
+    if (duration > 0.9) {
+      var lfo = ctx.createOscillator()
+      var lfoGain = ctx.createGain()
+      lfo.frequency.value = 5.2
+      lfoGain.gain.value = freq * 0.0045
+      lfo.connect(lfoGain)
+      lfoGain.connect(osc.frequency)
+      lfo.start(at + 0.18)
+      lfo.stop(at + duration + 0.1)
+    }
+
+    var amp = ctx.createGain()
+    amp.gain.value = level
+    osc.connect(amp)
+    amp.connect(filterOf(at, duration, freq))
+    osc.start(at)
+    osc.stop(at + duration + 0.12)
+    return osc
+  }
+
+  function filterOf(at, duration, freq) {
+    var filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.Q.value = 0.9
+    var open = Math.min(6000, freq * 7)
+    filter.frequency.setValueAtTime(Math.min(open, freq * 2.6), at)
+    filter.frequency.linearRampToValueAtTime(open, at + 0.07)
+    filter.frequency.exponentialRampToValueAtTime(freq * 3.2, at + Math.max(0.2, duration))
+    return filter
+  }
+
+  function note(freq, at, duration) {
+    var filter = filterOf(at, duration, freq)
+    var gain = ctx.createGain()
+
+    var peak = 0.19
+    var attack = 0.055
+    var release = Math.min(0.16, duration * 0.35)
+    gain.gain.setValueAtTime(0.0001, at)
+    gain.gain.exponentialRampToValueAtTime(peak, at + attack)
+    gain.gain.exponentialRampToValueAtTime(peak * 0.82, at + Math.min(attack * 3, 0.2))
+    gain.gain.setValueAtTime(peak * 0.82, at + Math.max(attack * 3.2, duration - release))
+    gain.gain.exponentialRampToValueAtTime(0.0001, at + duration)
+
+    // Медь: два пилообразных голоса враздрай + треугольник, всё через один фильтр.
+    ;[
+      { type: 'sawtooth', detune: -6, level: 0.5 },
+      { type: 'sawtooth', detune: 6, level: 0.35 },
+      { type: 'triangle', detune: 0, level: 0.4 },
+    ].forEach(function (item) {
+      var osc = ctx.createOscillator()
+      osc.type = item.type
+      osc.frequency.value = freq
+      osc.detune.value = item.detune
+      var amp = ctx.createGain()
+      amp.gain.value = item.level
+      osc.connect(amp)
+      amp.connect(filter)
+      osc.start(at)
+      osc.stop(at + duration + 0.12)
+
+      if (duration > 0.9) {
+        var lfo = ctx.createOscillator()
+        var depth = ctx.createGain()
+        lfo.frequency.value = 5.2
+        depth.gain.value = freq * 0.004
+        lfo.connect(depth)
+        depth.connect(osc.frequency)
+        lfo.start(at + 0.18)
+        lfo.stop(at + duration + 0.1)
+      }
+    })
+
+    // Октавой ниже — тело, иначе соло звенит.
+    var bass = ctx.createOscillator()
+    bass.type = 'triangle'
+    bass.frequency.value = freq / 2
+    var bassAmp = ctx.createGain()
+    bassAmp.gain.value = 0.3
+    bass.connect(bassAmp)
+    bassAmp.connect(gain)
+    bass.start(at)
+    bass.stop(at + duration + 0.1)
+
+    filter.connect(gain)
+    gain.connect(master)
   }
 
   function play(button) {
@@ -144,13 +231,13 @@
       return
     }
     if (ctx.state === 'suspended') ctx.resume()
-    var start = ctx.currentTime + 0.15
+    var start = ctx.currentTime + 0.2
     NOTES.forEach(function (item) {
       var beatStart = item[0]
       var beats = item[1]
       var midi = item[2]
       var freq = 440 * Math.pow(2, (midi - 69) / 12)
-      note(freq, start + beatStart * BEAT, Math.max(0.18, beats * BEAT))
+      note(freq, start + beatStart * BEAT, Math.max(0.16, beats * BEAT))
     })
     playing = true
     button.setAttribute('aria-pressed', 'true')
@@ -158,7 +245,8 @@
     button.querySelector('.kremle-anthem__icon').innerHTML = ICON_STOP
     button.title = 'Остановить гимн'
 
-    var total = (NOTES[NOTES.length - 1][0] + NOTES[NOTES.length - 1][1]) * BEAT + 0.6
+    var last = NOTES[NOTES.length - 1]
+    var total = (last[0] + last[1]) * BEAT + 2.4
     stopTimer = setTimeout(function () { reset(button) }, total * 1000)
   }
 

@@ -48,8 +48,10 @@ class TestSourceNames:
         assert normalize_source(MIXED_SOURCE) == MIXED_SOURCE
 
     def test_builtin_is_alias_of_own(self):
+        """Алиас ещё работает, но уже предупреждает: удаление — в 3.0."""
         assert SOURCE_ALIASES['builtin'] == 'own'
-        assert normalize_source('builtin') == 'own'
+        with pytest.warns(DeprecationWarning):
+            assert normalize_source('builtin') == 'own'
 
     def test_unknown_source_rejected(self):
         with pytest.raises(ValueError) as excinfo:
@@ -130,7 +132,10 @@ class TestEngineMixedSource:
         assert engine.mixed_ratio == 0.5
 
     def test_builtin_alias_kept(self):
-        assert self.make_engine(questions_source='builtin').questions_source == 'own'
+        """Движок принимает старый алиас, пока не вышло 3.0."""
+        with pytest.warns(DeprecationWarning):
+            engine = self.make_engine(questions_source='builtin')
+        assert engine.questions_source == 'own'
 
     def test_invalid_source_rejected(self):
         with pytest.raises(ValueError):

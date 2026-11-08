@@ -35,13 +35,18 @@ from ..session import (
 from ..storage import BaseStorage, MemoryStorage, RedisStorage
 from ..widget import headers as widget_headers, read_bundle
 from ._common import (
+    OPS_UNAUTHORIZED,
     accepts_json,
     blocked_payload,
     captcha_headers,
     challenge_payload,
     no_store_headers,
     is_document_request,
+    ops_authorized,
+    ops_token_from_env,
+    ops_unauthorized_headers,
     render_captcha_html,
+    warn_ops_open_once,
     wants_json,
 )
 
@@ -138,6 +143,9 @@ class KremleFlask:
                   Сайт без этого кода останется вообще без капчи — режим для
                   тех, кто подключил окно (см. docs/integrations/spa.md).
         enable_ops_routes: отдавать ``/kremle/health``, ``/stats``, ``/metrics``
+        ops_token: токен для опс-роутов (``Authorization: Bearer <токен>``).
+                  ``None`` (по умолчанию) — брать из ``KREMLE_OPS_TOKEN``;
+                  не задан нигде — роуты открыты, как до 2.14.
     """
 
     def __init__(
@@ -184,6 +192,7 @@ class KremleFlask:
         sticky_ttl: int = DEFAULT_PENDING_TTL,
         overlay: bool = False,
         enable_ops_routes: bool = True,
+        ops_token: Optional[str] = None,
     ):
         self.categories = categories
         self.question_count = question_count
@@ -227,6 +236,10 @@ class KremleFlask:
         self.sticky_ttl = int(sticky_ttl)
         self.overlay = bool(overlay)
         self.enable_ops_routes = enable_ops_routes
+        # Токен опс-роутов: параметр важнее окружения, пустая строка — «нет».
+        self.ops_token = ops_token or ops_token_from_env()
+        if self.enable_ops_routes and not self.ops_token:
+            warn_ops_open_once()
         self.engine: Optional[CaptchaEngine] = None
 
         if app is not None:
@@ -344,6 +357,7 @@ class KremleFlask:
         custom_template = self.custom_template
         trusted_proxies = self.trusted_proxies
         enable_ops = self.enable_ops_routes
+        ops_token = self.ops_token
 
         def cap_headers() -> dict:
             # не кешировать + нельзя встроить в iframe и угадать тип
@@ -480,8 +494,18 @@ class KremleFlask:
             )
 
         if enable_ops:
+            def ops_denied():
+                """401 для опс-роутов: токена нет или он не тот."""
+                return (
+                    jsonify(dict(OPS_UNAUTHORIZED)),
+                    401,
+                    {**ops_unauthorized_headers(), 'Content-Type': 'application/json'},
+                )
+
             @bp.route('/health')
             def health():
+                if not ops_authorized(request.headers.get('Authorization'), ops_token):
+                    return ops_denied()
                 storage = engine.storage
                 payload = health_payload(
                     version=__version__,
@@ -500,10 +524,14 @@ class KremleFlask:
 
             @bp.route('/stats')
             def stats():
+                if not ops_authorized(request.headers.get('Authorization'), ops_token):
+                    return ops_denied()
                 return jsonify(engine.metrics.snapshot())
 
             @bp.route('/metrics')
             def metrics():
+                if not ops_authorized(request.headers.get('Authorization'), ops_token):
+                    return ops_denied()
                 return engine.metrics.prometheus(), 200, {
                     'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
                 }

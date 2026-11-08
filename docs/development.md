@@ -63,6 +63,11 @@ overall = 90
 ```bash
 kremle-detect serve &                       # демо на :8000
 python scripts/loadtest.py -n 300 -c 20 --json-out /tmp/loadtest.json
+
+# второй прогон — на Redis: разница с первым и есть цена хранилища
+KREMLE_REDIS_URL=redis://localhost:6379/0 kremle-detect serve --port 8001 &
+python scripts/loadtest.py -n 300 -c 20 --url http://127.0.0.1:8001 \
+    --label redis --json-out /tmp/loadtest-redis.json
 ```
 
 Тесты не ходят в сеть: `get=` подменяется, Redis — `fakeredis`, портал

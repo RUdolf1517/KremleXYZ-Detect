@@ -1,6 +1,6 @@
 {
   "name": "kremle-widget",
-  "version": "2.13.0",
+  "version": "2.14.0",
   "description": "Vanilla captcha widget for the kremle-detect web filter: one <script>, no build step",
   "type": "module",
   "main": "dist/kremle-widget.mjs",

@@ -2,7 +2,7 @@
 
 > «Кто сказал, что предохранитель не может быть красивым?»
 
-`kremle-react@2.13.0` — ESM + CJS + `'use client'` + типы, 34 теста. Собран на
+`kremle-react@2.14.0` — ESM + CJS + `'use client'` + типы, 34 теста. Собран на
 React 19, TypeScript 7 и jsdom 30 (`npm install` — Node ≥ 22). Версия npm-пакета
 совпадает с версией Python-пакета: один релиз, один тег.
 

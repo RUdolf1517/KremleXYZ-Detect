@@ -23,12 +23,23 @@ def run_cli_ok(argv, monkeypatch):
 
 
 class TestShow:
-    def test_builtin_questions(self, monkeypatch, capsys):
-        run_cli_ok(['questions', 'show', '-c', 'math', '-n', '2', '--source', 'builtin'],
+    def test_own_questions(self, monkeypatch, capsys):
+        run_cli_ok(['questions', 'show', '-c', 'math', '-n', '2', '--source', 'own'],
                    monkeypatch)
         out = capsys.readouterr().out
         assert '[1] [math]' in out
         assert '[2] [math]' in out
+
+    def test_builtin_still_works_with_warning(self, monkeypatch, capsys):
+        """Устаревший алиас не сломан, но предупреждает — его уберут в 3.0."""
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            run_cli_ok(['questions', 'show', '-c', 'math', '-n', '2',
+                        '--source', 'builtin'], monkeypatch)
+        assert any(issubclass(item.category, DeprecationWarning) for item in caught)
+        assert '[1] [math]' in capsys.readouterr().out
 
     def test_legacy_flags(self, monkeypatch, capsys):
         run_cli_ok(['questions', '-c', 'math', '--count', '1'], monkeypatch)

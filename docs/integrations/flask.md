@@ -69,6 +69,18 @@ KremleFlask(
 `sticky_referrer=False` возвращает поведение 2.11 — одноразовый сигнал.
 Подробности — [Долг капчи](../operations.md#долг-капчи-реферер-не-одноразовый).
 
+## Капча поверх страницы
+
+`overlay=True` — не отдельная страница, а окно поверх текущей. Переход по ссылке
+проходит (оболочка сайта), `fetch`/API получают `403` как обычно:
+
+```python
+KremleFlask(app, overlay=True)
+```
+
+Нужен виджет `KremleWidget.autoGuardOverlay` или `<KremleOverlay>` из
+`kremle-react`. Подробности — [Капча поверх страницы](../overlay.md).
+
 ## Свои обработчики
 
 ```python

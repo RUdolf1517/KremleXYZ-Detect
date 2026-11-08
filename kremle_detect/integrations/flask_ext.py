@@ -40,6 +40,7 @@ from ._common import (
     captcha_headers,
     challenge_payload,
     no_store_headers,
+    is_document_request,
     render_captcha_html,
     wants_json,
 )
@@ -130,6 +131,12 @@ class KremleFlask:
                   ``/kremle/challenge`` из адресной строки.
         sticky_ttl: сколько секунд помнить этот «долг капчи» (по умолчанию
                   900 — столько же, сколько живёт челлендж)
+        overlay: капча поверх страницы, а не отдельной: переход по ссылке
+                  пропускается (оболочка сайта отдаётся), а данные остаются
+                  за капчей. Модальное окно показывает виджет
+                  (``KremleWidget.guardOverlay``) или React-компонент.
+                  Сайт без этого кода останется вообще без капчи — режим для
+                  тех, кто подключил окно (см. docs/integrations/spa.md).
         enable_ops_routes: отдавать ``/kremle/health``, ``/stats``, ``/metrics``
     """
 
@@ -175,6 +182,7 @@ class KremleFlask:
         headless: bool = False,
         sticky_referrer: bool = True,
         sticky_ttl: int = DEFAULT_PENDING_TTL,
+        overlay: bool = False,
         enable_ops_routes: bool = True,
     ):
         self.categories = categories
@@ -217,6 +225,7 @@ class KremleFlask:
         self.headless = headless
         self.sticky_referrer = bool(sticky_referrer)
         self.sticky_ttl = int(sticky_ttl)
+        self.overlay = bool(overlay)
         self.enable_ops_routes = enable_ops_routes
         self.engine: Optional[CaptchaEngine] = None
 
@@ -414,13 +423,22 @@ class KremleFlask:
         @bp.route('/status')
         def status():
             state = session.get(SESSION_KEY)
+            verified = is_verified(
+                state,
+                ua=request.headers.get('User-Agent'),
+                bind_ua=self.bind_ua,
+            )
+            # «Долг капчи» — то, по чему окно поверх страницы понимает, что
+            # капчу надо показать, не дожидаясь следующего сигнала детекции.
+            pending = None if verified else pending_reason(
+                session, self.sticky_ttl if self.sticky_referrer or self.overlay else None)
             return jsonify({
-                'verified': is_verified(
-                    state,
-                    ua=request.headers.get('User-Agent'),
-                    bind_ua=self.bind_ua,
-                ),
+                'verified': verified,
                 'expires_in': remaining_seconds(state),
+                'pending': bool(pending),
+                'reason': pending,
+                'challenge_url': '/kremle/challenge' if pending else None,
+                'overlay': self.overlay,
             }), 200, cap_headers()
 
         @bp.route('/logout', methods=['POST'])
@@ -489,6 +507,15 @@ class KremleFlask:
 
     # ── гард ─────────────────────────────────────────────────────────────────
 
+    def _is_document(self) -> bool:
+        """Переход по ссылке, а не подзагрузка и не API-вызов."""
+        return is_document_request(
+            request.headers.get('Accept'),
+            request.headers.get('X-Requested-With'),
+            request.method,
+            request.headers.get('Sec-Fetch-Dest'),
+        )
+
     def _guard(self):
         """before_request хук — применяет политику к детектированному трафику."""
         if request.endpoint in (_SKIP_ENDPOINTS | self.skip_endpoints):
@@ -522,20 +549,31 @@ class KremleFlask:
         if decision.action == 'block':
             return self._blocked_response(decision.reason)
         if decision.action == 'challenge':
-            # Referer поисковика — сигнал одноразовый: в следующем запросе его
-            # уже нет. Запоминаем «долг капчи» в сессии, иначе достаточно
-            # стереть /kremle/challenge из адресной строки — и ты прошёл.
-            if self.sticky_referrer and detection.referrer:
-                mark_pending(session, decision.reason, self.sticky_ttl)
             session[NEXT_KEY] = request.url
+            if self.overlay:
+                # Режим «поверх страницы»: долг ставим при любом сигнале, а не
+                # только по рефереру — по нему окно и понимает, что показывать
+                # капчу. Переход по ссылке пропускаем (оболочка сайта), всё
+                # остальное — данные, их без капчи не отдаём.
+                mark_pending(session, decision.reason, self.sticky_ttl)
+                if self._is_document():
+                    return None
+            elif self.sticky_referrer and detection.referrer:
+                # Referer поисковика — сигнал одноразовый: в следующем запросе
+                # его уже нет. Запоминаем «долг капчи» в сессии, иначе
+                # достаточно стереть /kremle/challenge из адресной строки.
+                mark_pending(session, decision.reason, self.sticky_ttl)
             return self._challenge_response(decision.reason)
 
-        # Сигналов нет, но сессия помнит, что посетитель пришёл из поиска
-        # Яндекса и капчу так и не прошёл — держим её, пока не пройдёт.
-        reason = pending_reason(session, self.sticky_ttl) if self.sticky_referrer else None
+        # Сигналов нет, но сессия помнит, что капчу так и не прошли, —
+        # держим её, пока не пройдут.
+        sticky = self.sticky_referrer or self.overlay
+        reason = pending_reason(session, self.sticky_ttl) if sticky else None
         if reason:
             self._engine.metrics.count_detect(reason, 'challenge')
             session[NEXT_KEY] = request.url
+            if self.overlay and self._is_document():
+                return None
             return self._challenge_response(reason)
         return None
 
@@ -579,15 +617,21 @@ class KremleFlask:
             if decision.action == 'block':
                 return self._blocked_response(decision.reason)
             if decision.action == 'challenge':
-                if self.sticky_referrer and detection.referrer:
-                    mark_pending(session, decision.reason, self.sticky_ttl)
                 session[NEXT_KEY] = request.url
+                if self.overlay:
+                    mark_pending(session, decision.reason, self.sticky_ttl)
+                    if self._is_document():
+                        return f(*args, **kwargs)
+                elif self.sticky_referrer and detection.referrer:
+                    mark_pending(session, decision.reason, self.sticky_ttl)
                 return self._challenge_response(decision.reason)
 
-            reason = pending_reason(session, self.sticky_ttl) \
-                if self.sticky_referrer else None
+            sticky = self.sticky_referrer or self.overlay
+            reason = pending_reason(session, self.sticky_ttl) if sticky else None
             if reason:
                 session[NEXT_KEY] = request.url
+                if self.overlay and self._is_document():
+                    return f(*args, **kwargs)
                 return self._challenge_response(reason)
             return f(*args, **kwargs)
 

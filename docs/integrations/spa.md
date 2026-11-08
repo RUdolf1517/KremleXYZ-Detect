@@ -45,6 +45,29 @@ app.add_middleware(
 JSON — язык межведомственной переписки: коротко, по делу, без лишних
 поклонов. Клиент просит JSON — получает JSON, а не сюрприз в виде страницы.
 
+## Капча поверх страницы
+
+Если SPA должна остаться на месте, а капча — открыться окном, включите `overlay`:
+переход по ссылке отдаёт оболочку, `fetch` за данными — по-прежнему `403`.
+
+```python
+KremleFlask(app, overlay=True)
+KremleFastAPI(app, overlay=True)
+```
+
+```python
+KREMLE_OVERLAY = True   # Django
+```
+
+```tsx
+import { KremleOverlay } from 'kremle-react'
+
+<KremleOverlay onSolved={() => refetch()} />
+```
+
+Никаких редиректов и здесь: `403` на `fetch` — это сигнал открыть окно, а не
+повод уехать на другую страницу. Подробности — [Капча поверх страницы](../overlay.md).
+
 ## Headless-режим
 
 Если весь сервис — API, включите headless: `/kremle/challenge` сразу отдаёт JSON.

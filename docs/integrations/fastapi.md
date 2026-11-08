@@ -39,6 +39,10 @@ HMAC считается предсказуемо, кеш вопросов чит
 `sticky_ttl=900` задаёт окно. `adaptive=True`, `adaptive_threshold=3`,
 `adaptive_extra_questions=2` ужесточают капчу после серии провалов с одного IP.
 
+`overlay=True` — капча окном поверх страницы: переход по ссылке проходит,
+`fetch` и API по-прежнему получают `403`. Нужен виджет или `<KremleOverlay>`;
+подробности — [Капча поверх страницы](../overlay.md).
+
 ## Заголовки безопасности и CSP
 
 Роуты капчи отвечают с `X-Frame-Options: DENY`, `X-Content-Type-Options:

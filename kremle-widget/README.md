@@ -58,11 +58,33 @@ widget.destroy()   // убрать со страницы
 <script>KremleWidget.autoMount();</script>
 ```
 
+## Окно поверх страницы
+
+Если сервер включён с `overlay=True`, страницу не надо никуда уводить:
+
+```html
+<script src="/kremle/widget/kremle-widget.min.js"></script>
+<script>KremleWidget.autoGuardOverlay(document);</script>
+```
+
+Виджет спросит `/kremle/status` и откроет капчу модальным окном поверх страницы.
+Клик по фону и `Esc` окно не закрывают — закрыть окно не значит пройти проверку.
+Ручной вариант:
+
+```js
+const overlay = KremleWidget.guardOverlay({ statusUrl: '/kremle/status' })
+overlay.check()      // спросить статус и открыть, если pending
+overlay.open()       // открыть принудительно
+overlay.getState()   // 'idle' | 'pending' | 'open' | 'solved'
+overlay.close()      // закрыть без прохождения
+overlay.destroy()    // убрать из DOM
+```
+
 ## Разработка
 
 ```bash
 npm ci
-npm test          # 23 теста: протокол, рендер, фингерпринт, статическое демо
+npm test          # 34 теста: протокол, рендер, фингерпринт, окно поверх страницы
 npm run build     # dist/kremle-widget.{js,min.js,mjs}
 node scripts/check-dist.mjs   # IIFE-сборка действительно проходит капчу
 ```

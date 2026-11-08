@@ -59,6 +59,7 @@ from ._common import (
     captcha_headers,
     challenge_payload,
     no_store_headers,
+    is_document_request,
     render_captcha_html,
     wants_json,
 )
@@ -246,6 +247,7 @@ class KremleASGI:
         adaptive_extra_questions: int = 2,
         sticky_referrer: bool = True,
         sticky_ttl: int = DEFAULT_PENDING_TTL,
+        overlay: bool = False,
         enable_ops_routes: bool = True,
     ):
         self.engine = CaptchaEngine(
@@ -287,6 +289,7 @@ class KremleASGI:
         self.json_api = json_api
         self.sticky_referrer = bool(sticky_referrer)
         self.sticky_ttl = int(sticky_ttl)
+        self.overlay = bool(overlay)
         self.csp_policy = csp_policy
         self.enable_ops_routes = enable_ops_routes
         self.trusted_proxies = None if trusted_proxies is None else list(trusted_proxies)
@@ -311,6 +314,15 @@ class KremleASGI:
             request.headers.get('accept'),
             request.headers.get('x-requested-with'),
             request.path,
+        )
+
+    def _is_document(self, request: ASGIRequest) -> bool:
+        """Переход по ссылке, а не подзагрузка и не API-вызов."""
+        return is_document_request(
+            request.headers.get('accept'),
+            request.headers.get('x-requested-with'),
+            request.method,
+            request.headers.get('sec-fetch-dest'),
         )
 
     def _is_verified(self, request: ASGIRequest, ip: Optional[str] = None) -> bool:
@@ -386,9 +398,16 @@ class KremleASGI:
             return text_response('Доступ заблокирован.', 403)
 
         if decision.action == 'challenge':
-            # Referer поисковика приходит только с первым запросом: без записи
-            # в сессии капча обходится стиранием её адреса из строки браузера.
-            if self.sticky_referrer and detection.referrer:
+            request.session[NEXT_KEY] = request.path
+            if self.overlay:
+                # «Поверх страницы»: долг ставим при любом сигнале, а переход
+                # по ссылке пропускаем — окно покажет капчу поверх оболочки.
+                mark_pending(request.session, decision.reason, self.sticky_ttl)
+                if self._is_document(request):
+                    return None
+            elif self.sticky_referrer and detection.referrer:
+                # Referer поисковика приходит только с первым запросом: без
+                # записи в сессии капча обходится стиранием её адреса.
                 mark_pending(request.session, decision.reason, self.sticky_ttl)
             return self._challenge_response(request, decision.reason)
 
@@ -397,10 +416,12 @@ class KremleASGI:
             return None
 
         # Сигналов нет, но сессия помнит «долг капчи» — держим, пока не пройдут.
-        reason = pending_reason(request.session, self.sticky_ttl) \
-            if self.sticky_referrer else None
+        sticky = self.sticky_referrer or self.overlay
+        reason = pending_reason(request.session, self.sticky_ttl) if sticky else None
         if reason:
             await self._run(engine.metrics.count_detect, reason, 'challenge')
+            if self.overlay and self._is_document(request):
+                return None
             return self._challenge_response(request, reason)
         return None
 
@@ -489,14 +510,22 @@ class KremleASGI:
 
     async def status(self, request: ASGIRequest) -> ASGIResponse:
         state = request.session.get(SESSION_KEY)
+        verified = is_verified(
+            state,
+            ua=request.headers.get('user-agent'),
+            bind_ua=self.engine.bind_ua,
+        )
+        sticky = self.sticky_referrer or self.overlay
+        pending = None if verified else pending_reason(
+            request.session, self.sticky_ttl if sticky else None)
         return json_response(
             {
-                'verified': is_verified(
-                    state,
-                    ua=request.headers.get('user-agent'),
-                    bind_ua=self.engine.bind_ua,
-                ),
+                'verified': verified,
                 'expires_in': remaining_seconds(state),
+                'pending': bool(pending),
+                'reason': pending,
+                'challenge_url': PREFIX + '/challenge' if pending else None,
+                'overlay': self.overlay,
             },
             headers=captcha_headers(self.csp_policy),
         )

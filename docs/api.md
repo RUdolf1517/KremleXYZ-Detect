@@ -8,7 +8,7 @@
 |---|---|---|
 | GET | `/kremle/challenge` | HTML-капча; JSON при `Accept: application/json` или `headless` |
 | POST | `/kremle/verify` | проверка ответов (JSON) |
-| GET | `/kremle/status` | `{"verified": bool, "expires_in": int\|null}` |
+| GET | `/kremle/status` | `{"verified": bool, "expires_in": int\|null, "pending": bool, "reason": str\|null, "challenge_url": str\|null, "overlay": bool}` |
 | POST | `/kremle/logout` | сбросить «капча пройдена» (можно перепройти) |
 | GET | `/kremle/health` | health-check для монитора |
 | GET | `/kremle/stats` | счётчики в JSON |
@@ -40,6 +40,10 @@
 ## Тело ответов
 
 ```jsonc
+// GET /kremle/status (2.13.0: добавлены поля для окна поверх страницы)
+{"verified": false, "expires_in": null, "pending": true,
+ "reason": "yandex_referrer", "challenge_url": "/kremle/challenge", "overlay": true}
+
 // GET /kremle/challenge (JSON-режим)
 {"questions": [{"q": "...", "opts": ["...", "..."], "category": "math"}],
  "token": "...", "verify_url": "/kremle/verify",

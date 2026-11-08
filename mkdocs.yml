@@ -70,6 +70,7 @@ nav:
       - Litestar: integrations/litestar.md
       - Голое ядро: integrations/bare-core.md
       - SPA и JSON: integrations/spa.md
+      - Капча поверх страницы: overlay.md
       - React: react.md
       - Виджет без React: widget.md
   - Капча: captcha.md

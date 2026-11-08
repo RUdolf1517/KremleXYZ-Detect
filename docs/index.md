@@ -76,9 +76,11 @@ kremle-detect questions sync -n 50     # скачать задания «Реш�
   доступная разметка, ротация вопросов.
 - **Эксплуатация:** Redis, rate limit, IP за прокси, блоклист, health/stats/metrics,
   Prometheus.
-- **React:** `npm install kremle-react` — тот же протокол, свои темы.
+- **Окно вместо страницы:** `overlay=True` — капча поверх текущей страницы; данные
+  без прохождения по-прежнему не отдаются. См. [Капча поверх страницы](overlay.md).
+- **React:** `npm install kremle-react` — тот же протокол, свои темы, `<KremleOverlay>`.
 
-Версия 2.12.0. Что дальше — в [ROADMAP.md](https://github.com/RUdolf1517/KremleXYZ-Detect/blob/main/ROADMAP.md).
+Версия 2.13.0. Что дальше — в [ROADMAP.md](https://github.com/RUdolf1517/KremleXYZ-Detect/blob/main/ROADMAP.md).
 
 ---
 

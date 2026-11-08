@@ -2,7 +2,7 @@
 
 > «Кто сказал, что предохранитель не может быть красивым?»
 
-`kremle-react@2.12.0` — ESM + CJS + `'use client'` + типы, 27 тестов. Собран на
+`kremle-react@2.13.0` — ESM + CJS + `'use client'` + типы, 34 теста. Собран на
 React 19, TypeScript 7 и jsdom 30 (`npm install` — Node ≥ 22). Версия npm-пакета
 совпадает с версией Python-пакета: один релиз, один тег.
 
@@ -46,6 +46,22 @@ function App() {
 }
 ```
 
+## Капча поверх страницы
+
+`<KremleOverlay>` спрашивает `/kremle/status` и, если капча всё ещё не пройдена,
+рисует `KremleChallenge` в модальном окне поверх текущей страницы:
+
+```tsx
+import { KremleOverlay } from 'kremle-react'
+
+<KremleOverlay onSolved={() => refetch()} reloadOnPass={false} />
+```
+
+Пропсы: `statusUrl`, `checkOnMount`, `open` (управляемый режим), `reloadOnPass`,
+`fetchImpl`, `onSolved` — плюс всё, что принимает `KremleChallenge`. Работает
+вместе с серверным `overlay=True`: страница остаётся на месте, данные — нет.
+Подробности — [Капча поверх страницы](overlay.md).
+
 ## Свой UI на хуке
 
 ```tsx
@@ -80,8 +96,9 @@ function MyCaptcha() {
 
 ## Что экспортируется
 
-`KremleChallenge`, `useKremle`, `collectFingerprint` и типы `KremleChallengeProps`,
-`KremleQuestion`, `KremleResult`, `UseKremleOptions`, `UseKremleReturn`.
+`KremleChallenge`, `KremleOverlay`, `useKremle`, `collectFingerprint` и типы
+`KremleChallengeProps`, `KremleOverlayProps`, `KremleQuestion`, `KremleResult`,
+`UseKremleOptions`, `UseKremleReturn`.
 
 Требует React ≥ 17 и JSON-режим на бэкенде (см. [SPA и JSON](integrations/spa.md)).
 Запросы идут с `credentials: 'include'` — сессия общая с бэкендом.

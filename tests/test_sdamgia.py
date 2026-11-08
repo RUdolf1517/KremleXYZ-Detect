@@ -343,8 +343,8 @@ class TestDiscover:
 
 
 class TestGetQuestionsSource:
-    def test_builtin(self):
-        qs = get_questions(['math'], count=3, source='builtin')
+    def test_own(self):
+        qs = get_questions(['math'], count=3, source='own')
         assert len(qs) == 3
         assert all('source' not in q for q in qs)
 
@@ -428,7 +428,7 @@ class TestImagesInRuntime:
     def test_challenge_hides_images_when_disabled(self):
         engine = CaptchaEngine(
             categories=['math'], question_count=1, max_errors=0, secret='s',
-            questions_source='builtin',
+            questions_source='own',
         )
         assert engine.questions_images is False
         assert 'images' not in engine.create_challenge().to_dict()['questions'][0]

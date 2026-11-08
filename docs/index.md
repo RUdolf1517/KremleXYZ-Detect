@@ -81,7 +81,7 @@ kremle-detect questions sync -n 50     # скачать задания «Реш�
   без прохождения по-прежнему не отдаются. См. [Капча поверх страницы](overlay.md).
 - **React:** `npm install kremle-react` — тот же протокол, свои темы, `<KremleOverlay>`.
 
-Версия 2.13.0. Что дальше — в [ROADMAP.md](https://github.com/RUdolf1517/KremleXYZ-Detect/blob/main/ROADMAP.md).
+Версия 2.14.0. Что дальше — в [ROADMAP.md](https://github.com/RUdolf1517/KremleXYZ-Detect/blob/main/ROADMAP.md).
 
 ---
 

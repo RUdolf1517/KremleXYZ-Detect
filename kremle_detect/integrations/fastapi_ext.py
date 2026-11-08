@@ -31,13 +31,18 @@ from ..session import (
 from ..storage import BaseStorage, MemoryStorage, RedisStorage
 from ..widget import headers as widget_headers, read_bundle
 from ._common import (
+    OPS_UNAUTHORIZED,
     accepts_json,
     blocked_payload,
     captcha_headers,
     challenge_payload,
     no_store_headers,
     is_document_request,
+    ops_authorized,
+    ops_token_from_env,
+    ops_unauthorized_headers,
     render_captcha_html,
+    warn_ops_open_once,
     wants_json,
 )
 
@@ -126,6 +131,7 @@ class KremleFastAPI:
         sticky_ttl: int = DEFAULT_PENDING_TTL,
         overlay: bool = False,
         enable_ops_routes: bool = True,
+        ops_token: Optional[str] = None,
         async_offload: bool = True,
         csp_policy: Optional[str] = None,
     ):
@@ -172,6 +178,10 @@ class KremleFastAPI:
         self.sticky_ttl = int(sticky_ttl)
         self.overlay = bool(overlay)
         self.enable_ops_routes = enable_ops_routes
+        # Токен опс-роутов: параметр важнее окружения, пустая строка — «нет».
+        self.ops_token = ops_token or ops_token_from_env()
+        if self.enable_ops_routes and not self.ops_token:
+            warn_ops_open_once()
         self.async_offload = async_offload
         self.csp_policy = csp_policy
         # None → авто (loopback + приватные сети), [] → не доверять никому
@@ -236,6 +246,7 @@ class KremleFastAPI:
         headless = self.headless
         trusted_proxies = self.trusted_proxies
         enable_ops = self.enable_ops_routes
+        ops_token = self.ops_token
         template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
         wants_json_fn = self._wants_json
         is_verified_fn = self._is_verified
@@ -456,8 +467,17 @@ class KremleFastAPI:
             )
 
         if enable_ops:
+            def ops_denied():
+                """401 для опс-роутов: токена нет или он не тот."""
+                return JSONResponse(
+                    dict(OPS_UNAUTHORIZED), status_code=401,
+                    headers={**ops_unauthorized_headers(), 'Content-Type': 'application/json'},
+                )
+
             @app.get('/kremle/health')
-            async def kremle_health():
+            async def kremle_health(request: Request):
+                if not ops_authorized(request.headers.get('authorization'), ops_token):
+                    return ops_denied()
                 storage = engine.storage
                 payload = await run(
                     health_payload,
@@ -477,11 +497,15 @@ class KremleFastAPI:
                 return JSONResponse(payload, status_code=200 if payload['storage_ok'] else 503)
 
             @app.get('/kremle/stats')
-            async def kremle_stats():
+            async def kremle_stats(request: Request):
+                if not ops_authorized(request.headers.get('authorization'), ops_token):
+                    return ops_denied()
                 return JSONResponse(await run(engine.metrics.snapshot))
 
             @app.get('/kremle/metrics')
-            async def kremle_metrics():
+            async def kremle_metrics(request: Request):
+                if not ops_authorized(request.headers.get('authorization'), ops_token):
+                    return ops_denied()
                 text = await run(engine.metrics.prometheus)
                 return PlainTextResponse(text, media_type='text/plain; version=0.0.4; charset=utf-8')
 

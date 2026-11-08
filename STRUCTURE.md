@@ -1,4 +1,4 @@
-# kremle-detect v2.13.0
+# kremle-detect v2.14.0
 
 Python-библиотека, которая показывает капчу с вопросами ЕГЭ пользователям Яндекс Браузера,
 Яндекс-ботам и переходам с Яндекса. Flask, Django, FastAPI + голое ядро для любого фреймворка.
@@ -10,7 +10,7 @@ Python-библиотека, которая показывает капчу с �
 ```
 KremleXYZ-Detect/
 ├── kremle_detect/                   Python-пакет
-│   ├── __init__.py                  Публичный API, __version__ = '2.13.0'
+│   ├── __init__.py                  Публичный API, __version__ = '2.14.0'
 │   ├── detector.py                  Детекция (UA, боты, referer, Client Hints)
 │   ├── captcha.py                   Ядро: CaptchaEngine, Challenge, лимиты, callbacks
 │   ├── policy.py                    Действия сегментов (challenge/block/monitor/allow), сэмплирование
@@ -21,6 +21,7 @@ KremleXYZ-Detect/
 │   ├── storage_async.py             AsyncRedisStorage, AsyncStorageAdapter (threadpool)
 │   ├── ip.py                        Резолвинг IP, авто/явные trusted proxies, IP/CIDR
 │   ├── images.py                    Картинки к заданиям (вкл/выкл, атрибуция)
+│   ├── deprecations.py              Устаревшие имена и сроки (DeprecationWarning до 3.0)
 │   ├── questions/                   Банк вопросов
 │   │   ├── __init__.py              get_questions(source=..., allow_images=...)
 │   │   ├── sdamgia.py               Клиент «Решу ЕГЭ»: API, HTML-парсер, кеш, sync
@@ -48,7 +49,7 @@ KremleXYZ-Detect/
 │       └── kremle_captcha.html      HTML капчи + JS-фингерпринт
 ├── kremle-react/                    React-компонент и хук (tsup, TypeScript)
 ├── kremle-widget/                   Ванильный виджет (esbuild: ESM + IIFE)
-├── tests/                           Тесты (pytest, покрытие 93 %)
+├── tests/                           Тесты (pytest, покрытие 94.3 %)
 │   ├── test_detector.py             Детекция UA/referer/hints
 │   ├── test_captcha.py              Challenge, engine, storage, callbacks
 │   ├── test_engine_security.py      Валидация настроек, одноразовые токены, лимиты
@@ -87,7 +88,7 @@ KremleXYZ-Detect/
 │   ├── test_e2e.py                  Живой HTTP-сервер (uvicorn), куки, logout
 │   └── test_redis_live.py           Redis/Lua/TTL на настоящем сервере (маркер redis)
 ├── .github/workflows/
-│   ├── ci.yml                       Тесты 3.9–3.13 + Redis, покрытие, wheel, React, виджет, audit
+│   ├── ci.yml                       Тесты 3.9–3.13 + Redis, покрытие, wheel, React, виджет, audit, нагрузка (память и Redis)
 │   ├── docker.yml                   Образ в GHCR (amd64+arm64) и его смоук
 │   ├── pages.yml                    Сайт документации и демо на GitHub Pages
 │   ├── release.yml                  Публикация по тегу: PyPI (OIDC), npm (provenance), Release
@@ -124,9 +125,10 @@ KremleXYZ-Detect/
 │  policy.py   ──► decide(hits) → challenge|block|monitor|allow │
 │  session.py  ──► «пройдено» с TTL, привязкой к IP/UA          │
 │  metrics.py  ──► счётчики → /stats, /metrics, /health         │
+│  deprecations.py ──► DeprecationWarning и сроки до 3.0        │
 │  storage.py  ──► MemoryStorage | RedisStorage                │
 │  storage_async.py ──► AsyncRedisStorage | AsyncStorageAdapter│
-│  questions/  ──► get_questions(source=auto|builtin|sdamgia)   │
+│  questions/  ──► get_questions(source=auto|own|sdamgia|mixed) │
 │                  └─ sdamgia.py: кеш «Решу ЕГЭ» + атрибуция    │
 └──────┬──────────────────┬──────────────────┬─────────────────┘
        │                  │                  │
@@ -135,6 +137,7 @@ KremleXYZ-Detect/
   + protect()        + kremle_urls()     + headless
   + IP whitelist     + IP whitelist      + IP whitelist
   + custom template  + custom template   + custom template
+  + ops_token        + ops_token         + ops_token
        └──────────────────┴──────────────────┘
                           │
                   kremle-react (SPA)
@@ -171,7 +174,7 @@ KremleXYZ-Detect/
 
 ---
 
-## Ключевое в 2.7
+## Ключевое в 2.14
 
 - **Monitor-режим и сегменты**: у каждого сигнала своё действие
   (`challenge`/`block`/`monitor`/`allow`), `sample_rate` переводит часть капчи
@@ -184,4 +187,9 @@ KremleXYZ-Detect/
   fallback на встроенный банк; `kremle-detect questions sync` обновляет кеш.
 - **Эксплуатация**: `/kremle/health`, `/kremle/stats`, `/kremle/metrics` (Prometheus).
 - **Async**: `AsyncRedisStorage`, `AsyncStorageAdapter`, threadpool в FastAPI.
-- **502 Python-тестов + 24 React** и CI, который собирает wheel и React-пакет.
+- **Опс-роуты за токеном**: `ops_token=` / `KREMLE_OPS_TOKEN` /
+  `KREMLE_OPS_TOKEN` в Django; без токена — `WARNING` в лог и прежнее поведение.
+- **Устаревания объявлены кодом**: `deprecations.py` держит таблицу
+  «что, с какой версии, до какой»; `source='builtin'` уже предупреждает.
+- **CI собирает wheel и React-пакет** и меряет нагрузку дважды — на памяти и на
+  настоящем Redis, чтобы цифры в summary относились к продакшену.

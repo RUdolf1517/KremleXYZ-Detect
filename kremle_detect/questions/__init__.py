@@ -15,6 +15,7 @@ import logging
 import random
 from typing import Dict, List, Optional, Sequence
 
+from ..deprecations import warn_deprecated
 from .literature import QUESTIONS as LITERATURE_QUESTIONS
 from .math import QUESTIONS as MATH_QUESTIONS
 from .physics import QUESTIONS as PHYSICS_QUESTIONS
@@ -70,13 +71,25 @@ def normalize_source(source: str) -> str:
     """
     Привести имя источника к публичному виду.
 
+    ``builtin`` — устаревший алиас ``own``: с 2.14.0 вызывает
+    ``DeprecationWarning`` и будет удалён в 3.0 (см. :mod:`kremle_detect.deprecations`).
+
     Пример:
-        normalize_source('builtin')      # 'own'
+        normalize_source('builtin')      # 'own' + DeprecationWarning
         normalize_source('own+sdamgia')  # 'own+sdamgia'
     """
     if source not in SOURCES:
         raise ValueError(
             f'source должен быть одним из {SOURCES}, получено {source!r}'
+        )
+    if source in SOURCE_ALIASES:
+        # Алиас живёт до 3.0: предупреждаем один раз за вызов, а не молча
+        # подменяем значение — иначе пользователь узнает об удалении из трейсбека.
+        warn_deprecated(
+            f'source={source!r}',
+            since='2.14.0',
+            remove_in='3.0',
+            hint=f'используйте source={SOURCE_ALIASES[source]!r}',
         )
     return SOURCE_ALIASES.get(source, source)
 

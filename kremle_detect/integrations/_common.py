@@ -8,8 +8,13 @@ JSON-ответов для API-клиентов и заголовки, запр�
 
 from __future__ import annotations
 
+import hmac
 import json
+import logging
+import os
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger('kremle')
 
 #: Префиксы путей, которые считаем API по умолчанию (если запрос не сказал иначе).
 API_PATH_PREFIXES = ('/api/', '/api', '/v1/', '/v2/', '/graphql')
@@ -222,6 +227,88 @@ def wants_json(
     if path and api_prefixes and any(path.startswith(p) for p in api_prefixes):
         return True
     return False
+
+
+# ── Доступ к опс-роутам ─────────────────────────────────────────────────────
+
+#: Переменная окружения с токеном опс-роутов. Удобна и для интеграций, и для
+#: демо: ``KREMLE_OPS_TOKEN=... kremle-detect serve``.
+OPS_TOKEN_ENV = 'KREMLE_OPS_TOKEN'
+
+OPS_UNAUTHORIZED = {'error': 'unauthorized'}
+
+
+def ops_token_from_env() -> Optional[str]:
+    """
+    Токен опс-роутов из окружения (``None``, если не задан или пуст).
+
+    Пример:
+        os.environ['KREMLE_OPS_TOKEN'] = 's3cret'
+        ops_token_from_env()   # 's3cret'
+    """
+    value = os.environ.get(OPS_TOKEN_ENV)
+    return value.strip() if value and value.strip() else None
+
+
+def _bearer(value: Optional[str]) -> str:
+    """Из заголовка ``Authorization`` — сам токен (или пустая строка)."""
+    if not value:
+        return ''
+    text = str(value).strip()
+    if text.lower().startswith('bearer '):
+        text = text[7:].strip()
+    return text
+
+
+def ops_authorized(provided: Optional[str], expected: Optional[str]) -> bool:
+    """
+    Можно ли пускать в опс-роуты.
+
+    * ``expected`` не задан — роуты открыты, как было до 2.14 (совместимость);
+    * задан — нужен ``Authorization: Bearer <токен>``; сравнение постоянного
+      времени, чтобы токен нельзя было подобрать по времени ответа.
+
+    Пример:
+        ops_authorized('Bearer s3cret', 's3cret')   # True
+        ops_authorized(None, 's3cret')             # False
+        ops_authorized(None, None)                 # True
+    """
+    if not expected:
+        return True
+    candidate = _bearer(provided)
+    if not candidate:
+        return False
+    return hmac.compare_digest(candidate, str(expected))
+
+
+_ops_warned = False
+
+
+def warn_ops_open_once() -> None:
+    """
+    Один раз на процесс сказать в лог, что опс-роуты открыты всем.
+
+    ``/kremle/stats`` и ``/kremle/metrics`` отдают цифры по трафику: не секрет,
+    но и не для всех. Токен включается одной настройкой — про это надо
+    напомнить, а не надеяться, что пользователь прочитает документацию.
+    """
+    global _ops_warned
+    if _ops_warned:
+        return
+    _ops_warned = True
+    logger.warning(
+        'Опс-роуты (/kremle/health, /stats, /metrics) открыты без токена — '
+        'закройте их на прокси или задайте ops_token=... (%s).',
+        OPS_TOKEN_ENV,
+    )
+
+
+def ops_unauthorized_headers() -> dict:
+    """Заголовки ответа 401 для опс-роутов: какой токен и куда прислать."""
+    return {
+        'WWW-Authenticate': 'Bearer',
+        'Cache-Control': 'no-store',
+    }
 
 
 def challenge_payload(reason: Optional[str] = None) -> dict:

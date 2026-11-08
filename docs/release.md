@@ -2,16 +2,19 @@
 
 > «Сдать объект — значит подписать каждый лист. Не подписал — не сдал.»
 
-Версия живёт в трёх местах и обязана совпадать: `pyproject.toml`,
-`kremle_detect/__init__.py` и `kremle-react/package.json`. Публикация — по тегу.
+Версия живёт в четырёх местах и обязана совпадать: `pyproject.toml`,
+`kremle_detect/__init__.py`, `kremle-react/package.json` и
+`kremle-widget/package.json` (виджет в реестр не публикуется, но версия держится
+в строю — иначе `STRUCTURE.md` и бейдж README разъезжаются с кодом). Совпадение
+проверяет `tests/test_structure_sync.py`, а не глаз. Публикация — по тегу.
 
 ```bash
 # 1. проверить, что всё зелёное
-pytest tests/ -q
+pytest tests/ -q && ruff check . && mypy kremle_detect && mkdocs build --strict
 
-# 2. версия во всех трёх файлах + запись в CHANGELOG.md
+# 2. версия во всех четырёх файлах + запись в CHANGELOG.md (раздел новой версии)
 # 3. тег и пуш — дальше всё делает .github/workflows/release.yml
-git tag v2.12.0 && git push origin v2.12.0
+git tag v2.14.0 && git push origin v2.14.0
 ```
 
 Workflow соберёт wheel/sdist, сверит версию с тегом, поставит wheel в чистый venv

@@ -231,7 +231,7 @@ kremle = KremleFlask(
 // GET /kremle/health — здоровый экземпляр
 {
   "status": "ok",
-  "version": "2.13.0",
+  "version": "2.14.0",
   "storage": "redis", "storage_ok": true,
   "reasons": [],
   "questions": {
@@ -282,10 +282,56 @@ engine.questions_health(stale_after_hours=24)   # строже для боево
 `/kremle/health` годится для `livenessProbe`/`readinessProbe` по коду ответа
 (`503`), а для алертов «синхронизация отстала» — по `status`/`reasons`.
 
-!!! warning "Публичные роуты"
-`/kremle/stats`, `/kremle/metrics` и `/kremle/health` не требуют авторизации.
-Закройте их на прокси или фаерволом, если цифры не для всех.
-:::
+### Опс-роуты за токеном
+
+По умолчанию роуты открыты — так библиотека ведёт себя с самого начала, и в 2.x
+это не меняется (иначе обновление сломало бы мониторинг). Но цифры по трафику не
+для всех, поэтому включается токен одной строкой:
+
+```python
+KremleFlask(app, ops_token='s3cret')          # Flask
+KremleFastAPI(app, ops_token='s3cret')        # FastAPI / Starlette / Litestar
+KREMLE_OPS_TOKEN = 's3cret'                    # Django (settings.py)
+```
+
+```bash
+KREMLE_OPS_TOKEN=s3cret kremle-detect serve    # демо и docker-compose
+```
+
+Без `Authorization: Bearer s3cret` такие запросы получают `401`:
+
+```json
+{"error": "unauthorized"}
+```
+
+Заголовки ответа: `WWW-Authenticate: Bearer`, `Cache-Control: no-store`.
+Сравнение токена — постоянного времени (`hmac.compare_digest`), подобрать по
+времени ответа нельзя. Токен закрывает **только** `/health`, `/stats` и
+`/metrics`: капча, `/kremle/status` и виджет работают всем.
+
+Порядок приоритетов: аргумент `ops_token=` → переменная окружения
+`KREMLE_OPS_TOKEN` → (Django) настройка `KREMLE_OPS_TOKEN`. Пустая строка —
+«токена нет».
+
+Если токен не задан, при старте в лог уходит `WARNING`: роуты открыты. Это
+напоминание, а не защита — за прокси их всё равно стоит закрыть.
+
+Проверка токена из мониторинга:
+
+```bash
+curl -H "Authorization: Bearer $KREMLE_OPS_TOKEN" https://site/kremle/health
+```
+
+Prometheus умеет это из коробки:
+
+```yaml
+scrape_configs:
+  - job_name: kremle
+    authorization:
+      credentials: s3cret
+    static_configs:
+      - targets: ['site:443']
+```
 
 ## Callbacks и логи
 

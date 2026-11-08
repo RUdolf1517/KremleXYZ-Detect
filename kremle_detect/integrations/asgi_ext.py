@@ -54,13 +54,18 @@ from ..session import (
 from ..storage import BaseStorage, MemoryStorage, RedisStorage
 from ..widget import headers as widget_headers, read_bundle
 from ._common import (
+    OPS_UNAUTHORIZED,
     accepts_json,
     blocked_payload,
     captcha_headers,
     challenge_payload,
     no_store_headers,
     is_document_request,
+    ops_authorized,
+    ops_token_from_env,
+    ops_unauthorized_headers,
     render_captcha_html,
+    warn_ops_open_once,
     wants_json,
 )
 
@@ -249,6 +254,7 @@ class KremleASGI:
         sticky_ttl: int = DEFAULT_PENDING_TTL,
         overlay: bool = False,
         enable_ops_routes: bool = True,
+        ops_token: Optional[str] = None,
     ):
         self.engine = CaptchaEngine(
             categories=categories,
@@ -292,6 +298,10 @@ class KremleASGI:
         self.overlay = bool(overlay)
         self.csp_policy = csp_policy
         self.enable_ops_routes = enable_ops_routes
+        # Токен опс-роутов: параметр важнее окружения, пустая строка — «нет».
+        self.ops_token = ops_token or ops_token_from_env()
+        if self.enable_ops_routes and not self.ops_token:
+            warn_ops_open_once()
         self.trusted_proxies = None if trusted_proxies is None else list(trusted_proxies)
 
     # ── вспомогательное ──────────────────────────────────────────────────────
@@ -561,7 +571,20 @@ class KremleASGI:
         headers['Content-Type'] = entry['content_type']
         return ASGIResponse(entry['bytes'], headers=headers)
 
-    async def health(self) -> ASGIResponse:
+    def _ops_denied(self) -> ASGIResponse:
+        """401 для опс-роутов: токена нет или он не тот."""
+        return json_response(
+            dict(OPS_UNAUTHORIZED), 401,
+            {**ops_unauthorized_headers(), 'Content-Type': 'application/json'},
+        )
+
+    def _ops_allowed(self, request: Optional[ASGIRequest]) -> bool:
+        header = request.headers.get('authorization') if request is not None else None
+        return ops_authorized(header, self.ops_token)
+
+    async def health(self, request: Optional[ASGIRequest] = None) -> ASGIResponse:
+        if not self._ops_allowed(request):
+            return self._ops_denied()
         storage = self.engine.storage
         payload = await self._run(
             health_payload,
@@ -579,10 +602,14 @@ class KremleASGI:
         )
         return json_response(payload, 200 if payload['storage_ok'] else 503)
 
-    async def stats(self) -> ASGIResponse:
+    async def stats(self, request: Optional[ASGIRequest] = None) -> ASGIResponse:
+        if not self._ops_allowed(request):
+            return self._ops_denied()
         return json_response(await self._run(self.engine.metrics.snapshot))
 
-    async def metrics(self) -> ASGIResponse:
+    async def metrics(self, request: Optional[ASGIRequest] = None) -> ASGIResponse:
+        if not self._ops_allowed(request):
+            return self._ops_denied()
         text = await self._run(self.engine.metrics.prometheus)
         return text_response(text, headers={'Content-Type':
                                             'text/plain; version=0.0.4; charset=utf-8'})
@@ -596,7 +623,7 @@ class KremleASGI:
         завернуть результат в свой тип ответа.
         """
         handler = getattr(self, name)
-        if name in ('challenge', 'verify', 'status', 'logout'):
+        if name in ('challenge', 'verify', 'status', 'logout', 'health', 'stats', 'metrics'):
             return await handler(request)
         if name in ('widget', 'image'):
             params = path_params or {}

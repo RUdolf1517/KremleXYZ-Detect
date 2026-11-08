@@ -36,6 +36,10 @@ pytest tests/test_e2e.py
 
 # нагрузочный смоук (нужен `kremle-detect serve`)
 python scripts/loadtest.py -n 500 -c 20
+
+# то же, но на настоящем Redis: хранилище задаётся у сервера, не у скрипта
+KREMLE_REDIS_URL=redis://localhost:6379/0 kremle-detect serve --port 8001 &
+python scripts/loadtest.py --url http://127.0.0.1:8001 --label redis
 ```
 
 ## Что гоняет CI
@@ -44,7 +48,8 @@ Python 3.9–3.13 с сервисом Redis (и **падает**, если Redis
 скипнулись), порог покрытия 85 % плюс пороги по модулям, `mypy` на всей
 библиотеке, сборку wheel с проверкой содержимого, `pip-audit`/`npm audit`, тесты
 и сборку React-пакета, `mkdocs build --strict`, а также неблокирующий
-нагрузочный смоук (числа — в summary PR).
+нагрузочный смоук в двух прогонах — на памяти и на настоящем Redis
+(числа обоих — в summary PR, чтобы видеть цену сети в хранилище).
 Отдельные workflow: публикация по тегу `v*` (PyPI + npm) и ежедневная проверка
 живого портала «Решу ЕГЭ».
 

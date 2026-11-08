@@ -416,6 +416,15 @@ function flat(prefix, obj, acc) {
 async function refresh() {
   try {
     var r = await fetch('/kremle/stats', {headers: {'Accept': 'application/json'}});
+    if (r.status === 401) {
+      /* Опс-роуты закрыты токеном: страница не притворяется, что данных нет,
+         а говорит, что именно случилось и где взять цифры. */
+      document.getElementById('t').innerHTML = '';
+      document.getElementById('ts').textContent =
+        'опс-роуты закрыты: нужен Authorization: Bearer <ops_token> ' +
+        '(curl -H "Authorization: Bearer $KREMLE_OPS_TOKEN" /kremle/stats)';
+      return;
+    }
     var data = await r.json();
     var table = document.getElementById('t');
     table.innerHTML = '';

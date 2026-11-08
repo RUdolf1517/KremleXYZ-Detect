@@ -106,7 +106,7 @@ class TestChallengePayload:
         params = dict(
             categories=['math'], question_count=5, max_errors=2,
             secret='test', storage=MemoryStorage(),
-            questions_source='builtin',
+            questions_source='own',
         )
         params.update(kwargs)
         return CaptchaEngine(**params)
@@ -132,7 +132,7 @@ class TestChallengePayload:
         app.secret_key = 's'
         KremleFlask(
             app, categories=['math'], question_count=5, max_errors=2,
-            storage=MemoryStorage(), secret='test', questions_source='builtin',
+            storage=MemoryStorage(), secret='test', questions_source='own',
         )
         html = app.test_client().get('/kremle/challenge').data.decode()
         match = re.search(r'var DATA = (\{.*?\});\n', html, re.S)

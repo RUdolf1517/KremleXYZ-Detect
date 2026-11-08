@@ -52,6 +52,7 @@ Django-интеграция KremleDetect (middleware).
     KREMLE_JSON_API = True        # JSON-ответ вместо редиректа для fetch/SPA
     KREMLE_HEADLESS = False       # всегда JSON (весь сайт — API)
     KREMLE_ENABLE_OPS_ROUTES = True
+    KREMLE_OPS_TOKEN = None       # токен для /kremle/health|stats|metrics (Bearer)
     KREMLE_CSP_POLICY = None      # своя CSP; "" — не отправлять заголовок
 """
 
@@ -73,10 +74,15 @@ from ..session import (
 from ..storage import MemoryStorage, RedisStorage
 from ..widget import headers as widget_headers, read_bundle
 from ._common import (
+    OPS_UNAUTHORIZED,
     accepts_json, blocked_payload, challenge_payload, no_store_headers, wants_json,
     captcha_headers,
     is_document_request,
+    ops_authorized,
+    ops_token_from_env,
+    ops_unauthorized_headers,
     render_captcha_html,
+    warn_ops_open_once,
 )
 
 _engine_cache: dict = {}
@@ -464,8 +470,26 @@ def kremle_urls():
             response[name] = value
         return response
 
+    def ops_denied():
+        """401 для опс-роутов: токена нет или он не тот."""
+        from django.conf import settings
+        response = JsonResponse(dict(OPS_UNAUTHORIZED), status=401)
+        for name, value in ops_unauthorized_headers().items():
+            response[name] = value
+        for name, value in _captcha_headers(settings).items():
+            response[name] = value
+        return response
+
+    def ops_allowed(request) -> bool:
+        """Пускать ли в опс-роуты: токен из настройки или окружения."""
+        from django.conf import settings
+        expected = getattr(settings, 'KREMLE_OPS_TOKEN', None) or ops_token_from_env()
+        return ops_authorized(request.META.get('HTTP_AUTHORIZATION'), expected)
+
     @require_GET
     def health(request):
+        if not ops_allowed(request):
+            return ops_denied()
         from django.conf import settings
         engine = _get_engine(settings)
         storage = engine.storage
@@ -486,12 +510,16 @@ def kremle_urls():
 
     @require_GET
     def stats(request):
+        if not ops_allowed(request):
+            return ops_denied()
         from django.conf import settings
         engine = _get_engine(settings)
         return JsonResponse(engine.metrics.snapshot())
 
     @require_GET
     def metrics(request):
+        if not ops_allowed(request):
+            return ops_denied()
         from django.conf import settings
         engine = _get_engine(settings)
         return HttpResponse(
@@ -539,6 +567,8 @@ def kremle_urls():
     # Эксплуатационные роуты можно выключить целиком (KREMLE_ENABLE_OPS_ROUTES)
     from django.conf import settings as django_settings
     if getattr(django_settings, 'KREMLE_ENABLE_OPS_ROUTES', True):
+        if not (getattr(django_settings, 'KREMLE_OPS_TOKEN', None) or ops_token_from_env()):
+            warn_ops_open_once()
         patterns += [
             path('health/', health, name='kremle_health'),
             path('stats/', stats, name='kremle_stats'),

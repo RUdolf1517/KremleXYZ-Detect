@@ -9,6 +9,19 @@
     python scripts/loadtest.py -n 2000 -c 50
     python scripts/loadtest.py --url http://host:8000 --endpoint verify
 
+Хранилище задаётся **у сервера**, а не у скрипта: демо берёт его из
+``KREMLE_REDIS_URL``. Один прогон = одно хранилище, поэтому память и Redis
+сравниваются двумя запусками:
+
+    kremle-detect serve --port 8000 &            # память
+    python scripts/loadtest.py --json-out memory.json
+
+    KREMLE_REDIS_URL=redis://localhost:6379/0 kremle-detect serve --port 8001 &
+    python scripts/loadtest.py --url http://127.0.0.1:8001 --json-out redis.json
+
+В CI оба прогона делаются подряд (джоб ``loadtest``, сервис Redis), поэтому
+цифры «на памяти» и «на Redis» лежат в одном summary и их видно рядом.
+
 Что измеряет:
     * обычный запрос (не-Яндекс UA) — «горячий путь» через гард;
     * запрос с Яндекс-UA — создание челленджа + 403/302;
@@ -178,7 +191,28 @@ def main(argv=None) -> int:
     parser.add_argument('--endpoint', choices=['all', *SCENARIOS], default='all')
     parser.add_argument('--json-out', default=None,
                         help='Записать сводку в JSON (для CI-артефакта и summary)')
+    parser.add_argument('--label', default=None,
+                        help='Пометка хранилища в отчёте (memory / redis и т.п.)')
+    parser.add_argument('--health-timeout', type=float, default=30.0,
+                        help='Сколько секунд ждать /kremle/health (по умолч. 30)')
     args = parser.parse_args(argv)
+
+    # Сервер мог подниматься дольше, чем ждал CI: сначала убеждаемся, что он
+    # вообще отвечает, иначе весь прогон превращается в 300 сетевых ошибок.
+    health_url = f'{args.url}/kremle/health'
+    deadline = time.time() + args.health_timeout
+    while True:
+        status, _ = http('GET', health_url, timeout=5.0)
+        if status in (200, 401, 503):   # 401 — опс-роуты закрыты токеном
+            break
+        if time.time() >= deadline:
+            print(f'сервер {args.url} не отвечает: /kremle/health → {status or "нет связи"}',
+                  file=sys.stderr)
+            return 2
+        time.sleep(0.5)
+
+    if args.label:
+        print(f'хранилище: {args.label}')
 
     names = list(SCENARIOS) if args.endpoint == 'all' else [args.endpoint]
     failed = False

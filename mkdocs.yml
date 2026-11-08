@@ -58,6 +58,13 @@ markdown_extensions:
 plugins:
   - search
 
+extra_css:
+  - assets/tricolor.css
+
+extra_javascript:
+  # Кнопка «послушать гимн»: синтез через Web Audio, без внешних mp3
+  - assets/anthem.js
+
 nav:
   - Обзор: index.md
   - Установка: install.md

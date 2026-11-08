@@ -55,7 +55,7 @@ kremle-detect serve                  # FastAPI + капча + /stats на localh
 kremle-detect serve --port 9000
 KREMLE_DEMO_POLICY=monitor kremle-detect serve     # shadow: ничего не блокировать
 kremle-detect serve --sample-image                 # встроенное задание с SVG-рисунком
-KREMLE_DEMO_OVERLAY=1 kremle-detect serve         # капча окном поверх страницы
+kremle-detect serve --overlay                     # капча окном поверх страницы
 kremle-detect serve --images                       # задания с рисунком из кеша
 ```
 

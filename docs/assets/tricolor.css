@@ -1,0 +1,149 @@
+/*
+ * Триколор для сайта документации.
+ *
+ * Ничего не переписывает в теме: только переменные Material и пара правил
+ * поверх. Белый — фон, синий — шапка и ссылки, красный — акцент.
+ */
+
+:root {
+  --kremle-white: #ffffff;
+  --kremle-blue: #0039a6;
+  --kremle-blue-light: #1a52bd;
+  --kremle-blue-dark: #002b7f;
+  --kremle-red: #d52b1e;
+
+  --md-primary-fg-color: #ffffff;
+  --md-primary-fg-color--light: #f4f6fb;
+  --md-primary-fg-color--dark: var(--kremle-blue-dark);
+  --md-primary-bg-color: #101010;
+  --md-primary-bg-color--light: #3b3b3b;
+
+  --md-accent-fg-color: var(--kremle-red);
+  --md-accent-fg-color--transparent: rgba(213, 43, 30, 0.12);
+  --md-typeset-a-color: var(--kremle-blue);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #0b1120;
+  --md-primary-fg-color--light: #121a2d;
+  --md-primary-fg-color--dark: #070b14;
+  --md-primary-bg-color: #f4f6fb;
+  --md-accent-fg-color: #ff5a4d;
+  --md-accent-fg-color--transparent: rgba(255, 90, 77, 0.16);
+  --md-typeset-a-color: #ff8a7f;
+  --md-default-bg-color: #0b0f18;
+}
+
+/* Флаг: три полосы под шапкой — и в светлой, и в тёмной теме. */
+.md-header {
+  border-bottom: 3px solid transparent;
+  border-image: linear-gradient(
+      to bottom,
+      #ffffff 0 33.33%,
+      var(--kremle-blue) 33.33% 66.66%,
+      var(--kremle-red) 66.66% 100%
+    ) 1;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+[data-md-color-scheme="slate"] .md-header {
+  border-image: linear-gradient(
+      to bottom,
+      #f4f6fb 0 33.33%,
+      #3d6fd4 33.33% 66.66%,
+      var(--kremle-red) 66.66% 100%
+    ) 1;
+}
+
+/* Шапка светлая: текст и поиск делаем тёмными, иначе получится белое на белом. */
+.md-header__title,
+.md-header__topic,
+.md-header__button.md-icon {
+  color: #101010;
+}
+
+.md-search__input {
+  color: #101010;
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
+.md-search__input::placeholder {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.md-search__form:hover,
+.md-search__input:hover {
+  background-color: rgba(0, 0, 0, 0.09);
+}
+
+[data-md-color-scheme="slate"] .md-header__title,
+[data-md-color-scheme="slate"] .md-header__topic,
+[data-md-color-scheme="slate"] .md-header__button.md-icon {
+  color: #f4f6fb;
+}
+
+[data-md-color-scheme="slate"] .md-search__input {
+  color: #f4f6fb;
+  background-color: rgba(255, 255, 255, 0.09);
+}
+
+/* Активный раздел и наведение — красным, как положено акценту. */
+.md-nav__link--active,
+.md-nav__link:hover,
+.md-tabs__link--active,
+.md-tabs__link:hover {
+  color: var(--md-accent-fg-color);
+}
+
+[data-md-color-scheme="slate"] .md-nav__link--active,
+[data-md-color-scheme="slate"] .md-nav__link:hover {
+  color: var(--md-accent-fg-color);
+}
+
+.md-typeset a:hover {
+  color: var(--kremle-red);
+}
+
+[data-md-color-scheme="slate"] .md-typeset a:hover {
+  color: #ff5a4d;
+}
+
+/* Заголовок страницы — с синей чертой, чтобы страница «начиналась». */
+.md-typeset h1 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  padding-bottom: 0.3rem;
+  border-bottom: 2px solid var(--md-typeset-a-color);
+}
+
+.md-typeset h2 {
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  padding-bottom: 0.2rem;
+}
+
+/* Кнопки и подвал — в цветах флага. */
+.md-typeset .md-button--primary {
+  background-color: var(--kremle-blue);
+  border-color: var(--kremle-blue);
+  color: #ffffff;
+}
+
+.md-typeset .md-button--primary:hover {
+  background-color: var(--kremle-red);
+  border-color: var(--kremle-red);
+}
+
+.md-footer-meta {
+  background-color: var(--kremle-blue-dark);
+}
+
+/* Таблицы: полосатая «шапка» синяя, как мундир. */
+.md-typeset table:not([class]) th {
+  background-color: var(--kremle-blue);
+  color: #ffffff;
+}
+
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) th {
+  background-color: #12224a;
+  color: #f4f6fb;
+}

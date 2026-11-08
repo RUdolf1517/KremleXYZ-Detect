@@ -433,14 +433,19 @@ class TestDemoOverlay:
                                         'Sec-Fetch-Dest': 'document'}).status_code == 200
         assert client.get('/api/me', headers={'Accept': 'application/json'}).status_code == 403
 
-    def test_demo_page_has_widget_in_overlay_mode(self):
-        body = self._client(overlay=True).get('/').text
-        assert 'autoGuardOverlay' in body
-        assert '/demo/pending' in body
+    def test_demo_page_has_overlay_button_always(self):
+        """Кнопка «открыть капчу поверх страницы» есть в любом режиме демо."""
+        for flag in (False, True):
+            body = self._client(overlay=flag).get('/').text
+            assert 'id="overlay-demo"' in body
+            assert 'guardOverlay' in body
+            assert '<!-- OVERLAY' not in body
+            assert 'kremle-widget.min.js' in body
 
-    def test_demo_without_overlay_has_no_widget(self):
-        client = self._client()
-        body = client.get('/').text
-        assert 'autoGuardOverlay' not in body
-        assert '<!-- OVERLAY -->' not in body
-        assert client.get('/kremle/status').json()['overlay'] is False
+    def test_demo_page_tells_about_server_mode(self):
+        assert 'в режиме окна: включён' in self._client(overlay=True).get('/').text
+        assert 'в режиме окна выключен' in self._client(overlay=False).get('/').text
+
+    def test_demo_offers_the_debt_link(self):
+        body = self._client(overlay=True).get('/').text
+        assert '/demo/pending' in body

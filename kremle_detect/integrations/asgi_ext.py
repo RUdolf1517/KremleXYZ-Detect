@@ -498,6 +498,7 @@ class KremleASGI:
             version=__version__,
             storage=storage,
             storage_name=_storage_name(storage),
+            questions=await self._run(self.engine.questions_health),
             extra={
                 'sample_rate': self.engine.sample_rate,
                 'policy': dict(self.engine.policy),

@@ -41,6 +41,11 @@ MIXED_SOURCE = 'own+sdamgia'
 #: Доли источников по умолчанию для смешанного режима.
 DEFAULT_MIXED_RATIO = 0.5
 
+#: Порог «кеш «Решу ЕГЭ» устарел» для /kremle/health, в часах.
+#: Синхронизация идёт по расписанию; двое суток без обновления — повод
+#: посмотреть, жив ли cron, а не ждать, пока банк опустеет.
+DEFAULT_STALE_CACHE_HOURS = 48
+
 CATEGORIES: Dict[str, list] = {
     'math': MATH_QUESTIONS,
     'physics': PHYSICS_QUESTIONS,
@@ -240,6 +245,102 @@ def get_questions(
         pool = pool[:count]
 
     return pool
+
+
+def questions_health(
+    categories: Optional[Sequence[str]] = None,
+    source: str = 'auto',
+    cache_dir: Optional[str] = None,
+    allow_images: bool = False,
+    extra_questions: Optional[Sequence[dict]] = None,
+    only_extra: bool = False,
+    stale_after_hours: float = DEFAULT_STALE_CACHE_HOURS,
+) -> Dict[str, object]:
+    """
+    Что health знает о вопросах: сколько их и насколько свеж кеш портала.
+
+    Обычный health отвечает «процесс жив и хранилище отвечает» — и молчит о
+    том, что кеш «Решу ЕГЭ» не обновлялся с прошлого месяца, а `sync` в cron
+    тихо умер. Здесь это видно: ``stale=True`` и ``reason``.
+
+    Args:
+        categories: категории, из которых берутся вопросы.
+        source: режим источника (``auto``/``own``/``sdamgia``/``own+sdamgia``).
+        cache_dir: каталог кеша (None — тот же, что у движка).
+        allow_images: считать ли задания с рисунком.
+        extra_questions: свои вопросы движка — они тоже часть банка.
+        only_extra: движок настроен только на свои вопросы.
+        stale_after_hours: через сколько часов кеш считается устаревшим.
+
+    Returns:
+        Словарь для health: ``source``, ``count``, ``own``, ``cached``,
+        ``categories``, ``age_hours``, ``stale``, ``stale_after_hours``,
+        ``reason`` (``None``/``no_cache``/``stale_cache``).
+
+    Пример:
+        health = questions_health(['math'], source='own+sdamgia')
+        if health['reason'] == 'stale_cache':
+            ...  # cron не обновил кеш
+    """
+    source = normalize_source(source)
+    cats = [c.lower() for c in (categories or ALL_CATEGORY_NAMES)]
+    extra = [dict(q) for q in (extra_questions or [])]
+
+    own = _builtin_pool(cats) + extra
+    if not allow_images:
+        own = [q for q in own if not q.get('images')]
+
+    cached: List[dict] = []
+    ages: List[float] = []
+    missing: List[str] = []
+    uses_cache = source in ('auto', 'sdamgia', MIXED_SOURCE) and not only_extra
+    if uses_cache:
+        cached = load_cached_questions(cats, cache_dir=cache_dir)
+        if not allow_images:
+            cached = [q for q in cached if not q.get('images')]
+        for cat in cats:
+            age = cache_age(cat, cache_dir=cache_dir)
+            if age is None:
+                missing.append(cat)
+            else:
+                ages.append(age)
+
+    # Возраст — по самому старому кешу: если обновилась половина категорий,
+    # синхронизация всё равно сломана.
+    age_hours: Optional[float] = None
+    if ages:
+        age_hours = round(max(ages) / 3600.0, 2)
+
+    stale = age_hours is not None and age_hours > stale_after_hours
+    reason: Optional[str] = None
+    if uses_cache and stale:
+        reason = 'stale_cache'
+    elif uses_cache and not ages and source in ('sdamgia', MIXED_SOURCE):
+        # В auto пустой кеш — штатный режим (работает встроенный банк),
+        # а в sdamgia/own+sdamgia это потеря половины банка.
+        reason = 'no_cache'
+
+    if only_extra:
+        count = len(extra)
+    elif source == 'sdamgia':
+        count = len(cached)
+    elif source == 'own':
+        count = len(own)
+    else:
+        count = len(own) + len(cached)
+
+    return {
+        'source': source,
+        'count': count,
+        'own': len(extra) if only_extra else len(own),
+        'cached': len(cached),
+        'categories': cats,
+        'age_hours': age_hours,
+        'stale': bool(stale),
+        'stale_after_hours': stale_after_hours,
+        'missing_cache': missing,
+        'reason': reason,
+    }
 
 
 def validate_questions(questions: list) -> None:

@@ -114,7 +114,7 @@ kremle = KremleFlask(
 
 | Метод | Путь | Ответ |
 |---|---|---|
-| GET | `/kremle/health` | `200` `{"status": "ok", "version", "storage", "storage_ok"}`, `503` при недоступном хранилище |
+| GET | `/kremle/health` | `200` `{"status": "ok", ...}`, `503` при недоступном хранилище; `status: degraded` — когда сломан кеш вопросов |
 | GET | `/kremle/stats` | JSON-снапшот счётчиков |
 | GET | `/kremle/metrics` | Prometheus text |
 
@@ -135,8 +135,62 @@ kremle = KremleFlask(
 `kremle_challenges_total`, `kremle_verify_total`, `kremle_captcha_total`,
 `kremle_blocked_total{reason}`.
 
-`/kremle/health` годится для `livenessProbe`/`readinessProbe`: `503` означает, что
-Redis недоступен и капча не сможет сохранить челлендж.
+### Что именно знает health
+
+```jsonc
+// GET /kremle/health — здоровый экземпляр
+{
+  "status": "ok",
+  "version": "2.12.0",
+  "storage": "redis", "storage_ok": true,
+  "reasons": [],
+  "questions": {
+    "source": "own+sdamgia",
+    "count": 214,          // сколько вопросов доступно прямо сейчас
+    "own": 60,             // из своего банка
+    "cached": 154,         // из кеша «Решу ЕГЭ» (с учётом фильтра картинок)
+    "categories": ["math", "physics"],
+    "age_hours": 6.5,      // возраст самого старого файла кеша
+    "stale": false,
+    "stale_after_hours": 48,
+    "missing_cache": [],
+    "reason": null
+  },
+  "ts": 1794124008.12
+}
+```
+
+`status` равен `degraded`, если сломано хоть что-то, а `reasons` перечисляет, что
+именно: `storage`, `questions:no_cache`, `questions:stale_cache`,
+`questions:empty`. Код ответа при этом остаётся `200`, пока живо хранилище:
+устаревший кеш — повод посмотреть на cron, а не гасить под. `503` — только когда
+хранилище не отвечает (капча не сможет сохранить челлендж).
+
+Это ровно та дыра, которую закрывает 2.12: раньше тихо умерший `kremle-detect
+questions sync` не был виден ничем — кеш месячной давности отдавался, а health
+бодро писал `ok`. Теперь `age_hours` растёт, `stale` становится `true` после
+48 часов, и мониторинг ловит это по `status != ok`.
+
+Порог настраивается на уровне вызова:
+
+```python
+engine.questions_health(stale_after_hours=24)   # строже для боевого контура
+```
+
+Правила, по которым считается `reason`:
+
+| Режим | Нет кеша | Кеш старше порога |
+|---|---|---|
+| `own` | — | — (кеш не используется) |
+| `auto` | не деградирует: работает встроенный банк | `stale_cache` |
+| `sdamgia` | `no_cache` | `stale_cache` |
+| `own+sdamgia` | `no_cache` | `stale_cache` |
+
+`age_hours` берётся по **самому старому** файлу кеша: если обновилась половина
+категорий, синхронизация всё равно сломана.
+
+`/kremle/health` годится для `livenessProbe`/`readinessProbe` по коду ответа
+(`503`), а для алертов «синхронизация отстала» — по `status`/`reasons`.
 
 !!! warning "Публичные роуты"
 `/kremle/stats`, `/kremle/metrics` и `/kremle/health` не требуют авторизации.

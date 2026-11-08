@@ -398,6 +398,7 @@ class KremleFastAPI:
                     version=__version__,
                     storage=storage,
                     storage_name=_storage_name(storage),
+                    questions=await run(engine.questions_health),
                     extra={
                         'sample_rate': engine.sample_rate,
                         'policy': dict(engine.policy),

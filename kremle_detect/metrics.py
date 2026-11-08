@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import time
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from .policy import ACTIONS, DEFAULT_POLICY
 from .storage import BaseStorage
@@ -178,12 +178,19 @@ def health_payload(
     storage: Optional[BaseStorage] = None,
     storage_name: str = 'memory',
     extra: Optional[Dict[str, object]] = None,
+    questions: Optional[Dict[str, object]] = None,
 ) -> Dict[str, object]:
     """
     Ответ /kremle/health.
 
-    Проверяет, что хранилище отвечает на чтение/запись — этого достаточно,
-    чтобы отличить «живой» процесс от зависшего.
+    Проверяет две вещи, каждая из которых ломает капчу по-своему: отвечает ли
+    хранилище (иначе нечего помнить) и есть ли чем задавать вопросы (иначе
+    челлендж не собрать). Вторая половина — ``questions`` из
+    :func:`kremle_detect.questions.questions_health`.
+
+    ``status`` равен ``degraded``, если сломано хоть что-то; ``reasons``
+    перечисляет, что именно. Код ответа при этом остаётся 200, пока живо
+    хранилище: устаревший кеш — повод посмотреть на cron, а не гасить под.
     """
     storage_ok = True
     if storage is not None:
@@ -195,13 +202,28 @@ def health_payload(
         except Exception:  # noqa: BLE001 — health не должен падать из-за бэкенда
             storage_ok = False
 
+    reasons: List[str] = []
+    if not storage_ok:
+        reasons.append('storage')
+
     payload: Dict[str, object] = {
-        'status': 'ok' if storage_ok else 'degraded',
+        'status': 'ok',
         'version': version,
         'storage': storage_name,
         'storage_ok': storage_ok,
         'ts': time.time(),
     }
+    if questions is not None:
+        payload['questions'] = questions
+        reason = questions.get('reason')
+        if reason:
+            reasons.append(f'questions:{reason}')
+        if not questions.get('count'):
+            reasons.append('questions:empty')
+
+    payload['reasons'] = reasons
+    if reasons:
+        payload['status'] = 'degraded'
     if extra:
         payload.update(extra)
     return payload

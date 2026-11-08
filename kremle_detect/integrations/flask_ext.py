@@ -428,6 +428,7 @@ class KremleFlask:
                     version=__version__,
                     storage=storage,
                     storage_name=_storage_name(storage),
+                    questions=engine.questions_health(),
                     extra={
                         'sample_rate': engine.sample_rate,
                         'policy': dict(engine.policy),

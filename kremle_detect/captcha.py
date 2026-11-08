@@ -23,9 +23,10 @@ from .policy import (
     validate_sample_rate,
 )
 from .questions import (
-    ALL_CATEGORY_NAMES, DEFAULT_MIXED_RATIO, MIXED_SOURCE, attribution_text,
-    get_questions, mix_questions, normalize_source, question_sources,
-    validate_mixed_ratio, validate_questions,
+    ALL_CATEGORY_NAMES, DEFAULT_MIXED_RATIO, DEFAULT_STALE_CACHE_HOURS,
+    MIXED_SOURCE, attribution_text, get_questions, mix_questions,
+    normalize_source, question_sources, questions_health, validate_mixed_ratio,
+    validate_questions,
 )
 from .storage import BaseStorage, MemoryStorage
 
@@ -490,6 +491,28 @@ class CaptchaEngine:
             )
         except Exception as exc:  # noqa: BLE001
             logger.debug('Ротация вопросов: не удалось сохранить историю (%s)', exc)
+
+    def questions_health(
+        self, stale_after_hours: float = DEFAULT_STALE_CACHE_HOURS
+    ) -> Dict[str, object]:
+        """
+        Состояние банка вопросов для /kremle/health.
+
+        Отвечает на вопрос, который обычный health пропускает: сколько
+        вопросов есть на самом деле и когда последний раз обновлялся кеш
+        «Решу ЕГЭ».
+
+        Пример:
+            engine.questions_health()['age_hours']   # 51.2 — кеш устарел
+        """
+        return questions_health(
+            categories=self.categories,
+            source=self.questions_source,
+            allow_images=self.questions_images,
+            extra_questions=self.extra_questions,
+            only_extra=self.only_extra,
+            stale_after_hours=stale_after_hours,
+        )
 
     def create_challenge(self) -> Challenge:
         """Создаёт новый набор вопросов."""

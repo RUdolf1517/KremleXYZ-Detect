@@ -74,7 +74,29 @@ class TestAnthem:
         _, notes = self._notes()
         beats = [beat for beat, _, _ in notes]
         assert beats == sorted(beats), 'ноты идут не по порядку'
-        assert beats[-1] > 100, 'мелодия обрывается на середине'
+        # Один куплет с припевом: около минуты при темпе 76
+        assert beats[-1] > 60, 'мелодия обрывается на середине'
+
+    def test_ends_on_the_tonic(self):
+        """«Славься, страна!» заканчивается на тонике — это не оборванная фраза."""
+        _, notes = self._notes()
+        assert notes[-1][2] == 72, notes[-1]
+
+    def test_opening_is_the_anthem(self):
+        """Первые такты — «Россия — священная наша держава».
+
+        Регрессия: в первой версии плеера мелодия бралась из случайного MIDI
+        и на гимн не походила. Здесь зафиксировано начало из партитуры
+        (партия корнета 1 в B♭, транспонированная в до мажор).
+        """
+        _, notes = self._notes()
+        opening = [midi for _, _, midi in notes[:8]]
+        assert opening == [72, 67, 72, 67, 69, 71, 64, 64], opening
+
+    def test_melody_is_diatonic(self):
+        _, notes = self._notes()
+        for _, _, midi in notes:
+            assert midi % 12 in {0, 2, 4, 5, 7, 9, 11}, midi
 
     def test_tempo_is_official(self):
         js, _ = self._notes()

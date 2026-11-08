@@ -44,6 +44,23 @@ snippet = widget_snippet()          # <div id="kremle" data-kremle></div> + <scr
 | `data-title` | заголовок капчи |
 | `data-redirect="true"` | перейти по `redirect` после успеха (обычное поведение сайта) |
 
+## Окно поверх страницы
+
+Если сервер включён с `overlay=True`, страницу не надо никуда уводить: виджет
+спросит `/kremle/status` и откроет капчу модальным окном поверх.
+
+```html
+<script src="/kremle/widget/kremle-widget.min.js"></script>
+<script>
+  KremleWidget.autoGuardOverlay(document, { reloadOnPass: true })
+</script>
+```
+
+`autoGuardOverlay` ждёт DOM и ничего не делает, если `pending` в статусе нет.
+Ручной вариант — `guardOverlay({...})` с методами `check`, `open`, `close`,
+`destroy`, `getState`. Клик по фону и `Esc` окно не закрывают: закрыть окно —
+не значит пройти капчу, долг остаётся. Подробности — [Капча поверх страницы](overlay.md).
+
 ## Настройки
 
 ```js

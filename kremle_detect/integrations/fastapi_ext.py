@@ -36,6 +36,7 @@ from ._common import (
     captcha_headers,
     challenge_payload,
     no_store_headers,
+    is_document_request,
     render_captcha_html,
     wants_json,
 )
@@ -123,6 +124,7 @@ class KremleFastAPI:
         json_api: bool = True,
         sticky_referrer: bool = True,
         sticky_ttl: int = DEFAULT_PENDING_TTL,
+        overlay: bool = False,
         enable_ops_routes: bool = True,
         async_offload: bool = True,
         csp_policy: Optional[str] = None,
@@ -168,6 +170,7 @@ class KremleFastAPI:
         self.json_api = json_api
         self.sticky_referrer = bool(sticky_referrer)
         self.sticky_ttl = int(sticky_ttl)
+        self.overlay = bool(overlay)
         self.enable_ops_routes = enable_ops_routes
         self.async_offload = async_offload
         self.csp_policy = csp_policy
@@ -201,6 +204,15 @@ class KremleFastAPI:
             request.url.path,
         )
 
+    def _is_document(self, request) -> bool:
+        """Переход по ссылке, а не подзагрузка и не API-вызов."""
+        return is_document_request(
+            request.headers.get('accept'),
+            request.headers.get('x-requested-with'),
+            request.method,
+            request.headers.get('sec-fetch-dest'),
+        )
+
     def _is_verified(self, request, ip: Optional[str] = None) -> bool:
         state = request.session.get(SESSION_KEY)
         ok = is_verified(
@@ -227,9 +239,11 @@ class KremleFastAPI:
         template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
         wants_json_fn = self._wants_json
         is_verified_fn = self._is_verified
+        is_document_fn = self._is_document
         run = self._run
         sticky_referrer = self.sticky_referrer
         sticky_ttl = self.sticky_ttl
+        overlay = self.overlay
 
         @app.middleware('http')
         async def kremle_guard(request: Request, call_next):
@@ -278,20 +292,30 @@ class KremleFastAPI:
                                         status_code=403, headers=no_store_headers())
                 return PlainTextResponse('Доступ заблокирован.', status_code=403)
             if decision.action == 'challenge':
-                # Referer поисковика приходит только с первым запросом: без
-                # записи в сессии капча обходится стиранием её адреса.
-                if sticky_referrer and detection.referrer:
-                    mark_pending(request.session, decision.reason, sticky_ttl)
                 request.session[NEXT_KEY] = str(request.url)
+                if overlay:
+                    # «Поверх страницы»: долг ставим при любом сигнале — по
+                    # нему окно понимает, что показывать капчу. Переход по
+                    # ссылке пропускаем, данные (fetch/API) — нет.
+                    mark_pending(request.session, decision.reason, sticky_ttl)
+                    if is_document_fn(request):
+                        return await call_next(request)
+                elif sticky_referrer and detection.referrer:
+                    # Referer поисковика приходит только с первым запросом: без
+                    # записи в сессии капча обходится стиранием её адреса.
+                    mark_pending(request.session, decision.reason, sticky_ttl)
                 if wants_json_fn(request):
                     return JSONResponse(challenge_payload(decision.reason), status_code=403,
                                         headers=no_store_headers())
                 return RedirectResponse('/kremle/challenge', status_code=302)
 
-            reason = pending_reason(request.session, sticky_ttl) if sticky_referrer else None
+            sticky = sticky_referrer or overlay
+            reason = pending_reason(request.session, sticky_ttl) if sticky else None
             if reason:
                 await run(engine.metrics.count_detect, reason, 'challenge')
                 request.session[NEXT_KEY] = str(request.url)
+                if overlay and is_document_fn(request):
+                    return await call_next(request)
                 if wants_json_fn(request):
                     return JSONResponse(challenge_payload(reason), status_code=403,
                                         headers=no_store_headers())
@@ -376,13 +400,22 @@ class KremleFastAPI:
         @app.get('/kremle/status')
         async def kremle_status(request: Request):
             state = request.session.get(SESSION_KEY)
+            verified = is_verified(
+                state,
+                ua=request.headers.get('user-agent'),
+                bind_ua=self.bind_ua,
+            )
+            pending = None if verified else pending_reason(
+                request.session,
+                sticky_ttl if (sticky_referrer or overlay) else None,
+            )
             return JSONResponse({
-                'verified': is_verified(
-                    state,
-                    ua=request.headers.get('user-agent'),
-                    bind_ua=self.bind_ua,
-                ),
+                'verified': verified,
                 'expires_in': remaining_seconds(state),
+                'pending': bool(pending),
+                'reason': pending,
+                'challenge_url': '/kremle/challenge' if pending else None,
+                'overlay': overlay,
             }, headers=captcha_headers(self.csp_policy))
 
         @app.post('/kremle/logout')

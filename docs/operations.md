@@ -231,7 +231,7 @@ kremle = KremleFlask(
 // GET /kremle/health — здоровый экземпляр
 {
   "status": "ok",
-  "version": "2.12.0",
+  "version": "2.13.0",
   "storage": "redis", "storage_ok": true,
   "reasons": [],
   "questions": {

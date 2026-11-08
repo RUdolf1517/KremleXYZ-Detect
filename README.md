@@ -10,7 +10,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
-[![version](https://img.shields.io/badge/version-2.12.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.13.0-111111?style=flat-square)](CHANGELOG.md)
 [![tests](https://img.shields.io/badge/tests-893%20passed%20%2B%2050%20js-2ea44f?style=flat-square)](docs/testing.md)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
@@ -187,6 +187,7 @@ README — это вывеска. Вся документация живёт в 
 | [docs/install.md](docs/install.md) | extras, установка из git, демо, Docker, смоук |
 | [docs/detection.md](docs/detection.md) | что считается Яндексом: UA, реферер, Client Hints, фингерпринт |
 | [docs/integrations/](docs/integrations/flask.md) | [Flask](docs/integrations/flask.md) · [Django](docs/integrations/django.md) · [FastAPI](docs/integrations/fastapi.md) · [Starlette](docs/integrations/starlette.md) · [Litestar](docs/integrations/litestar.md) · [голое ядро](docs/integrations/bare-core.md) · [SPA и JSON](docs/integrations/spa.md) |
+| [docs/overlay.md](docs/overlay.md) | капча поверх страницы: окно вместо отдельной страницы, `overlay=True` |
 | [docs/react.md](docs/react.md) | `kremle-react`: компонент, хук, таймер, атрибуция |
 | [docs/widget.md](docs/widget.md) | виджет без React: `<script src>` + `<div>`, без сборки |
 | [docs/captcha.md](docs/captcha.md) | токен, порог ошибок, таймер, ротация, доступность, свой шаблон |

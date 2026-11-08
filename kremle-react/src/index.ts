@@ -1,4 +1,6 @@
 export { KremleChallenge } from './KremleChallenge'
+export { KremleOverlay } from './KremleOverlay'
+export type { KremleOverlayProps } from './KremleOverlay'
 export { useKremle } from './useKremle'
 export { collectFingerprint } from './fingerprint'
 export type {

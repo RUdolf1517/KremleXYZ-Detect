@@ -18,13 +18,14 @@
     KREMLE_REDIS_URL=redis://... — хранилище вместо MemoryStorage
     KREMLE_QUESTIONS_IMAGES=1    — показывать задания с рисунком
     KREMLE_DEMO_SAMPLE_IMAGE=1   — одно локальное задание с картинкой (без сети)
+    KREMLE_DEMO_OVERLAY=1        — капча окном поверх страницы, а не отдельной
 """
 
 from __future__ import annotations
 
 import os
 import urllib.parse
-from typing import Optional
+from typing import Any, Optional
 
 
 # Демо-задание с рисунком. Картинка — SVG прямо в data-URI: не требует сети,
@@ -55,6 +56,11 @@ SAMPLE_IMAGE_QUESTION = {
 }
 
 
+# FastAPI разбирает аннотации роутов по глобальным именам модуля, а не по
+# локальным: тип `Request` кладём сюда при сборке демо с окном поверх страницы.
+_DemoRequest: Any = None
+
+
 def _env_flag(name: str, default: bool = False) -> bool:
     value = os.environ.get(name)
     if value is None:
@@ -64,7 +70,8 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 def build_app(policy: Optional[dict] = None,
               questions_images: Optional[bool] = None,
-              sample_image: Optional[bool] = None):
+              sample_image: Optional[bool] = None,
+              overlay: Optional[bool] = None):
     """
     Собирает демо-приложение FastAPI.
 
@@ -73,6 +80,7 @@ def build_app(policy: Optional[dict] = None,
         app = build_app({'yandex_browser': 'monitor'})   # shadow
         app = build_app(questions_images=True)  # капча с рисунками
         app = build_app(sample_image=True)      # одно встроенное задание с SVG
+        app = build_app(overlay=True)           # капча окном поверх страницы
 
     ``sample_image`` подмешивает задание с картинкой, нарисованной прямо в
     странице (data-URI SVG): капчу с рисунком можно посмотреть в любом браузере
@@ -95,6 +103,8 @@ def build_app(policy: Optional[dict] = None,
         questions_images = _env_flag('KREMLE_QUESTIONS_IMAGES')
     if sample_image is None:
         sample_image = _env_flag('KREMLE_DEMO_SAMPLE_IMAGE')
+    if overlay is None:
+        overlay = _env_flag('KREMLE_DEMO_OVERLAY')
 
     extra_questions = None
     only_extra = False
@@ -125,11 +135,32 @@ def build_app(policy: Optional[dict] = None,
         questions_source=os.environ.get('KREMLE_QUESTIONS_SOURCE', 'auto'),
         mixed_ratio=float(os.environ.get('KREMLE_MIXED_RATIO', 0.5)),
         questions_images=questions_images,
+        overlay=overlay,
+        # демо-кнопка ставит долг сама — её гард пропускает
+        skip_paths=['/docs', '/openapi.json', '/redoc', '/demo/pending'],
     )
 
     @app.get('/', response_class=HTMLResponse)
     async def index():
-        return _INDEX_HTML
+        return _index_html(overlay)
+
+    if overlay:
+        # Демо-кнопка: без Яндекса и без правки заголовков поставить себе «долг
+        # капчи» и увидеть настоящий путь «статус → окно → verify», а не картинку.
+        from fastapi import Request
+        from fastapi.responses import RedirectResponse
+
+        from .session import mark_pending
+
+        # FastAPI разбирает аннотации по глобальным именам модуля, а не по
+        # локальным: без этого `request` стал бы обязательным query-параметром.
+        global _DemoRequest
+        _DemoRequest = Request
+
+        @app.get('/demo/pending')
+        async def demo_pending(request: _DemoRequest):
+            mark_pending(request.session, 'yandex_referrer')
+            return RedirectResponse('/', status_code=303)
 
     @app.get('/api/me')
     async def me():
@@ -175,6 +206,8 @@ def main(host: str = '0.0.0.0', port: Optional[int] = None,
     port = port or int(os.environ.get('KREMLE_DEMO_PORT', '8000'))
 
     banner = 'shadow (ничего не блокируется)' if policy else 'challenge (Яндекс — капча)'
+    if app.state.kremle.overlay:
+        banner += ', окно поверх страницы'
     print(f'kremle-detect demo → http://localhost:{port}  [{banner}]')
     if telemetry['tracing']:
         print('   трейсы: OTLP включён (kremle.challenge → kremle.verify)')
@@ -202,6 +235,19 @@ def main(host: str = '0.0.0.0', port: Optional[int] = None,
     else:
         print('   рисунки выключены: kremle-detect serve --images (или --sample-image)')
     uvicorn.run(app, host=host, port=port, log_level='info')
+
+
+_OVERLAY_BLOCK = """  <div class="box">
+    <p><b>Окно поверх страницы.</b> <a href="/demo/pending">/demo/pending</a> —
+       поставить «долг капчи» и вернуться сюда: страница останется на месте, а
+       проверка откроется окном. Это настоящий путь «статус → окно → verify»,
+       Яндекс для него не нужен.</p>
+    <p class="muted">fetch на <code>/api/me</code> при этом по-прежнему получает
+       <code>403</code>: окно меняет форму показа, а не правила.</p>
+    <script src="/kremle/widget/kremle-widget.min.js"></script>
+    <script>KremleWidget.autoGuardOverlay(document);</script>
+  </div>
+"""
 
 
 _INDEX_HTML = """<!DOCTYPE html>
@@ -245,10 +291,14 @@ _INDEX_HTML = """<!DOCTYPE html>
        посмотреть на рисунок совсем без сети — <code>kremle-detect serve --sample-image</code>.</p>
   </div>
 
+<!-- OVERLAY -->
+
   <div class="box">
     <p><b>Shadow-режим.</b> Перезапустите демо с
       <code>KREMLE_DEMO_POLICY=monitor kremle-detect serve</code> —
       ничего не блокируется, но всё считается (события <code>shadow</code>).</p>
+    <p><b>Капча окном.</b> <code>KREMLE_DEMO_OVERLAY=1 kremle-detect serve</code> —
+      вместо отдельной страницы проверка открывается поверх страницы.</p>
     <button id="ping">Сделать fetch на /api/me</button>
     <pre id="out">—</pre>
   </div>
@@ -270,6 +320,12 @@ _INDEX_HTML = """<!DOCTYPE html>
 </body>
 </html>
 """
+
+
+def _index_html(overlay: bool = False) -> str:
+    """Страница демо; в режиме окна — с кнопкой «поставить долг капчи»."""
+    return _INDEX_HTML.replace('<!-- OVERLAY -->', _OVERLAY_BLOCK if overlay else '')
+
 
 _STATS_HTML = """<!DOCTYPE html>
 <html lang="ru">

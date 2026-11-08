@@ -198,7 +198,13 @@ class TestVerificationTtl:
     def test_status_not_verified(self):
         app, _ = make_app()
         body = app.test_client().get('/kremle/status').get_json()
-        assert body == {'verified': False, 'expires_in': None}
+        # 2.13.0: к статусу добавлены поля для окна поверх страницы
+        assert body['verified'] is False
+        assert body['expires_in'] is None
+        assert body['pending'] is False
+        assert body['reason'] is None
+        assert body['challenge_url'] is None
+        assert body['overlay'] is False
 
     def test_verify_sets_ttl(self):
         app, kremle = make_app(verified_ttl=120)

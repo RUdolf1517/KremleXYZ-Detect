@@ -12,6 +12,7 @@ React-компонент и хук для капчи [`kremle-detect`](https://g
 - атрибуция источника вопросов («Решу ЕГЭ») со ссылкой
 - автоматически запрашивает новый челлендж, если токен истёк
 - ESM + CJS + типы, без обязательных зависимостей кроме React
+- `<KremleOverlay>` — та же капча модальным окном поверх страницы
 
 ## Установка
 
@@ -92,6 +93,24 @@ export function MyCaptcha() {
 }
 ```
 
+## Окно поверх страницы
+
+`<KremleOverlay>` спрашивает `/kremle/status` и, если капча ещё не пройдена,
+рисует её модальным окном поверх текущей страницы. На сервере нужен
+`overlay=True` (`KREMLE_OVERLAY = True` в Django): переход по ссылке отдаёт
+оболочку, данные — только после прохождения.
+
+```tsx
+import { KremleOverlay } from 'kremle-react'
+
+export function App() {
+  return <KremleOverlay onSolved={() => refetch()} />
+}
+```
+
+Пропсы: `statusUrl`, `checkOnMount`, `open` (управляемый режим), `reloadOnPass`,
+`fetchImpl`, `onSolved` плюс всё, что принимает `<KremleChallenge>`.
+
 ## props
 
 | Prop | Тип | По умолчанию | Описание |
@@ -145,7 +164,7 @@ export function MyCaptcha() {
 
 ```bash
 npm install
-npm test            # vitest + jsdom, 24 теста
+npm test            # vitest + jsdom, 34 теста
 npm run typecheck   # tsc --noEmit (TypeScript 7)
 npm run build       # ESM + CJS (tsup) + .d.ts (tsc -p tsconfig.build.json)
 ```

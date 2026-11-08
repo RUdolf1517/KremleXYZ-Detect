@@ -20,12 +20,27 @@ export function createServer(options = {}) {
     ...options,
   }
 
-  const calls = { challenge: 0, verify: [], logout: 0 }
+  const calls = { status: 0, challenge: 0, verify: [], logout: 0 }
+  // Статус по умолчанию — «капча не нужна»; в режиме overlay тесты включают
+  // pending вручную через options.pending
+  let pending = Boolean(options.pending)
   let issued = 0
 
   async function fetchImpl(url, init = {}) {
     const target = String(url)
     const method = (init.method || 'GET').toUpperCase()
+
+    if (target.endsWith('/status') && method === 'GET') {
+      calls.status += 1
+      return response({
+        verified: !pending,
+        expires_in: pending ? null : 86399,
+        pending,
+        reason: pending ? 'yandex_referrer' : null,
+        challenge_url: pending ? '/kremle/challenge' : null,
+        overlay: true,
+      })
+    }
 
     if (target.endsWith('/challenge') && method === 'GET') {
       calls.challenge += 1
@@ -55,6 +70,7 @@ export function createServer(options = {}) {
         ([index, expected]) => answers[String(index)] !== expected,
       ).length
       const passed = errors <= config.maxErrors
+      if (passed) pending = false
       return response({
         passed,
         errors,
@@ -72,7 +88,11 @@ export function createServer(options = {}) {
     return response({ error: 'not_found' }, 404)
   }
 
-  return { fetchImpl, calls, config }
+  function setPending(value) {
+    pending = Boolean(value)
+  }
+
+  return { fetchImpl, calls, config, setPending }
 }
 
 function response(payload, status = 200) {

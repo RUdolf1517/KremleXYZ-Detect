@@ -158,6 +158,44 @@ def accepts_json(accept: Optional[str]) -> bool:
     return False
 
 
+def is_document_request(
+    accept: Optional[str] = None,
+    xhr: Optional[str] = None,
+    method: str = 'GET',
+    fetch_dest: Optional[str] = None,
+) -> bool:
+    """
+    Это переход по ссылке (браузер грузит страницу), а не вызов из кода?
+
+    Нужен режиму «капча поверх страницы» (``overlay=True``): оболочку сайта
+    отдаём, чтобы модальное окно было поверх него, а данные — нет. Отличить
+    одно от другого можно только по заголовкам, поэтому правило
+    консервативное: всё непонятное считается API и получает капчу как раньше.
+
+    Пример:
+        is_document_request('text/html,application/xhtml+xml')   # True
+        is_document_request('application/json')                 # False
+        is_document_request('*/*')                              # False
+    """
+    if method and method.upper() not in ('GET', 'HEAD'):
+        return False
+    if xhr and xhr.strip().lower() == 'xmlhttprequest':
+        return False
+    if fetch_dest:
+        # Браузер сам говорит, зачем пришёл: document — переход, пустой/иной
+        # (empty, script, image) — подзагрузка, её пропускать нельзя.
+        return fetch_dest.strip().lower() == 'document'
+    if not accept:
+        return False
+    for part in accept.split(','):
+        mime = part.split(';')[0].strip().lower()
+        if mime in ('text/html', 'application/xhtml+xml'):
+            return True
+        if mime == 'application/json' or mime.endswith('+json'):
+            return False
+    return False
+
+
 def wants_json(
     accept: Optional[str],
     xhr: Optional[str] = None,

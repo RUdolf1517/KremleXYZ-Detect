@@ -48,6 +48,7 @@ Django-интеграция KremleDetect (middleware).
     KREMLE_ADAPTIVE_EXTRA_QUESTIONS = 2   # +вопросов на каждой ступени
     KREMLE_STICKY_REFERRER = True  # держать капчу по Referer, пока не пройдена
     KREMLE_STICKY_TTL = 900        # сколько секунд помнить этот «долг капчи»
+    KREMLE_OVERLAY = False         # капча поверх страницы (окно из виджета)
     KREMLE_JSON_API = True        # JSON-ответ вместо редиректа для fetch/SPA
     KREMLE_HEADLESS = False       # всегда JSON (весь сайт — API)
     KREMLE_ENABLE_OPS_ROUTES = True
@@ -74,6 +75,7 @@ from ..widget import headers as widget_headers, read_bundle
 from ._common import (
     accepts_json, blocked_payload, challenge_payload, no_store_headers, wants_json,
     captcha_headers,
+    is_document_request,
     render_captcha_html,
 )
 
@@ -262,6 +264,7 @@ class KremleDjangoMiddleware:
 
         sticky = getattr(settings, 'KREMLE_STICKY_REFERRER', True)
         sticky_ttl = getattr(settings, 'KREMLE_STICKY_TTL', DEFAULT_PENDING_TTL)
+        overlay = getattr(settings, 'KREMLE_OVERLAY', False)
 
         if decision.action == 'monitor':
             return self.get_response(request)
@@ -271,19 +274,39 @@ class KremleDjangoMiddleware:
                                     status=403, headers=no_store_headers())
             return self._plain_blocked()
         if decision.action == 'challenge':
-            # Referer поисковика приходит только с первым запросом: без записи
-            # в сессии капча обходится стиранием /kremle/challenge из адреса.
-            if sticky and detection.referrer:
+            if overlay:
+                # «Поверх страницы»: долг ставим при любом сигнале, а переход
+                # по ссылке пропускаем — модальное окно покажет капчу, данные
+                # останутся за ней.
+                mark_pending(request.session, decision.reason, sticky_ttl)
+                if self._is_document(request):
+                    return self.get_response(request)
+            elif sticky and detection.referrer:
+                # Referer поисковика приходит только с первым запросом: без
+                # записи в сессии капча обходится стиранием её адреса.
                 mark_pending(request.session, decision.reason, sticky_ttl)
             return self._challenge(request, redirect, JsonResponse, settings,
                                    decision.reason)
 
+        sticky = sticky or overlay
         reason = pending_reason(request.session, sticky_ttl) if sticky else None
         if reason:
             engine.metrics.count_detect(reason, 'challenge')
+            if overlay and self._is_document(request):
+                return self.get_response(request)
             return self._challenge(request, redirect, JsonResponse, settings, reason)
 
         return self.get_response(request)
+
+    @staticmethod
+    def _is_document(request) -> bool:
+        """Переход по ссылке, а не подзагрузка и не API-вызов."""
+        return is_document_request(
+            request.META.get('HTTP_ACCEPT'),
+            request.META.get('HTTP_X_REQUESTED_WITH'),
+            request.method,
+            request.META.get('HTTP_SEC_FETCH_DEST'),
+        )
 
     @staticmethod
     def _challenge(request, redirect, JsonResponse, settings, reason):
@@ -398,13 +421,25 @@ def kremle_urls():
         from django.conf import settings
         engine = _get_engine(settings)
         state = request.session.get(SESSION_KEY)
+        verified = is_verified(
+            state,
+            ua=request.META.get('HTTP_USER_AGENT'),
+            bind_ua=engine.bind_ua,
+        )
+        sticky = getattr(settings, 'KREMLE_STICKY_REFERRER', True)
+        overlay = getattr(settings, 'KREMLE_OVERLAY', False)
+        pending = None if verified else pending_reason(
+            request.session,
+            getattr(settings, 'KREMLE_STICKY_TTL', DEFAULT_PENDING_TTL)
+            if (sticky or overlay) else None,
+        )
         response = JsonResponse({
-            'verified': is_verified(
-                state,
-                ua=request.META.get('HTTP_USER_AGENT'),
-                bind_ua=engine.bind_ua,
-            ),
+            'verified': verified,
             'expires_in': remaining_seconds(state),
+            'pending': bool(pending),
+            'reason': pending,
+            'challenge_url': '/kremle/challenge/' if pending else None,
+            'overlay': overlay,
         })
         for name, value in _captcha_headers(settings).items():
             response[name] = value

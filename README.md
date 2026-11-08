@@ -149,7 +149,9 @@ KremleFlask(app, question_count=15, max_errors=3)
 выбирайте по инструменту, а не по указке.
 
 Можно сначала посмотреть, а не блокировать: `policy={'yandex_browser': 'monitor'}`.
-Демо за минуту — [в установке](docs/install.md#демо-за-минуту).
+Демо за минуту — [в установке](docs/install.md#демо-за-минуту). Без установки:
+[сайт документации](https://rudolf1517.github.io/KremleXYZ-Detect/) и
+[живое демо капчи](https://rudolf1517.github.io/KremleXYZ-Detect/demo.html).
 
 ## Духовные скрепы проекта
 

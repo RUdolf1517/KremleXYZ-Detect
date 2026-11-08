@@ -10,7 +10,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-0b3d91?style=flat-square)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.9%2B-3776ab?style=flat-square)](pyproject.toml)
-[![version](https://img.shields.io/badge/version-2.11.0-111111?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.12.0-111111?style=flat-square)](CHANGELOG.md)
 [![tests](https://img.shields.io/badge/tests-893%20passed%20%2B%2050%20js-2ea44f?style=flat-square)](docs/testing.md)
 [![security](https://img.shields.io/badge/security-policy-0b3d91?style=flat-square)](SECURITY.md)
 
@@ -171,7 +171,7 @@ KremleFlask(app, question_count=15, max_errors=3)
 - **2.9.0** — честный результат, таймер, ротация вопросов, доступность *(сдано)*;
 - **2.10** — безопасность: экранирование, CSP, секрет и ротация, SBOM *(сдано)*;
 - **2.11** — охват: vanilla-виджет *(сдано)*, образ в GHCR *(сдано)*, сайт документации, переключатель источников вопросов *(сдано)*;
-- **2.12** — эксплуатация: health со свежестью кеша, адаптивная сложность, mypy;
+- **2.12** — эксплуатация: health со свежестью кеша *(сдано)*, адаптивная сложность *(сдано)*, долг капчи для реферера *(сдано)*, mypy и гейт покрытия *(сдано)*, OpenTelemetry *(сдано)*, нагрузочный смоук *(сдано)*;
 - **3.0** — платформа: plugin API источников, нативный async-движок.
 
 Подробно, с приёмкой по каждому пункту — [ROADMAP.md](ROADMAP.md).

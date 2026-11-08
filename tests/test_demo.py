@@ -165,6 +165,18 @@ class TestEntrypoint:
         assert '/kremle/stats' in demo._STATS_HTML
         assert 'Яндекс' in demo._INDEX_HTML
 
+    def test_stats_page_explains_locked_ops_routes(self):
+        """401 на /kremle/stats — не «пустая таблица», а инструкция с токеном."""
+        from kremle_detect import demo
+
+        assert 'r.status === 401' in demo._STATS_HTML
+        assert 'Bearer' in demo._STATS_HTML
+
+    def test_stats_page_renders_against_live_app(self):
+        page = client().get('/stats')
+        assert page.status_code == 200
+        assert 'опс-роуты закрыты' in page.text
+
 
 class TestSecretFromEnv:
     """Пустая переменная окружения — это «не задано», а не пустой ключ."""

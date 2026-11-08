@@ -40,7 +40,7 @@
 |---|---|
 | Реестры | PyPI `kremle-detect` 2.14.0, npm `kremle-react` 2.14.0 (provenance) |
 | Код | 9 200 строк библиотеки, 10 850 строк тестов |
-| Тесты | 1 003 passed / 20 skipped, покрытие 94.3 % (+ пороги по модулям); виджет — 34, React — 35 |
+| Тесты | 1 007 passed / 20 skipped, покрытие 94.3 % (+ пороги по модулям); виджет — 34, React — 35 |
 | Интеграции | Flask, Django, FastAPI, Starlette, Litestar, голое ядро, React, виджет без сборки, CLI, демо-сервер |
 | Форма капчи | отдельная страница или окно поверх страницы (`overlay`) |
 | Опс-доступ | `/kremle/health`, `/stats`, `/metrics` — за токеном (`ops_token` / `KREMLE_OPS_TOKEN`) либо открыты с `WARNING` в лог |

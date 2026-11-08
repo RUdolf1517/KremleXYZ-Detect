@@ -5,12 +5,17 @@ name: Pages
 #
 # Публикуется из Actions, а не из ветки gh-pages: собранный сайт — артефакт,
 # а не второй набор исходников, который неизбежно отстаёт (ручной gh-pages
-# застрял на 2.3.4, пока пакет ушёл на 2.10).
+# застрял на 2.3.4, пока пакет ушёл на 2.11).
 #
-# Требуется включённый источник публикации «GitHub Actions»
-# (Settings → Pages → Build and deployment → Source: GitHub Actions).
-# Пока источник не включён, джоб build остаётся зелёным (сайт собран и лежит
-# артефактом), а deploy пропускается с предупреждением — main не краснеет.
+# Нужен один разовый переключатель в настройках репозитория:
+#   Settings → Pages → Build and deployment → Source: **GitHub Actions**.
+# Пока он не нажат, сайт всё равно собирается (артефакт `github-pages`),
+# а деплой пропускается с предупреждением — main не краснеет.
+#
+# Включён ли Pages и каким способом, спрашиваем у API по `build_type`:
+#   none      — Pages выключен;
+#   workflow  — источник «GitHub Actions», можно публиковать;
+#   legacy    — источник «Deploy from a branch», наш артефакт не подойдёт.
 
 on:
   push:
@@ -32,14 +37,12 @@ jobs:
   build:
     name: Сборка сайта
     runs-on: ubuntu-latest
-    # configure-pages обращается к API Pages — без этих прав проверка вернула бы
-    # отказ по токену, а не по состоянию репозитория.
     permissions:
       contents: read
-      pages: write
+      pages: write       # чтение настроек Pages и загрузка артефакта
       id-token: write
     outputs:
-      pages_enabled: ${{ steps.pages.outcome == 'success' }}
+      build_type: ${{ steps.probe.outputs.build_type }}
     steps:
       - uses: actions/checkout@v7
 
@@ -67,27 +70,43 @@ jobs:
         with:
           path: site
 
-      # Проверяем, включён ли Pages, до деплоя: иначе джоб deploy падает на
-      # старте (runner даже не запускает шаги) и красит main.
-      - name: Проверить, включён ли Pages
-        id: pages
-        continue-on-error: true
-        uses: actions/configure-pages@v5
-
-      - name: Пояснение, если Pages выключен
-        if: steps.pages.outcome != 'success'
+      # Что настроено в репозитории — знает API, а не догадки. 404 = Pages нет.
+      - name: Определить режим Pages
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "::warning::Pages не включён: сайт собран, но не опубликован. Нужно Settings -> Pages -> Source: GitHub Actions, затем перезапустить workflow."
+          set -o pipefail
+          err=$(mktemp)
+          if build_type=$(gh api "/repos/${REPO}/pages" --jq '.build_type' 2>"$err"); then
+            :
+          else
+            # 404 — Pages не включён; 403 — у токена нет прав на чтение настроек.
+            message=$(tr '\n' ' ' < "$err")
+            case "$message" in
+              *404*|*"Not Found"*) build_type=none ;;
+              *) echo "::warning title=Pages::не удалось прочитать настройки: ${message}"; build_type=unknown ;;
+            esac
+          fi
+          [ -n "$build_type" ] || build_type=none
+          echo "build_type=${build_type}" >> "$GITHUB_OUTPUT"
+          echo "Pages build_type: ${build_type}"
+
+      - name: Подсказка, если публиковать пока некуда
+        if: steps.probe.outputs.build_type != 'workflow'
+        run: |
+          echo "::warning title=Pages::Сайт собран, но не опубликован (build_type=${{ steps.probe.outputs.build_type }}). Нужно: Settings -> Pages -> Build and deployment -> Source: GitHub Actions. Затем Actions -> Pages -> Run workflow."
           echo "Готовая сборка лежит в артефакте github-pages этой задачи."
+          echo "Настройки: https://github.com/${GITHUB_REPOSITORY}/settings/pages"
 
   deploy:
     name: Публикация
     needs: build
-    if: needs.build.outputs.pages_enabled == 'true'
+    # Публикуем только когда источник — GitHub Actions. При legacy-источнике
+    # deploy-pages всё равно упал бы, а при выключенном Pages — не стартовал.
+    if: needs.build.outputs.build_type == 'workflow'
     runs-on: ubuntu-latest
-    # Даже если Pages отвалится между сборкой и деплоем, main не краснеет:
-    # сайт — не то, ради чего стоит останавливать релизы.
-    continue-on-error: true
     permissions:
       pages: write
       id-token: write
@@ -95,10 +114,29 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Включить Pages
-        id: pages
-        uses: actions/configure-pages@v5
-
       - name: Опубликовать
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # Проверяем не «джоб зелёный», а что страница действительно отдаётся:
+      # Pages обновляется не мгновенно, поэтому с повторами.
+      - name: Проверить живой сайт
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -o pipefail
+          echo "публикуем: ${PAGE_URL}"
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -L "${PAGE_URL}" || true)
+            if [ "$code" = "200" ]; then break; fi
+            echo "попытка ${i}: HTTP ${code}, ждём"
+            sleep 6
+          done
+          test "$code" = "200" || { echo "::error::сайт не отвечает 200 (HTTP ${code})"; exit 1; }
+
+          for path in "demo.html" "assets/kremle-widget.min.js" "integrations/starlette/" "integrations/litestar/"; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -L "${PAGE_URL}${path}" || true)
+            echo "${path} -> HTTP ${code}"
+            test "$code" = "200" || { echo "::error::${PAGE_URL}${path} отдал ${code}"; exit 1; }
+          done
+          echo "сайт и демо доступны"

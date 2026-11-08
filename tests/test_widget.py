@@ -225,6 +225,12 @@ class TestStaticDemo:
         assert demo_bundle.is_file()
         assert demo_bundle.read_bytes() == read_bundle('kremle-widget.min.js')
 
+    def test_demo_links_work_on_github_pages(self, demo_html):
+        # Демо публикуется как статический файл: ссылка на `.md` там превращается
+        # в 404, потому что MkDocs такой файл не создаёт.
+        assert 'href="./index.md"' not in demo_html
+        assert 'href="./"' in demo_html
+
     def test_demo_is_honest_about_embedded_answers(self, demo_html):
         flat = ' '.join(demo_html.split())
         assert 'Правильные ответы лежат в коде страницы' in flat

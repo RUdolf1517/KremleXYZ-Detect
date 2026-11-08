@@ -136,7 +136,7 @@ def build_app(policy: Optional[dict] = None,
         mixed_ratio=float(os.environ.get('KREMLE_MIXED_RATIO', 0.5)),
         questions_images=questions_images,
         overlay=overlay,
-        # демо-кнопка ставит долг сама — её гард пропускает
+        # демо-кнопки ставят долг сами — их гард пропускает
         skip_paths=['/docs', '/openapi.json', '/redoc', '/demo/pending'],
     )
 
@@ -144,23 +144,22 @@ def build_app(policy: Optional[dict] = None,
     async def index():
         return _index_html(overlay)
 
-    if overlay:
-        # Демо-кнопка: без Яндекса и без правки заголовков поставить себе «долг
-        # капчи» и увидеть настоящий путь «статус → окно → verify», а не картинку.
-        from fastapi import Request
-        from fastapi.responses import RedirectResponse
+    # Демо-кнопка: без Яндекса и без правки заголовков поставить себе «долг
+    # капчи» и увидеть настоящий путь «статус → окно → verify», а не картинку.
+    from fastapi import Request
+    from fastapi.responses import RedirectResponse
 
-        from .session import mark_pending
+    from .session import mark_pending
 
-        # FastAPI разбирает аннотации по глобальным именам модуля, а не по
-        # локальным: без этого `request` стал бы обязательным query-параметром.
-        global _DemoRequest
-        _DemoRequest = Request
+    # FastAPI разбирает аннотации по глобальным именам модуля, а не по
+    # локальным: без этого `request` стал бы обязательным query-параметром.
+    global _DemoRequest
+    _DemoRequest = Request
 
-        @app.get('/demo/pending')
-        async def demo_pending(request: _DemoRequest):
-            mark_pending(request.session, 'yandex_referrer')
-            return RedirectResponse('/', status_code=303)
+    @app.get('/demo/pending')
+    async def demo_pending(request: _DemoRequest):
+        mark_pending(request.session, 'yandex_referrer')
+        return RedirectResponse('/', status_code=303)
 
     @app.get('/api/me')
     async def me():
@@ -176,7 +175,8 @@ def build_app(policy: Optional[dict] = None,
 
 def main(host: str = '0.0.0.0', port: Optional[int] = None,
          questions_images: Optional[bool] = None,
-         sample_image: Optional[bool] = None) -> None:
+         sample_image: Optional[bool] = None,
+         overlay: Optional[bool] = None) -> None:
     """Запуск демо через uvicorn (нужен ``kremle-detect[demo]``)."""
     try:
         import uvicorn
@@ -201,7 +201,7 @@ def main(host: str = '0.0.0.0', port: Optional[int] = None,
     telemetry = configure_from_env()
 
     app = build_app(policy, questions_images=questions_images,
-                    sample_image=sample_image)
+                    sample_image=sample_image, overlay=overlay)
     engine = app.state.kremle.engine
     port = port or int(os.environ.get('KREMLE_DEMO_PORT', '8000'))
 
@@ -237,15 +237,20 @@ def main(host: str = '0.0.0.0', port: Optional[int] = None,
     uvicorn.run(app, host=host, port=port, log_level='info')
 
 
-_OVERLAY_BLOCK = """  <div class="box">
-    <p><b>Окно поверх страницы.</b> <a href="/demo/pending">/demo/pending</a> —
-       поставить «долг капчи» и вернуться сюда: страница останется на месте, а
-       проверка откроется окном. Это настоящий путь «статус → окно → verify»,
-       Яндекс для него не нужен.</p>
-    <p class="muted">fetch на <code>/api/me</code> при этом по-прежнему получает
-       <code>403</code>: окно меняет форму показа, а не правила.</p>
-    <script src="/kremle/widget/kremle-widget.min.js"></script>
-    <script>KremleWidget.autoGuardOverlay(document);</script>
+_OVERLAY_BLOCK = """  <div class="box box--flag">
+    <p><b>Капча поверх страницы.</b> Нажмите кнопку — проверка откроется окном
+       прямо над этим текстом, без перехода на отдельный адрес. Фон затемнится,
+       страница останется на месте. В бою <code>Esc</code> окно не закрывает —
+       «закрыть и зайти» это и есть обход; здесь Esc разрешён, чтобы вы
+       не застряли в демо.</p>
+    <p><button id="overlay-demo" type="button">Открыть капчу поверх страницы</button></p>
+    <p class="muted">Это тот же виджет, что стоит на настоящем сайте:
+       <code>KremleWidget.guardOverlay()</code>. Серверный режим включается
+       флагом <code>--overlay</code> — тогда <code>/api/me</code> отдаёт
+       <code>403</code>, пока проверка не пройдена, а страница вокруг открывается
+       как обычно.</p>
+    <p class="muted" id="overlay-state"><!-- OVERLAY-STATE --></p>
+    <p><a href="/demo/pending">поставить «долг капчи» и вернуться сюда →</a></p>
   </div>
 """
 
@@ -268,6 +273,14 @@ _INDEX_HTML = """<!DOCTYPE html>
   button { font: inherit; background: #171717; color: #eee;
            border: 1px solid #333; padding: .4rem .8rem; cursor: pointer; }
   pre { white-space: pre-wrap; word-break: break-word; color: #9ae6b4; }
+  .box--flag { border-color: #0039a6; border-left-width: 4px; }
+  #overlay-demo { background: #0039a6; border-color: #0039a6; color: #fff;
+                  padding: .55rem 1.1rem; letter-spacing: .02em; }
+  #overlay-demo:hover { background: #d52b1e; border-color: #d52b1e; }
+  body::before { content: ""; position: fixed; top: 0; left: 0; right: 0;
+                 height: 4px; z-index: 100; background: linear-gradient(
+                   to bottom, #fff 0 33.33%, #0039a6 33.33% 66.66%,
+                   #d52b1e 66.66% 100%); }
 </style>
 </head>
 <body>
@@ -306,7 +319,29 @@ _INDEX_HTML = """<!DOCTYPE html>
   <p class="muted">Сгенерировано kremle-detect. Это демо, а не продакшн-конфиг:
      секрет задан в коде, хранилище — память процесса.</p>
 </main>
+<script src="/kremle/widget/kremle-widget.min.js"></script>
 <script>
+  var demoGuard = null;
+  document.getElementById('overlay-demo').onclick = function () {
+    // Окно без ожидания детекции: демо должно показывать форму проверки,
+    // а не заставлять человека искать Яндекс Браузер.
+    demoGuard = KremleWidget.guardOverlay({
+      autoCheck: false,
+      reloadOnPass: false,
+      description: 'Демо: три задания из банка. На настоящем сайте Esc окно не ' +
+                   'закрывает — закрыть его значило бы обойти проверку.',
+    });
+    demoGuard.open();
+  };
+
+  // Выход из демо-окна. В бою такого нет намеренно: «закрыть и зайти» — обход.
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && demoGuard) {
+      demoGuard.close();
+      demoGuard = null;
+    }
+  });
+
   document.getElementById('ping').onclick = async function () {
     var out = document.getElementById('out');
     try {
@@ -323,8 +358,14 @@ _INDEX_HTML = """<!DOCTYPE html>
 
 
 def _index_html(overlay: bool = False) -> str:
-    """Страница демо; в режиме окна — с кнопкой «поставить долг капчи»."""
-    return _INDEX_HTML.replace('<!-- OVERLAY -->', _OVERLAY_BLOCK if overlay else '')
+    """Страница демо; блок «капча поверх страницы» есть всегда."""
+    page = _INDEX_HTML.replace('<!-- OVERLAY -->', _OVERLAY_BLOCK)
+    state = (
+        'сервер в режиме окна: включён'
+        if overlay else
+        'сервер в режиме окна выключен (kremle-detect serve --overlay)'
+    )
+    return page.replace('<!-- OVERLAY-STATE -->', state)
 
 
 _STATS_HTML = """<!DOCTYPE html>

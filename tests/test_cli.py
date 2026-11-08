@@ -250,3 +250,14 @@ class TestServe:
 
         assert calls['questions_images'] is None
         assert calls['sample_image'] is None
+        assert calls['overlay'] is None
+
+    def test_overlay_flag(self, monkeypatch):
+        """`--overlay` — капча окном поверх страницы."""
+        from kremle_detect import demo
+
+        calls = {}
+        monkeypatch.setattr(demo, 'main', lambda **kwargs: calls.update(kwargs))
+        run_ok(['serve', '--overlay'], monkeypatch)
+
+        assert calls['overlay'] is True

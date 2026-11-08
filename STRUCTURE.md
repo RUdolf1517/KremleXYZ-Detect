@@ -71,6 +71,7 @@ KremleXYZ-Detect/
 │   ├── test_secret_rotation.py      Предупреждение о дефолтном секрете, ротация ключей
 │   ├── test_questions_mixing.py     Источники вопросов: own / sdamgia / mixed
 │   ├── test_asgi_integrations.py    Starlette и Litestar: паритет роутов, guard, сессии
+│   ├── test_adaptive.py             адаптивная сложность: серия провалов, порог челленджа
 │   ├── test_health_questions.py     health и вопросы: возраст кеша, stale, degraded
 │   ├── test_health_integrations.py  блок questions в health у всех пяти интеграций
 │   ├── test_widget.py               Бандл виджета, роут /kremle/widget, сниппет, демо

@@ -323,10 +323,10 @@ class KremleFlask:
                 )
             engine.track_challenge(ip)
 
-            ch = engine.create_challenge()
+            ch = engine.create_challenge(ip=ip)
             session[TOKEN_KEY] = ch.token
             data = ch.to_dict(verify_url=url_for('kremle.verify'),
-                              max_errors=engine.max_errors)
+                              max_errors=ch.max_errors)
 
             # headless/JSON-клиент получает вопросы сразу, без HTML
             if self.headless or accepts_json(request.headers.get('Accept', '')):

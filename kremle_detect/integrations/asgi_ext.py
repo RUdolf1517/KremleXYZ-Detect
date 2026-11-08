@@ -403,9 +403,9 @@ class KremleASGI:
             )
         await self._run(engine.track_challenge, ip)
 
-        ch = await self._run(engine.create_challenge)
+        ch = await self._run(engine.create_challenge, ip)
         request.session[TOKEN_KEY] = ch.token
-        data = ch.to_dict(verify_url=PREFIX + '/verify', max_errors=engine.max_errors)
+        data = ch.to_dict(verify_url=PREFIX + '/verify', max_errors=ch.max_errors)
         headers = captcha_headers(self.csp_policy)
 
         if self.headless or accepts_json(request.headers.get('accept', '')):

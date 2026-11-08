@@ -285,7 +285,7 @@ class KremleFastAPI:
                 )
             await run(engine.track_challenge, ip)
 
-            ch = await run(engine.create_challenge)
+            ch = await run(engine.create_challenge, ip)
             request.session[TOKEN_KEY] = ch.token
 
             # Относительный URL, а не абсолютный: request.url_for() собирает его
@@ -296,7 +296,7 @@ class KremleFastAPI:
             verify_url = root_path + str(request.app.url_path_for('kremle_verify'))
 
             # to_dict — чистая сериализация без I/O, threadpool не нужен
-            data = ch.to_dict(verify_url=verify_url, max_errors=engine.max_errors)
+            data = ch.to_dict(verify_url=verify_url, max_errors=ch.max_errors)
             no_store = captcha_headers(self.csp_policy)
 
             if headless or accepts_json(request.headers.get('accept', '')):

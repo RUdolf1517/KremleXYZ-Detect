@@ -130,33 +130,6 @@
     return true
   }
 
-  function voice(freq, at, duration, level, type, detune) {
-    var osc = ctx.createOscillator()
-    osc.type = type
-    osc.frequency.value = freq
-    osc.detune.value = detune || 0
-
-    // Медный тембр: на длинных нотах добавляем вибрато, на коротких — нет.
-    if (duration > 0.9) {
-      var lfo = ctx.createOscillator()
-      var lfoGain = ctx.createGain()
-      lfo.frequency.value = 5.2
-      lfoGain.gain.value = freq * 0.0045
-      lfo.connect(lfoGain)
-      lfoGain.connect(osc.frequency)
-      lfo.start(at + 0.18)
-      lfo.stop(at + duration + 0.1)
-    }
-
-    var amp = ctx.createGain()
-    amp.gain.value = level
-    osc.connect(amp)
-    amp.connect(filterOf(at, duration, freq))
-    osc.start(at)
-    osc.stop(at + duration + 0.12)
-    return osc
-  }
-
   function filterOf(at, duration, freq) {
     var filter = ctx.createBiquadFilter()
     filter.type = 'lowpass'

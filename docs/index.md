@@ -51,6 +51,7 @@ KremleFlask(app, question_count=15, max_errors=3)
 | [Flask](integrations/flask.md) · [Django](integrations/django.md) · [FastAPI](integrations/fastapi.md) · [Starlette](integrations/starlette.md) · [Litestar](integrations/litestar.md) | быстрый старт по фреймворкам |
 | [Голое ядро](integrations/bare-core.md) | любой фреймворк, без интеграции |
 | [SPA и JSON](integrations/spa.md) | `fetch`, 403 в JSON, CORS, headless-режим |
+| [Капча поверх страницы](overlay.md) | окно вместо отдельной страницы: `overlay=True`, виджет, React |
 | [React](react.md) | `kremle-react`: компонент и хук |
 | [Виджет без React](widget.md) | `<script src>` + `<div>` — без сборки |
 | [Капча](captcha.md) | токен, порог ошибок, таймер, ротация, доступность |

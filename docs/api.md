@@ -61,7 +61,9 @@
 
 Ответы и поля — в разделе [Эксплуатация](operations.md#эксплуатация-health-stats-metrics).
 Коротко: `/kremle/health` → `200` при живом хранилище и `503` при недоступном;
-полезна для `livenessProbe`/`readinessProbe` и внешнего монитора.
+полезна для `livenessProbe`/`readinessProbe` и внешнего монитора. В теле есть блок
+`questions` (сколько вопросов и насколько свеж кеш «Решу ЕГЭ») и список
+`reasons`; `status: degraded` при устаревшем кеше, но код по-прежнему `200`.
 
 !!! warning "Публичные роуты"
     `/kremle/stats`, `/kremle/metrics` и `/kremle/health` по умолчанию не требуют

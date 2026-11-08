@@ -26,13 +26,12 @@
 |---|---|
 | Реестры | PyPI `kremle-detect` 2.11.0, npm `kremle-react` 2.11.0 (provenance) |
 | Код | 6 700 строк библиотеки, 6 500 строк тестов |
-| Тесты | 751 passed / 17 skipped, coverage 92 % |
+| Тесты | 776 passed / 17 skipped, coverage 92 % |
 | Интеграции | Flask, Django, FastAPI, Starlette, Litestar, голое ядро, React, виджет без сборки, CLI, демо-сервер |
 | CI | 11 джобов: тесты 3.9–3.13, ruff, package, react, security, живой портал |
 
 Чего не хватает, если смотреть честно:
 
-- `/kremle/health` не знает возраста кеша вопросов: тихо умерший `sync` не виден;
 - `py.typed` есть, mypy/pyright в CI нет;
 - опс-роуты (`/kremle/stats`, `/metrics`, `/health`) публичны, если не закрыты
   на прокси;
@@ -100,7 +99,7 @@ GitHub Actions — это настройка репозитория, сборк�
 
 | Задача | Размер | Критерий приёмки |
 |---|---|---|
-| `/kremle/health`: `questions: {count, age_hours, source}`, статус `degraded` при устаревшем кеше (> 48 ч) | S | health падает в `degraded` на искусственно состаренном кеше |
+| `/kremle/health`: `questions: {count, age_hours, source}`, статус `degraded` при устаревшем кеше (> 48 ч) ✅ блок `questions` + `reasons`, 25 тестов | S | health падает в `degraded` на искусственно состаренном кеше |
 | Адаптивная сложность: серия провалов с IP (порог из storage) → +вопросы/строже порог; соавторство с `rate_limit` | M | 3 провала подряд → челлендж строже; успех сбрасывает; первый провал ничего не меняет |
 | mypy (или pyright) в CI на `kremle_detect` | M | джоб зелёный, `py.typed` подтверждён; `# type: ignore` только с причиной |
 | Coverage-гейт по модулям: `demo.py` 74 → 85 %, `storage.py` 86 → 90 %, `fastapi_ext.py` 88 → 90 % | S | порог в `pyproject.toml` и CI |

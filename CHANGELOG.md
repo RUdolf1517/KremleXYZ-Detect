@@ -53,6 +53,23 @@
 
 ## [Unreleased]
 
+### Добавлено
+
+- **`/kremle/health` знает про вопросы** (`2.12`). В ответе появился блок
+  `questions`: `source`, `count`, `own`, `cached`, `categories`, `age_hours`,
+  `stale`, `stale_after_hours`, `missing_cache`, `reason`. Раньше тихо умерший
+  `kremle-detect questions sync` не был виден ничем: кеш «Решу ЕГЭ» месячной
+  давности отдавался, а health бодро писал `ok`. Теперь кеш старше 48 часов
+  (`questions_health(stale_after_hours=...)` — настраивается) даёт
+  `status: degraded` и `reasons: ["questions:stale_cache"]`; в режимах
+  `sdamgia`/`own+sdamgia` отсутствие кеша — `questions:no_cache`, пустой банк —
+  `questions:empty`. Код ответа остаётся `200`, пока живо хранилище: устаревший
+  кеш — повод посмотреть на cron, а не гасить под. Считается по самому старому
+  файлу кеша, поэтому «обновилась половина категорий» тоже видно.
+- `questions_health()` — публичная функция в `kremle_detect.questions` и метод
+  `CaptchaEngine.questions_health()`; одинаково работает во всех интеграциях
+  (Flask, Django, FastAPI, Starlette, Litestar).
+
 ### Изменено
 
 - **Публикация сайта проверяет настройки, а не надеется.** Воркфлоу `Pages`

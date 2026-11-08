@@ -54,7 +54,7 @@ try:
 except ImportError:  # pragma: no cover - зависит от окружения
     # SessionMiddleware отсутствует, если не установлен itsdangerous: сам Starlette
     # импортируется вместе с fastapi, а его SessionMiddleware — нет.
-    SessionMiddleware = None
+    SessionMiddleware = None  # type: ignore[assignment,misc]  # опциональная зависимость
 
 
 def _ip_in_whitelist(ip: str, whitelist: list) -> bool:

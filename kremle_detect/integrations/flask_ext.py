@@ -223,11 +223,21 @@ class KremleFlask:
         if app is not None:
             self.init_app(app)
 
+    @property
+    def _engine(self) -> CaptchaEngine:
+        """Движок для внутренних нужд: до ``init_app`` его нет, и это ошибка."""
+        engine = self.engine
+        if engine is None:  # pragma: no cover - защита от вызова до init_app
+            raise RuntimeError('KremleFlask не инициализирован: вызовите init_app(app)')
+        return engine
+
     # ── инициализация ────────────────────────────────────────────────────────
 
     def init_app(self, app: Flask) -> None:
         """Инициализация с Flask-приложением (паттерн app factory)."""
         secret = self._secret or app.secret_key or 'kremle-default-secret'
+        if isinstance(secret, bytes):  # Flask разрешает байтовый SECRET_KEY
+            secret = secret.decode('utf-8')
 
         self.engine = CaptchaEngine(
             categories=self.categories,
@@ -318,7 +328,10 @@ class KremleFlask:
         )
         bp = Blueprint('kremle', __name__, url_prefix='/kremle')
 
-        engine = self.engine
+        # Снимок движка на момент регистрации: blueprint собирается после
+        # init_app, дальше движок не подменяется. Так обработчики не тащат
+        # Optional[CaptchaEngine] через каждый вызов.
+        engine: CaptchaEngine = self._engine
         custom_template = self.custom_template
         trusted_proxies = self.trusted_proxies
         enable_ops = self.enable_ops_routes
@@ -489,19 +502,19 @@ class KremleFlask:
         # IP whitelist (static config + persistent storage)
         if self.whitelist and _ip_in_whitelist(ip, self.whitelist):
             return None
-        if self.engine.is_whitelisted(ip):
+        if self._engine.is_whitelisted(ip):
             return None
 
-        self.engine.metrics.count_request()
+        self._engine.metrics.count_request()
 
         # IP blacklist — блокируем сразу, без капчи
-        if self.engine.is_blacklisted(ip):
-            self.engine.metrics.count_blocked('blacklisted')
+        if self._engine.is_blacklisted(ip):
+            self._engine.metrics.count_blocked('blacklisted')
             return self._blocked_response('blacklisted')
 
         detection = detect_from_request(request)
-        decision = self.engine.decide(detection)
-        self.engine.record_decision(decision, ip=ip)
+        decision = self._engine.decide(detection)
+        self._engine.record_decision(decision, ip=ip)
 
         if decision.action == 'monitor':
             # shadow-режим: пропускаем, но уже посчитали
@@ -521,7 +534,7 @@ class KremleFlask:
         # Яндекса и капчу так и не прошёл — держим её, пока не пройдёт.
         reason = pending_reason(session, self.sticky_ttl) if self.sticky_referrer else None
         if reason:
-            self.engine.metrics.count_detect(reason, 'challenge')
+            self._engine.metrics.count_detect(reason, 'challenge')
             session[NEXT_KEY] = request.url
             return self._challenge_response(reason)
         return None
@@ -553,15 +566,15 @@ class KremleFlask:
 
             if self.whitelist and _ip_in_whitelist(ip, self.whitelist):
                 return f(*args, **kwargs)
-            if self.engine.is_whitelisted(ip):
+            if self._engine.is_whitelisted(ip):
                 return f(*args, **kwargs)
 
-            if self.engine.is_blacklisted(ip):
+            if self._engine.is_blacklisted(ip):
                 return self._blocked_response('blacklisted')
 
             detection = detect_from_request(request)
-            decision = self.engine.decide(detection)
-            self.engine.record_decision(decision, ip=ip)
+            decision = self._engine.decide(detection)
+            self._engine.record_decision(decision, ip=ip)
 
             if decision.action == 'block':
                 return self._blocked_response(decision.reason)

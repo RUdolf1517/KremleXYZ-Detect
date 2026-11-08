@@ -164,6 +164,11 @@ def main(host: str = '0.0.0.0', port: Optional[int] = None,
             'yandex_referrer': 'monitor',
         }
 
+    # Телеметрия — по переменным окружения, без правок кода (см. telemetry.py)
+    from .telemetry import configure_from_env
+
+    telemetry = configure_from_env()
+
     app = build_app(policy, questions_images=questions_images,
                     sample_image=sample_image)
     engine = app.state.kremle.engine
@@ -171,6 +176,10 @@ def main(host: str = '0.0.0.0', port: Optional[int] = None,
 
     banner = 'shadow (ничего не блокируется)' if policy else 'challenge (Яндекс — капча)'
     print(f'kremle-detect demo → http://localhost:{port}  [{banner}]')
+    if telemetry['tracing']:
+        print('   трейсы: OTLP включён (kremle.challenge → kremle.verify)')
+    if telemetry['json_logs']:
+        print('   логи: JSON в stderr')
     if engine.questions_images:
         from .images import has_image, stats
         from .questions.sdamgia import read_cache

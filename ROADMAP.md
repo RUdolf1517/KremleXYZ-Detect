@@ -102,10 +102,10 @@ GitHub Actions — это настройка репозитория, сборк�
 | `/kremle/health`: `questions: {count, age_hours, source}`, статус `degraded` при устаревшем кеше (> 48 ч) ✅ блок `questions` + `reasons`, 25 тестов | S | health падает в `degraded` на искусственно состаренном кеше |
 | Адаптивная сложность: серия провалов с IP (порог из storage) → +вопросы/строже порог; соавторство с `rate_limit` ✅ `adaptive*`, 26 тестов | M | 3 провала подряд → челлендж строже; успех сбрасывает; первый провал ничего не меняет |
 | «Долг капчи»: реферер не одноразовый — стёртый из адресной строки челлендж остаётся ✅ `kremle_pending`, 30 тестов | S | смена пути и `logout` не снимают требование; `verify` снимает |
-| mypy (или pyright) в CI на `kremle_detect` | M | джоб зелёный, `py.typed` подтверждён; `# type: ignore` только с причиной |
-| Coverage-гейт по модулям: `demo.py` 74 → 85 %, `storage.py` 86 → 90 %, `fastapi_ext.py` 88 → 90 % | S | порог в `pyproject.toml` и CI |
-| OpenTelemetry (опционально, `[otel]`) + JSON-логи | M | трейс «challenge → verify» виден в Jaeger; без зависимости библиотека работает как раньше |
-| Нагрузочный смоук (`scripts/loadtest.py`) в CI как не-блокирующий джоб | S | публикуется p50/p95 выдачи капчи |
+| mypy (или pyright) в CI на `kremle_detect` ✅ джоб `types`, `check_untyped_defs` + `py.typed` | M | джоб зелёный, `py.typed` подтверждён; `# type: ignore` только с причиной |
+| Coverage-гейт по модулям: `demo.py` 74 → 95 % (99), `storage.py` 86 → 95 % (98), `fastapi_ext.py` 88 → 95 % (99) ✅ `scripts/coverage_gate.py` + `[tool.kremle.coverage]` | S | порог в `pyproject.toml` и CI |
+| OpenTelemetry (опционально, `[otel]`) + JSON-логи ✅ `kremle_detect/telemetry.py`, спаны `kremle.challenge`/`kremle.verify` | M | трейс «challenge → verify» виден в Jaeger; без зависимости библиотека работает как раньше |
+| Нагрузочный смоук (`scripts/loadtest.py`) в CI как не-блокирующий джоб ✅ джоб `loadtest`, p50/p95 в summary PR | S | публикуется p50/p95 выдачи капчи |
 
 ---
 

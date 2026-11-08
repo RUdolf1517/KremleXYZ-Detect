@@ -37,13 +37,18 @@ fastapi = ["fastapi>=0.68", "jinja2>=3.0", "itsdangerous>=2.0"]
 starlette = ["starlette>=0.27", "itsdangerous>=2.0"]
 litestar = ["litestar>=2.0"]
 redis = ["redis>=4.0"]
+# Трейсы «challenge → verify» и JSON-логи. Без extras всё работает: спаны — no-op.
+otel = ["opentelemetry-api>=1.20", "opentelemetry-sdk>=1.20",
+        "opentelemetry-exporter-otlp>=1.20"]
 demo = ["fastapi>=0.68", "uvicorn>=0.20", "itsdangerous>=2.0"]
 all = ["flask>=2.0", "django>=3.2", "fastapi>=0.68", "jinja2>=3.0",
        "redis>=4.0", "uvicorn>=0.20", "itsdangerous>=2.0",
-       "starlette>=0.27", "litestar>=2.0"]
+       "starlette>=0.27", "litestar>=2.0",
+       "opentelemetry-api>=1.20", "opentelemetry-sdk>=1.20",
+       "opentelemetry-exporter-otlp>=1.20"]
 # Для запуска тестов: httpx нужен TestClient, fakeredis — тесты Redis без сервера
 test = ["pytest>=7.0", "pytest-cov>=4.0", "httpx>=0.24", "fakeredis[lua]>=2.10",
-         "ruff>=0.6"]
+         "ruff>=0.6", "mypy>=1.8", "tomli>=2.0; python_version < '3.11'"]
 
 [project.scripts]
 kremle-detect = "kremle_detect.cli:main"
@@ -80,6 +85,35 @@ testpaths = ["tests"]
 markers = [
     "redis: требует запущенного Redis (KREMLE_TEST_REDIS_URL, по умолчанию redis://localhost:6379/15)",
 ]
+
+# Гейт покрытия по модулям (см. scripts/coverage_gate.py).
+# Общий порог остаётся в CI (--cov-fail-under=85), но он не видит провал в
+# одном файле, если рядом добавили триста строк. У этих модулей порог свой:
+# ошибка в них дороже всего — демо (первое, что видит человек), хранилище
+# (общее состояние) и FastAPI-интеграция (самый частый вариант подключения).
+[tool.kremle.coverage]
+overall = 90
+"kremle_detect/demo.py" = 95
+"kremle_detect/storage.py" = 95
+"kremle_detect/integrations/fastapi_ext.py" = 95
+"kremle_detect/session.py" = 95
+"kremle_detect/detector.py" = 100
+
+[tool.mypy]
+files = ["kremle_detect"]
+# Самая старая версия, которую ещё понимает mypy. Синтаксис под 3.9 держат
+# ruff (target-version = "py39") и тесты в матрице CI на самом 3.9.
+python_version = "3.10"
+# Строгий mypy на непроверенном коде шумит и его отключают. Здесь наоборот:
+# проверяются даже тела функций без аннотаций, а голый `x: str = None`
+# (неявный Optional) считается ошибкой — он и в жизни приводит к TypeError.
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+# Сторонние библиотеки без стабов не должны ронять джоб; для своих модулей
+# `# type: ignore` разрешён только с кодом и причиной.
+ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["kremle_detect"]

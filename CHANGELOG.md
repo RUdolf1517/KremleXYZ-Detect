@@ -37,6 +37,21 @@
 - `questions_health()` — публичная функция в `kremle_detect.questions` и метод
   `CaptchaEngine.questions_health()`; одинаково работает во всех интеграциях
   (Flask, Django, FastAPI, Starlette, Litestar).
+- **Трейсы и JSON-логи** (`2.12`, extras `[otel]`). `kremle_detect.telemetry`:
+  `setup_tracing(service_name=..., endpoint=...)`, `span()`, `JsonFormatter`,
+  `setup_json_logs()`, `configure_from_env()`. Спаны `kremle.challenge`
+  (`questions`, `max_errors`, `source`) и `kremle.verify` (`passed`, `errors`,
+  `total`, `max_errors`). Без extras — пустые заглушки: ни импорта, ни ошибок.
+  Демо включает всё по переменным `KREMLE_OTEL_ENDPOINT` и `KREMLE_LOG_JSON=1`.
+  IP и токен челленджа в трейс не попадают (персональные данные и секрет);
+  связать лог и трейс можно по `trace_id` в JSON-логе.
+- **Гейт покрытия по модулям** (`2.12`). `scripts/coverage_gate.py` читает пороги
+  из `[tool.kremle.coverage]` в `pyproject.toml` и роняет джоб с именем
+  просевшего файла. Общий `--cov-fail-under` этого не умеет: триста непокрытых
+  строк в одном файле не двигают суммарный процент. Сам гейт тоже под тестами
+  (`tests/test_coverage_gate.py`).
+- **`mypy` в CI** (`2.12`) с `check_untyped_defs`, `no_implicit_optional`,
+  `warn_unused_ignores`; отдельный джоб плюс проверка `py.typed`.
 
 ### Исправлено
 
@@ -59,6 +74,10 @@
 
 ### Изменено
 
+- **Нагрузочный смоук стал неблокирующим джобом CI** (`2.12`): демо
+  поднимается, `scripts/loadtest.py` печатает rps и p50/p95 в summary PR
+  (`--json-out` — машинная сводка). Числа зависят от раннера, поэтому мерж они
+  не останавливают — иначе красный джоб означал бы «раннер сегодня медленный».
 - **Публикация сайта проверяет настройки, а не надеется.** Воркфлоу `Pages`
   спрашивает у API `build_type` и публикует только при источнике «GitHub
   Actions»; иначе сборка остаётся зелёной с `::warning` и ссылкой на

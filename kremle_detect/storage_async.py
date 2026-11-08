@@ -27,9 +27,11 @@ from typing import Any, Optional
 from .storage import BaseStorage
 
 try:  # anyio есть у FastAPI/Starlette; при использовании отдельно — fallback
-    from anyio import to_thread
+    from anyio import to_thread as _to_thread
 except ImportError:  # pragma: no cover
-    to_thread = None
+    _to_thread = None  # type: ignore[assignment]  # опциональная зависимость
+
+to_thread = _to_thread
 
 
 async def _run_sync(func, *args, **kwargs):

@@ -65,6 +65,20 @@
 `questions` (сколько вопросов и насколько свеж кеш «Решу ЕГЭ») и список
 `reasons`; `status: degraded` при устаревшем кеше, но код по-прежнему `200`.
 
+## Телеметрия
+
+Всё необязательное и по умолчанию выключено (extras `[otel]`):
+
+```python
+from kremle_detect.telemetry import setup_tracing, setup_json_logs
+
+setup_tracing(service_name='my-site', endpoint='http://localhost:4318')
+setup_json_logs()
+```
+
+Спаны `kremle.challenge` и `kremle.verify`, поля и приватность — в разделе
+[Трассировка и JSON-логи](operations.md#трассировка-и-json-логи).
+
 !!! warning "Публичные роуты"
     `/kremle/stats`, `/kremle/metrics` и `/kremle/health` по умолчанию не требуют
     авторизации. Закройте их на прокси или выключите (`enable_ops_routes=False`),

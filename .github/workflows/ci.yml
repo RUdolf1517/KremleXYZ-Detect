@@ -102,14 +102,21 @@ jobs:
         run: |
           set -o pipefail
           python -m pytest tests/ -q --cov=kremle_detect --cov-report=term-missing \
-            --cov-fail-under=85 2>&1 | tee /tmp/coverage.log
+            --cov-report=json --cov-fail-under=85 2>&1 | tee /tmp/coverage.log
+
+      - name: Coverage по модулям
+        # Общий процент прячет провал в одном файле: +300 непокрытых строк
+        # рядом с зелёными тестами ничего не меняют. Пороги — в pyproject.toml.
+        if: matrix.python-version == '3.12'
+        run: python scripts/coverage_gate.py 2>&1 | tee /tmp/coverage-gate.log
 
       - name: Failure details in annotations
         # Логи Actions лежат на отдельном хосте и не всегда доступны,
         # а аннотации — всегда. Хвост падения видно прямо в PR.
         if: failure()
         run: |
-          for f in /tmp/smoke.log /tmp/pytest.log /tmp/redis.log /tmp/coverage.log; do
+          for f in /tmp/smoke.log /tmp/pytest.log /tmp/redis.log /tmp/coverage.log \
+                   /tmp/coverage-gate.log; do
             if [ -f "$f" ]; then
               echo "::error title=$(basename "$f")::$(tail -30 "$f" | tr '\n' '|' | cut -c1-4000)"
             fi
@@ -131,6 +138,91 @@ jobs:
       # Только ошибки и явные баги (E/F/W/B/UP), без вкусовщины про форматирование
       - name: ruff check
         run: ruff check .
+
+  types:
+    # mypy на всей библиотеке. `py.typed` уже лежит в пакете, то есть типы
+    # обещаны наружу — значит их надо проверять, а не надеяться.
+    name: Типы (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        # Типы проверяем в том же окружении, что и тесты: без optional-зависимостей
+        # mypy не видит ветки с anyio/itsdangerous, и `# type: ignore` в них
+        # выглядит лишним (warn_unused_ignores честно на него ругается).
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all,test]"
+
+      - name: mypy kremle_detect
+        run: mypy kremle_detect
+
+      - name: py.typed на месте
+        # Без маркера типы не доедут до пользователей: mypy в чужом проекте
+        # просто проигнорирует пакет.
+        run: test -f kremle_detect/py.typed || { echo "::error::нет py.typed"; exit 1; }
+
+  loadtest:
+    # Нагрузочный смоук — не гейт, а измерение: числа печатаются в summary PR.
+    # Числа на раннере шумные, поэтому падение джоба не блокирует мерж.
+    name: Нагрузочный смоук (не блокирует)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[demo,test]"
+
+      - name: Замер
+        # Демо поднимаем в этом же шаге: фоновый процесс из предыдущего шага
+        # раннер прибьёт вместе с его шеллом.
+        run: |
+          set -o pipefail
+          kremle-detect serve --port 8000 > /tmp/demo.log 2>&1 &
+          DEMO_PID=$!
+          trap 'kill "$DEMO_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8000/kremle/health > /dev/null; then
+              break
+            fi
+            sleep 0.5
+          done
+          if ! curl -fsS http://127.0.0.1:8000/kremle/health > /dev/null; then
+            echo "::error::демо не поднялось"; cat /tmp/demo.log; exit 1
+          fi
+          python scripts/loadtest.py -n 300 -c 20 --json-out /tmp/loadtest.json \
+            2>&1 | tee /tmp/loadtest.log
+
+      - name: Сводка в PR
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          print('### Нагрузочный смоук (демо, память-хранилище)\n')
+          path = pathlib.Path('/tmp/loadtest.json')
+          if not path.exists():
+              print('замер не выполнен — см. лог джоба')
+          else:
+              data = json.loads(path.read_text())
+              print('| сценарий | rps | p50, ms | p95, ms | ошибок |')
+              print('|---|---|---|---|---|')
+              for name, row in data.items():
+                  print(f"| {name} | {row['rps']} | {row['p50_ms']} | "
+                        f"{row['p95_ms']} | {row['errors']} |")
+              print('\n_Раннер GitHub шумный: важно не значение, а порядок величин._')
+          PY
 
   docs:
     # Сайт документации должен собираться без битых ссылок.

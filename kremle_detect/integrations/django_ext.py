@@ -77,7 +77,7 @@ from ._common import (
     render_captcha_html,
 )
 
-_engine_cache = {}
+_engine_cache: dict = {}
 _ENGINE_CACHE_MAX = 8
 
 # Значения этих настроек влияют на движок — меняются (в тестах, например),
@@ -98,7 +98,7 @@ _ENGINE_SETTINGS = (
 
 
 def _engine_cache_key(settings) -> tuple:
-    key = [id(settings)]
+    key: list = [id(settings)]
     for name in _ENGINE_SETTINGS:
         value = getattr(settings, name, None)
         if isinstance(value, (list, dict, tuple, set)):

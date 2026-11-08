@@ -23,6 +23,7 @@ kremle-react/dist/
 kremle-widget/dist/
 .coverage
 .coverage.*
+coverage.json
 htmlcov/
 .pytest_cache/
 kremle-react/coverage/

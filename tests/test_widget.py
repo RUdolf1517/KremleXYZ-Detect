@@ -56,7 +56,17 @@ class TestSnippet:
         html = widget_snippet()
         assert '<div id="kremle" data-kremle></div>' in html
         assert 'src="/kremle/widget/kremle-widget.min.js"' in html
-        assert 'KremleWidget.mount("#kremle"' in html
+        assert "KremleWidget.mount('#kremle'" in html
+
+    def test_snippet_escapes_title(self):
+        """Заголовок из настроек не должен закрывать <script> (это XSS)."""
+        html = widget_snippet(title='</script><script>alert(1)</script>')
+        assert '</script><script>alert(1)' not in html
+        assert '\\u003c/script\\u003e' in html
+
+    def test_snippet_escapes_attribute_selector(self):
+        html = widget_snippet(selector='a"b')
+        assert 'id="a&quot;b"' in html
 
     def test_snippet_custom_urls_and_title(self):
         html = widget_snippet(challenge_url='/c', verify_url='/v', title='[ стоп ]',

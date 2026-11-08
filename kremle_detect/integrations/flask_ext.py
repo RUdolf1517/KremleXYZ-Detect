@@ -423,9 +423,14 @@ class KremleFlask:
         @bp.route('/status')
         def status():
             state = session.get(SESSION_KEY)
+            # IP нужен: при bind_ip гард переспрашивает капчу после смены
+            # адреса, а /status без проверки IP говорил «пройдено» — и окно
+            # поверх страницы не открывалось на новом адресе.
             verified = is_verified(
                 state,
+                ip=_get_client_ip(request, trusted_proxies),
                 ua=request.headers.get('User-Agent'),
+                bind_ip=self.bind_ip,
                 bind_ua=self.bind_ua,
             )
             # «Долг капчи» — то, по чему окно поверх страницы понимает, что

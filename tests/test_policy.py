@@ -119,6 +119,24 @@ class TestEngineDecide:
         assert decision.action == BLOCK
         assert decision.reason == 'yandex_bot'
 
+    def test_shadow_event_is_written_once(self):
+        """decide() и record_decision() не должны писать два события на один отказ.
+
+        Раньше decide() писал shadow-событие без IP, а record_decision() тут же
+        второе — с IP. В журнале каждый monitor-запрос считался дважды, и
+        половина записей была без адреса.
+        """
+        engine = make_engine(policy={'yandex_browser': 'monitor'})
+        decision = engine.decide(detect(YA_UA))
+        assert engine.storage.log_get(10) == []
+
+        engine.record_decision(decision, ip='203.0.113.5')
+        events = engine.storage.log_get(10)
+        assert len(events) == 1
+        assert events[0]['event'] == 'shadow'
+        assert events[0]['ip'] == '203.0.113.5'
+        assert events[0]['action'] == 'monitor'
+
     def test_sample_rate_zero_is_shadow(self):
         engine = make_engine(sample_rate=0.0)
         decision = engine.decide(detect(YA_UA))

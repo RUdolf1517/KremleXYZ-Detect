@@ -191,6 +191,30 @@ class TestGuardDecisions:
             asyncio.new_event_loop().run_until_complete(core.challenge(request))
 
 
+class TestStatusBindIp:
+    def test_status_checks_ip_like_the_guard(self):
+        import asyncio
+
+        from kremle_detect.session import SESSION_KEY, build_verification
+
+        core = make_core(bind_ip=True)
+
+        def status_for(ip):
+            scope = {
+                'type': 'http', 'method': 'GET', 'path': '/kremle/status',
+                'headers': [], 'client': (ip, 1234),
+                'session': {SESSION_KEY: build_verification(ip='203.0.113.9')},
+            }
+            response = asyncio.new_event_loop().run_until_complete(
+                core.status(ASGIRequest(scope))
+            )
+            import json as json_mod
+            return json_mod.loads(response.body.decode())
+
+        assert status_for('203.0.113.9')['verified'] is True
+        assert status_for('203.0.113.50')['verified'] is False
+
+
 # ── Starlette ────────────────────────────────────────────────────────────────
 
 starlette = pytest.importorskip('starlette', reason='starlette not installed')

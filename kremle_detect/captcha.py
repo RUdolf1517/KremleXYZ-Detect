@@ -449,14 +449,18 @@ class CaptchaEngine:
                 'Shadow detect (monitor): reason=%s sample_rate=%.2f',
                 main_reason, self.sample_rate,
             )
-            self.storage.log_event({
-                'ts': time.time(), 'event': 'shadow',
-                'ip': None, 'reason': main_reason,
-            })
+        # Само событие пишет record_decision(): только у него есть IP, а
+        # событие без IP в журнале бесполезно (и раньше дублировалось —
+        # decide() писал одно, record_decision() тут же второе).
         return Decision(action, main_reason, sampled=sampled)
 
     def record_decision(self, decision: Decision, ip: Optional[str] = None) -> None:
-        """Дописать IP в лог shadow-события и вызвать on_detect при блокировке."""
+        """
+        Записать решение в журнал событий и вызвать ``on_detect`` при блокировке.
+
+        Единственное место, где решение попадает в журнал: ``decide()`` IP не
+        знает, поэтому событие пишется здесь — с IP, причиной и действием.
+        """
         if decision.action == ALLOW or decision.reason is None:
             return
         self.storage.log_event({
@@ -492,18 +496,26 @@ class CaptchaEngine:
         texts = data.get('texts')
         return set(texts) if isinstance(texts, list) else set()
 
-    def _rotate_pool(self, pool: List[dict]) -> List[dict]:
+    def _rotate_pool(self, pool: List[dict], needed: Optional[int] = None) -> List[dict]:
         """
         Пул без недавно показанных вопросов.
 
         Если «свежих» не хватает на челлендж, отдаём весь пул: повтор лучше,
         чем капча из двух вопросов.
+
+        Args:
+            pool: полный пул.
+            needed: сколько вопросов нужно челленджу (адаптивная сложность
+                может попросить больше ``question_count``). Сравнивать «свежие»
+                с базовым ``question_count`` нельзя: тогда после серии провалов
+                капча вместо 7 вопросов приходила из 3 «свежих».
         """
         recent = self._recent_keys()
         if not recent:
             return pool
+        required = needed if needed is not None else self.question_count
         fresh = [q for q in pool if _question_key(q) not in recent]
-        return fresh if len(fresh) >= self.question_count else pool
+        return fresh if len(fresh) >= required else pool
 
     def _remember_questions(self, questions: List[dict]) -> None:
         """Запомнить показанные вопросы (для ротации)."""
@@ -666,7 +678,7 @@ class CaptchaEngine:
         # набор каждый раз — бот, один раз посмотревший ответы, проходит всегда.
         rotation_possible = len(pool) > challenge_count
         if rotation_possible:
-            pool = self._rotate_pool(pool)
+            pool = self._rotate_pool(pool, challenge_count)
 
         if self.questions_source == MIXED_SOURCE and not self.only_extra:
             # Пропорция соблюдается на этапе выдачи: пул уже прошёл дедуп и
@@ -714,6 +726,21 @@ class CaptchaEngine:
                 len(questions), challenge_max_errors, max(len(questions) - 1, 0),
             )
 
+        if not questions:
+            # Пустой банк (например, source='sdamgia' без кеша) — это не капча
+            # «без вопросов», которую нельзя не пройти, а поломка конфигурации.
+            raise ValueError(
+                'Банк вопросов пуст: челлендж собрать не из чего. Проверьте '
+                'categories/source и запустите `kremle-detect questions sync` '
+                '(для source="sdamgia" нужен кеш портала).'
+            )
+
+        # Копируем вопросы: get_questions() отдаёт словари из общего кеша, а
+        # ниже мы меняем opts/ans. Мутация in-place портила кеш и гонялась с
+        # другими запросами — два челленджа могли перемешать один и тот же
+        # словарь, и «правильный» ответ разъезжался с показанными вариантами.
+        questions = [dict(q) for q in questions]
+
         # Перемешиваем варианты ответов на сервере: индекс правильного ответа
         # меняется от челленджа к челленджу (боты не могут всегда отправлять 0).
         for q in questions:
@@ -740,20 +767,43 @@ class CaptchaEngine:
         return challenge
 
     def get_challenge(self, token: str) -> Optional[Challenge]:
-        """Получить челлендж по токену с проверкой HMAC (защита от подмены в хранилище)."""
+        """
+        Получить челлендж по токену с проверкой HMAC (защита от подмены в хранилище).
+
+        Битая запись в хранилище (чужая версия пакета, ручная правка, обрезанный
+        JSON) — это не повод для 500 на ``/verify``: считаем токен недействительным.
+        """
         data = self.storage.get(f'challenge:{token}')
-        if data is None:
+        if not isinstance(data, dict):
             return None
-        # Re-derive the expected token from stored data and compare.
-        # If Redis/memory was tampered with (e.g. answers changed), this fails.
-        answers_str = json.dumps([q['ans'] for q in data['questions']], separators=(',', ':'))
-        signed = f'{answers_str}:{data["created_at"]}'
+        questions = data.get('questions')
+        created_at = data.get('created_at')
+        if not isinstance(questions, list) or not isinstance(created_at, (int, float)):
+            logger.warning(
+                'Challenge record is malformed: token=%s keys=%s',
+                token[:16], sorted(data)[:5],
+            )
+            return None
+        try:
+            # Re-derive the expected token from stored data and compare.
+            # If Redis/memory was tampered with (e.g. answers changed), this fails.
+            answers_str = json.dumps(
+                [q['ans'] for q in questions], separators=(',', ':')
+            )
+        except (KeyError, TypeError, ValueError):
+            logger.warning('Challenge record has no answers: token=%s', token[:16])
+            return None
+        signed = f'{answers_str}:{created_at}'
         # проверяем всеми действующими ключами: старый ещё принимается, пока
         # его не убрали из списка (ротация без разрыва активных капч)
         if not any(hmac.compare_digest(_sign(signed, key), token) for key in self.secrets):
             logger.warning('Challenge HMAC mismatch — possible storage tampering: token=%s', token[:16])
             return None
-        return Challenge._deserialize(data)
+        try:
+            return Challenge._deserialize(data)
+        except (KeyError, TypeError):
+            logger.warning('Challenge record cannot be restored: token=%s', token[:16])
+            return None
 
     def check_rate_limit(self, ip: str) -> bool:
         """
@@ -889,6 +939,11 @@ class CaptchaEngine:
                     current.set_attribute('error', str(result['error']))
             return result
 
+    def _burn_token(self, token: str) -> None:
+        """Сжечь токен челленджа (одноразовый — по любому исходу проверки)."""
+        if token:
+            self.storage.delete(f'challenge:{token}')
+
     def _verify(
         self,
         token: str,
@@ -920,15 +975,19 @@ class CaptchaEngine:
 
         self.metrics.count_verify()
 
-        # Blacklist
+        # Blacklist. Токен сгорает и здесь: обещание «одноразовый» не должно
+        # зависеть от того, по какой ветке пришёл отказ — иначе забаненный IP
+        # дожидается конца бана и догадывает ответы по тому же токену.
         if ip and self.is_blacklisted(ip):
+            self._burn_token(token)
             self.metrics.count_blocked('blacklisted')
             logger.warning('Verify blocked by blacklist: ip=%s', ip)
             self.storage.log_event({'ts': time.time(), 'event': 'blocked', 'ip': ip, 'reason': 'blacklisted'})
             return {'passed': False, 'errors': -1, 'total': 0, 'error': 'blacklisted'}
 
-        # Rate limiting
+        # Rate limiting — по той же причине.
         if ip and self.check_rate_limit(ip):
+            self._burn_token(token)
             self.metrics.count_blocked('rate_limited')
             logger.warning('Verify blocked by rate limit: ip=%s', ip)
             self.storage.log_event({'ts': time.time(), 'event': 'blocked', 'ip': ip, 'reason': 'rate_limited'})
@@ -951,6 +1010,15 @@ class CaptchaEngine:
                 errors += 1
 
         total = len(challenge.questions)
+        if total == 0:
+            # Пустой банк вопросов (например, source='sdamgia' без кеша) раньше
+            # давал челлендж без вопросов: errors=0 <= max_errors=0 — и капча
+            # «проходилась» вообще без ответов. Отказ должен быть закрытым.
+            self._burn_token(token)
+            logger.error(
+                'Challenge has no questions — captcha cannot be passed: ip=%s', ip,
+            )
+            return {'passed': False, 'errors': 0, 'total': 0, 'error': 'no_questions'}
         # Порог, с которым челлендж выдан: адаптивная сложность могла его
         # ужесточить, а фингерпринт — ужесточить ещё сильнее. Берём строгий из
         # двух: прощать то, что человеку обещали не прощать, нельзя.
@@ -964,7 +1032,7 @@ class CaptchaEngine:
 
         # Токен одноразовый: после любой проверки он сгорает, повтор требует
         # нового челленджа (иначе один токен = бесконечные попытки угадать).
-        self.storage.delete(f'challenge:{token}')
+        self._burn_token(token)
         if passed:
             self._clear_rate_attempts(ip)
             self._track_pass(ip)

@@ -510,9 +510,13 @@ class KremleASGI:
 
     async def status(self, request: ASGIRequest) -> ASGIResponse:
         state = request.session.get(SESSION_KEY)
+        # Тот же IP и те же привязки, что у гарда: иначе при bind_ip окно
+        # поверх страницы не открывалось после смены адреса.
         verified = is_verified(
             state,
+            ip=request.ip(self.trusted_proxies),
             ua=request.headers.get('user-agent'),
+            bind_ip=self.engine.bind_ip,
             bind_ua=self.engine.bind_ua,
         )
         sticky = self.sticky_referrer or self.overlay

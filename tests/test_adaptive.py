@@ -321,3 +321,24 @@ class TestIntegrationDjango:
             assert len(harder.questions) == 5
             assert harder.max_errors == 1
             assert view is not None   # вьюха на месте, роут не сломан
+
+
+class TestRotationKeepsAdaptiveLength:
+    def test_rotation_does_not_shrink_the_challenge(self):
+        """Ротация сравнивала «свежие» с базовым question_count, а не с нужным.
+
+        После серии провалов челлендж должен быть длиннее — но если «свежих»
+        вопросов ровно question_count, движок отдавал их и обрезал капчу до
+        базовой длины вместо того, чтобы добрать из уже показанных.
+        """
+        pool = extra(20)
+        engine = make_engine(extra_questions=pool, adaptive_threshold=1,
+                             adaptive_extra_questions=3, question_count=5)
+        fail_once(engine)
+        assert engine.difficulty(IP)['question_count'] == 8
+
+        shown = [q['q'].lower() for q in pool[5:]]
+        engine.storage.set(engine._rotation_key(), {'texts': shown}, 600)
+
+        challenge = engine.create_challenge(ip=IP)
+        assert len(challenge.questions) == 8

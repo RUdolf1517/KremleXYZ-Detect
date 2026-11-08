@@ -51,6 +51,13 @@ class TestHonestResult:
         assert 'допустимо не больше' in template
 
 
+class TestNoQuestions:
+    def test_empty_bank_is_explained(self, template):
+        """Пустой банк — поломка сервера, клиент не должен видеть «ошибка: …». """
+        assert "data.error === 'no_questions'" in template
+        assert 'Капча недоступна.' in template
+
+
 class TestTimer:
     def test_template_has_countdown(self, template):
         assert 'id="timer"' in template

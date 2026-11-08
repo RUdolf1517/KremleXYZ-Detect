@@ -70,6 +70,38 @@ def read_bundle(name: str = DEFAULT_BUNDLE, static_dir: Optional[str] = None) ->
         return handle.read()
 
 
+def _js_string(value: str) -> str:
+    """
+    Строковый литерал JS для вставки внутрь ``<script>``.
+
+    ``repr`` экранирует кавычки, но не ``</script>``: заголовок вида
+    ``</script><script>alert(1)</script>`` вырывался из скрипта. Заменяем
+    угловые скобки на ``\\u003c``/``\\u003e`` — для JS это тот же символ,
+    а тег скрипта уже не закрыть.
+    """
+    text = str(value)
+    escaped = (
+        text.replace('\\', '\\\\')
+        .replace("'", "\\'")
+        .replace('<', '\\u003c')
+        .replace('>', '\\u003e')
+        .replace('\u2028', '\\u2028')
+        .replace('\u2029', '\\u2029')
+    )
+    return f"'{escaped}'"
+
+
+def _html_attr(value: str) -> str:
+    """Значение HTML-атрибута в кавычках (id, src)."""
+    return (
+        str(value)
+        .replace('&', '&amp;')
+        .replace('"', '&quot;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+    )
+
+
 def widget_snippet(
     challenge_url: str = '/kremle/challenge',
     verify_url: str = '/kremle/verify',
@@ -88,16 +120,21 @@ def widget_snippet(
         print(widget_snippet(title='[ проверка ]'))
     """
     target = selector.lstrip('#')
-    options = [f'challengeUrl: {challenge_url!r}', f'verifyUrl: {verify_url!r}']
+    options = [
+        f'challengeUrl: {_js_string(challenge_url)}',
+        f'verifyUrl: {_js_string(verify_url)}',
+    ]
     if title:
-        options.append(f'title: {title!r}')
+        options.append(f'title: {_js_string(title)}')
     if redirect_on_pass:
         options.append('redirectOnPass: true')
     options_js = '{ ' + ', '.join(options) + ' }'
+    id_attr = _html_attr(target)
+    selector_js = _js_string(f'#{target}')
     return (
-        f'<div id="{target}" data-kremle></div>\n'
-        f'<script src="{bundle_url}"></script>\n'
-        f'<script>KremleWidget.mount("#{target}", {options_js});</script>'
+        f'<div id="{id_attr}" data-kremle></div>\n'
+        f'<script src="{_html_attr(bundle_url)}"></script>\n'
+        f'<script>KremleWidget.mount({selector_js}, {options_js});</script>'
     )
 
 

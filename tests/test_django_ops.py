@@ -192,3 +192,21 @@ class TestVerificationTtl:
         assert body['questions']
         assert 'ans' not in body['questions'][0]
         assert 'attribution' in body
+
+
+class TestStatusBindIp:
+    def test_status_checks_ip_like_the_guard(self):
+        from kremle_detect.session import SESSION_KEY, build_verification
+
+        v = views()
+        with override_settings(KREMLE_BIND_IP=True):
+            request = make_request()          # REMOTE_ADDR 203.0.113.5
+            request.session[SESSION_KEY] = build_verification(ip='203.0.113.5')
+            first = json.loads(v['kremle_status'](request).content)
+            assert first['verified'] is True
+
+            other = make_request()
+            other.META['REMOTE_ADDR'] = '203.0.113.99'
+            other.session = request.session
+            second = json.loads(v['kremle_status'](other).content)
+            assert second['verified'] is False

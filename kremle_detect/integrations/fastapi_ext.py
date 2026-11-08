@@ -400,9 +400,13 @@ class KremleFastAPI:
         @app.get('/kremle/status')
         async def kremle_status(request: Request):
             state = request.session.get(SESSION_KEY)
+            # IP обязателен: при bind_ip гард проверяет и его, поэтому /status
+            # не должен отвечать «пройдено» на другом адресе.
             verified = is_verified(
                 state,
+                ip=_client_ip(request, trusted_proxies),
                 ua=request.headers.get('user-agent'),
+                bind_ip=self.bind_ip,
                 bind_ua=self.bind_ua,
             )
             pending = None if verified else pending_reason(

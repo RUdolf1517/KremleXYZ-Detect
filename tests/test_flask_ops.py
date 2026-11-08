@@ -274,3 +274,24 @@ class TestChallengePayload:
         r = app.test_client().post('/kremle/verify', data='not json')
         assert r.status_code == 200
         assert r.get_json()['error'] == 'invalid_token'
+
+
+class TestStatusBindIp:
+    def test_status_checks_ip_like_the_guard(self):
+        """При bind_ip /status не должен отвечать «пройдено» с другого адреса.
+
+        Гард переспрашивает капчу после смены IP, а /status смотрел только на
+        UA — окно поверх страницы не открывалось, а данные уже были закрыты.
+        """
+        from kremle_detect.session import SESSION_KEY, build_verification
+
+        app, _ = make_app(bind_ip=True)
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess[SESSION_KEY] = build_verification(ip='203.0.113.5')
+
+        same = client.get('/kremle/status', headers={'X-Forwarded-For': '203.0.113.5'})
+        assert same.get_json()['verified'] is True
+
+        other = client.get('/kremle/status', headers={'X-Forwarded-For': '203.0.113.99'})
+        assert other.get_json()['verified'] is False

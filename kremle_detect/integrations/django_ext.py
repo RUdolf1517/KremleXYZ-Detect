@@ -421,9 +421,14 @@ def kremle_urls():
         from django.conf import settings
         engine = _get_engine(settings)
         state = request.session.get(SESSION_KEY)
+        trusted_proxies = getattr(settings, 'KREMLE_TRUSTED_PROXIES', None)
+        # IP проверяем так же, как гард: при bind_ip смена адреса означает
+        # «капча не пройдена», и /status обязан говорить то же самое.
         verified = is_verified(
             state,
+            ip=_get_client_ip(request, trusted_proxies),
             ua=request.META.get('HTTP_USER_AGENT'),
+            bind_ip=engine.bind_ip,
             bind_ua=engine.bind_ua,
         )
         sticky = getattr(settings, 'KREMLE_STICKY_REFERRER', True)

@@ -449,3 +449,31 @@ class TestVerifyPayload:
         data = engine.create_challenge().to_dict()
         assert 'max_errors' not in data
         assert 'expires_in' in data
+
+
+class TestSharedQuestionPool:
+    def test_challenge_does_not_shuffle_the_shared_pool_in_place(self, monkeypatch):
+        """Пул вопросов приходит из общего кеша — перемешивать его на месте нельзя.
+
+        ``_create_challenge`` менял ``opts``/``ans`` прямо в словарях из кеша.
+        Кеш «Решу ЕГЭ» держит те же объекты в памяти процесса, поэтому два
+        одновременных челленджа могли перемешать один и тот же словарь, и
+        правильный ответ разъезжался с показанными вариантами.
+        """
+        import kremle_detect.captcha as captcha_mod
+
+        pool = [
+            {'q': f'вопрос {i}', 'opts': ['а', 'б', 'в', 'г'], 'ans': i % 4}
+            for i in range(10)
+        ]
+        snapshot = [dict(q, opts=list(q['opts'])) for q in pool]
+        monkeypatch.setattr(captcha_mod, 'get_questions', lambda **kwargs: list(pool))
+
+        engine = CaptchaEngine(secret='test', question_count=3, max_errors=1)
+        challenge = engine.create_challenge()
+
+        assert pool == snapshot            # исходные словари не тронуты
+        assert all(q is not shared for q in challenge.questions for shared in pool)
+        # а сам челлендж перемешан и остаётся верным
+        for q in challenge.questions:
+            assert q['opts'][q['ans']] in ('а', 'б', 'в', 'г')

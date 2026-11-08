@@ -36,6 +36,7 @@
 | `rate_limited` | исчерпан лимит неудачных проверок с IP | `-1` |
 | `blacklisted` | IP в блоклисте | `-1` |
 | `invalid_answers` | `answers` — не объект | `-1` |
+| `no_questions` | банк вопросов пуст, челлендж собрать не из чего | `0` |
 
 ## Тело ответов
 
@@ -43,7 +44,13 @@
 // GET /kremle/status (2.13.0: добавлены поля для окна поверх страницы)
 {"verified": false, "expires_in": null, "pending": true,
  "reason": "yandex_referrer", "challenge_url": "/kremle/challenge", "overlay": true}
+```
 
+`verified` считается по тем же правилам, что и в гарде: TTL отметки, `bind_ip`,
+`bind_ua`. Если гард снова требует капчу, `/kremle/status` тоже говорит
+`verified: false` — иначе окно поверх страницы не открывалось бы после смены IP.
+
+```jsonc
 // GET /kremle/challenge (JSON-режим)
 {"questions": [{"q": "...", "opts": ["...", "..."], "category": "math"}],
  "token": "...", "verify_url": "/kremle/verify",

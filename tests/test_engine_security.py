@@ -266,3 +266,72 @@ class TestStrictFingerprint:
         answers = right_answers(ch)
         answers['0'] = 99
         assert engine.verify(ch.token, answers)['passed'] is True
+
+
+class TestTokenBurnedOnRefusal:
+    """Одноразовость не зависит от того, по какой ветке пришёл отказ."""
+
+    def test_blacklisted_ip_leaves_no_token(self):
+        engine = make_engine()
+        ip = '203.0.113.30'
+        ch = engine.create_challenge()
+        engine.blacklist_add(ip, ttl=60)
+
+        assert engine.verify(ch.token, right_answers(ch), ip=ip)['error'] == 'blacklisted'
+        assert engine.storage.get(f'challenge:{ch.token}') is None
+
+    def test_rate_limited_ip_leaves_no_token(self):
+        engine = make_engine(max_errors=0, rate_limit=1)
+        ip = '203.0.113.31'
+        assert engine.verify(engine.create_challenge().token, {}, ip=ip)['passed'] is False
+
+        ch = engine.create_challenge()
+        assert engine.verify(ch.token, {}, ip=ip)['error'] == 'rate_limited'
+        assert engine.storage.get(f'challenge:{ch.token}') is None
+
+
+class TestCorruptedChallengeRecord:
+    """Битая запись в хранилище — invalid_token, а не 500 на /verify."""
+
+    def test_questions_is_not_a_list(self):
+        engine = make_engine()
+        ch = engine.create_challenge()
+        engine.storage.set(f'challenge:{ch.token}', {'questions': 'oops'}, 60)
+        assert engine.verify(ch.token, {})['error'] == 'invalid_token'
+
+    def test_record_is_not_a_dict(self):
+        engine = make_engine()
+        ch = engine.create_challenge()
+        engine.storage.set(f'challenge:{ch.token}', ['oops'], 60)
+        assert engine.verify(ch.token, {})['error'] == 'invalid_token'
+
+    def test_question_without_answer(self):
+        engine = make_engine()
+        ch = engine.create_challenge()
+        data = ch._serialize()
+        data['questions'] = [{'q': 'вопрос', 'opts': ['a', 'b']}]
+        engine.storage.set(f'challenge:{ch.token}', data, 60)
+        assert engine.verify(ch.token, {})['error'] == 'invalid_token'
+
+
+class TestEmptyQuestionBank:
+    def test_engine_refuses_to_build_a_challenge(self, monkeypatch):
+        import kremle_detect.captcha as captcha_mod
+
+        engine = make_engine()
+        monkeypatch.setattr(captcha_mod, 'get_questions', lambda **kwargs: [])
+        with pytest.raises(ValueError, match='Банк вопросов пуст'):
+            engine.create_challenge()
+
+    def test_questionless_challenge_cannot_be_passed(self):
+        """Капча из нуля вопросов раньше проходилась без единого ответа."""
+        from kremle_detect.captcha import Challenge
+
+        engine = make_engine()
+        challenge = Challenge([], engine.secret)
+        engine.storage.set(f'challenge:{challenge.token}', challenge._serialize(), 60)
+
+        result = engine.verify(challenge.token, {})
+        assert result['passed'] is False
+        assert result['error'] == 'no_questions'
+        assert engine.storage.get(f'challenge:{challenge.token}') is None

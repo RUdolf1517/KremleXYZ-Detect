@@ -188,3 +188,22 @@ class TestVerificationTtl:
         assert body['questions'] and body['token']
         assert 'ans' not in body['questions'][0]
         assert 'no-store' in r.headers['cache-control']
+
+
+class TestStatusBindIp:
+    def test_status_checks_ip_like_the_guard(self):
+        app, kremle = make_app(bind_ip=True)
+        first = client_for(app, {'Accept': 'application/json'}, peer='203.0.113.5')
+
+        challenge = first.get('/kremle/challenge').json()
+        ch = kremle.engine.get_challenge(challenge['token'])
+        answers = {str(i): q['ans'] for i, q in enumerate(ch.questions)}
+        passed = first.post('/kremle/verify',
+                            json={'token': challenge['token'], 'answers': answers})
+        assert passed.json()['passed'] is True
+        assert first.get('/kremle/status').json()['verified'] is True
+
+        # тот же cookie сессии, но другой адрес: пройдено недействительно
+        second = TestClient(app, client=('203.0.113.99', 50000))
+        second.cookies = first.cookies
+        assert second.get('/kremle/status').json()['verified'] is False

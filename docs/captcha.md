@@ -136,7 +136,8 @@ KremleFlask(app, template='/path/to/my_captcha.html')
   адрес);
 - `POST /kremle/logout` сбрасывает отметку — кнопка «Попробовать снова» в
   шаблоне делает именно это; невыполненный долг капчи при этом остаётся;
-- `GET /kremle/status` → `{"verified": bool, "expires_in": int|null}`.
+- `GET /kremle/status` → `{"verified": bool, "expires_in": int|null, ...}`;
+  проверяет то же, что гард, — включая `bind_ip` и `bind_ua`.
 
 ---
 
